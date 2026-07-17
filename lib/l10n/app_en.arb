@@ -1,0 +1,81 @@
+{
+  "@@locale": "en",
+  "appTitle": "BULB VPN",
+  "tagline": "Fast. Secure. Private.",
+
+  "home": "Home",
+  "servers": "Servers",
+  "stats": "Statistics",
+  "settings": "Settings",
+  "profile": "Profile",
+
+  "connected": "Connected",
+  "disconnected": "Disconnected",
+  "connecting": "Connecting...",
+  "disconnecting": "Disconnecting...",
+  "protected": "Protected",
+  "unprotected": "Unprotected",
+
+  "quickConnect": "Quick Connect",
+  "disconnect": "Disconnect",
+  "selectServer": "Select Server",
+  "searchServers": "Search servers...",
+
+  "protocol": "Protocol",
+  "autoConnect": "Auto-Connect",
+  "autoConnectDescription": "Connect on app start",
+  "killSwitch": "Kill Switch",
+  "killSwitchDescription": "Block if VPN drops",
+  "darkMode": "Dark Mode",
+  "splitTunneling": "Split Tunneling",
+  "splitTunnelingDescription": "Choose apps for VPN",
+  "threatProtection": "Threat Protection",
+  "threatProtectionDescription": "Block ads & trackers",
+
+  "upgradeToPro": "Upgrade to Pro",
+  "upgradeToPremium": "Upgrade to Premium",
+  "restorePurchases": "Restore Purchases",
+  "continueAsGuest": "Continue as Guest",
+
+  "signIn": "Sign In",
+  "signUp": "Sign Up",
+  "email": "Email",
+  "password": "Password",
+  "confirmPassword": "Confirm Password",
+  "forgotPassword": "Forgot Password?",
+
+  "noServersFound": "No servers found",
+  "checkConnection": "Check your internet connection",
+  "retry": "Retry",
+
+  "favorites": "Favorites",
+  "recommended": "Recommended",
+  "streaming": "Streaming",
+  "gaming": "Gaming",
+
+  "download": "Download",
+  "upload": "Upload",
+  "session": "Session",
+  "dataUsed": "Data Used",
+
+  "connectionHistory": "Connection History",
+  "clearHistory": "Clear History",
+  "noHistoryYet": "No connections yet",
+
+  "vpnPermissionRequired": "VPN Permission Required",
+  "vpnPermissionDescription": "BULB VPN needs permission to create a VPN connection.",
+  "grantPermission": "Grant Permission",
+  "maybeLater": "Maybe Later",
+
+  "onboarding1Title": "Protect Your Privacy",
+  "onboarding1Subtitle": "BULB VPN encrypts your internet connection and hides your real IP address.",
+  "onboarding2Title": "Stay Safe on Public WiFi",
+  "onboarding2Subtitle": "Public WiFi networks are hunting grounds for hackers.",
+  "onboarding3Title": "Stream Without Limits",
+  "onboarding3Subtitle": "Access content from around the world with optimized servers.",
+  "onboarding4Title": "You're Ready",
+  "onboarding4Subtitle": "One tap is all it takes. Connect to a secure server instantly.",
+  "getStarted": "Get Started",
+  "skip": "Skip",
+  "next": "Next"
+}

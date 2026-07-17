@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1068168730517",
+    "project_id": "bulbvpn-e9b4c",
+    "storage_bucket": "bulbvpn-e9b4c.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1068168730517:android:1654ddc98deb74e3e5c89c",
+        "android_client_info": {
+          "package_name": "app.bulbvpn.com"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDrGITSjom95h8yzEBGrYUIiInBOBAPClQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

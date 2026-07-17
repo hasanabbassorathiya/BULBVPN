@@ -1,0 +1,39 @@
+name: bulbvpn
+description: BULB VPN - Fast, Secure VPN Connection
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.12.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  intl: any
+  cupertino_icons: ^1.0.8
+  provider: ^6.1.2
+  google_fonts: ^6.2.1
+  shared_preferences: ^2.2.2
+  http: ^1.2.1
+  url_launcher: ^6.2.0
+  package_info_plus: ^8.0.0
+  device_info_plus: ^11.1.0
+  firebase_core: ^3.12.1
+  firebase_auth: ^5.5.1
+  firebase_analytics: ^11.0.0
+  firebase_crashlytics: ^4.0.0
+  google_sign_in: ^6.2.2
+  axevpn_flutter: ^3.0.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  generate: true
+  uses-material-design: true
+  assets:
+    - assets/images/

@@ -1,0 +1,219 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart';
+import 'package:provider/provider.dart';
+import 'providers/vpn_provider.dart';
+import 'screens/home_screen.dart';
+import 'screens/servers_screen.dart';
+import 'screens/stats_screen.dart';
+import 'screens/settings_screen.dart';
+import 'constants/app_theme.dart';
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+    statusBarColor: Colors.transparent,
+    statusBarIconBrightness: Brightness.light,
+    systemNavigationBarColor: Colors.transparent,
+    systemNavigationBarIconBrightness: Brightness.light,
+  ));
+  runApp(const BulbVPNApp());
+}
+
+class BulbVPNApp extends StatefulWidget {
+  const BulbVPNApp({super.key});
+
+  @override
+  State<BulbVPNApp> createState() => _BulbVPNAppState();
+}
+
+class _BulbVPNAppState extends State<BulbVPNApp> {
+  late VPNProvider _vpnProvider;
+  bool _initialized = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _vpnProvider = VPNProvider();
+    _initializeApp();
+  }
+
+  Future<void> _initializeApp() async {
+    await _vpnProvider.initialize();
+    if (mounted) setState(() => _initialized = true);
+  }
+
+  @override
+  void dispose() {
+    _vpnProvider.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ChangeNotifierProvider.value(
+      value: _vpnProvider,
+      child: MaterialApp(
+        title: 'BULB VPN',
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.darkTheme,
+        home: _initialized ? const MainNavigation() : const _SplashScreen(),
+      ),
+    );
+  }
+}
+
+class _SplashScreen extends StatelessWidget {
+  const _SplashScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [AppColors.bgDark, AppColors.bgSurface],
+          ),
+        ),
+        child: const Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.bolt_rounded, size: 80, color: AppColors.primary),
+              SizedBox(height: 16),
+              Text(
+                'BULB VPN',
+                style: TextStyle(
+                  fontSize: 32,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.white,
+                  letterSpacing: 2,
+                ),
+              ),
+              SizedBox(height: 8),
+              Text(
+                'Fast. Secure. Private.',
+                style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
+              ),
+              SizedBox(height: 32),
+              CircularProgressIndicator(color: AppColors.primary, strokeWidth: 2),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class MainNavigation extends StatefulWidget {
+  const MainNavigation({super.key});
+
+  @override
+  State<MainNavigation> createState() => _MainNavigationState();
+}
+
+class _MainNavigationState extends State<MainNavigation> {
+  int _currentIndex = 0;
+
+  final List<Widget> _screens = const [
+    HomeScreen(),
+    ServersScreen(),
+    StatsScreen(),
+    SettingsScreen(),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      extendBody: true,
+      body: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 300),
+        child: _screens[_currentIndex],
+      ),
+      bottomNavigationBar: _buildFloatingNavBar(),
+    );
+  }
+
+  Widget _buildFloatingNavBar() {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(24, 0, 24, 28),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      decoration: BoxDecoration(
+        color: AppColors.bgSurface.withOpacity(0.95),
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.4),
+            blurRadius: 30,
+            offset: const Offset(0, 10),
+          ),
+          BoxShadow(
+            color: AppColors.primary.withOpacity(0.05),
+            blurRadius: 20,
+            offset: const Offset(0, -5),
+          ),
+        ],
+        border: Border.all(
+          color: Colors.white.withOpacity(0.06),
+          width: 1,
+        ),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        children: [
+          _buildNavItem(0, Icons.home_rounded, Icons.home_outlined, 'Home'),
+          _buildNavItem(1, Icons.dns_rounded, Icons.dns_outlined, 'Servers'),
+          _buildNavItem(2, Icons.bar_chart_rounded, Icons.bar_chart_outlined, 'Stats'),
+          _buildNavItem(3, Icons.settings_rounded, Icons.settings_outlined, 'Settings'),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNavItem(int index, IconData activeIcon, IconData icon, String label) {
+    final isSelected = _currentIndex == index;
+
+    return GestureDetector(
+      onTap: () => setState(() => _currentIndex = index),
+      behavior: HitTestBehavior.opaque,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 250),
+        padding: EdgeInsets.symmetric(
+          horizontal: isSelected ? 18 : 12,
+          vertical: 10,
+        ),
+        decoration: BoxDecoration(
+          color: isSelected ? AppColors.primary.withOpacity(0.15) : Colors.transparent,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              isSelected ? activeIcon : icon,
+              color: isSelected ? AppColors.primary : AppColors.textMuted,
+              size: 24,
+            ),
+            if (isSelected) ...[
+              const SizedBox(width: 8),
+              Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.primary,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
