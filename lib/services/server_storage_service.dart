@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/imported_server.dart';
+import '../models/subscription.dart';
 
 class ServerStorageService {
   static const String _key = 'imported_servers';
@@ -37,6 +38,43 @@ class ServerStorageService {
     if (index != -1) {
       servers[index] = servers[index].copyWith(isFavorite: !servers[index].isFavorite);
       await saveServers(servers);
+    }
+  }
+
+  static const String _subscriptionsKey = 'subscriptions';
+
+  Future<List<Subscription>> loadSubscriptions() async {
+    final prefs = await SharedPreferences.getInstance();
+    final json = prefs.getString(_subscriptionsKey);
+    if (json == null) return [];
+    final list = jsonDecode(json) as List;
+    return list.map((e) => Subscription.fromJson(e)).toList();
+  }
+
+  Future<void> saveSubscriptions(List<Subscription> subscriptions) async {
+    final prefs = await SharedPreferences.getInstance();
+    final json = subscriptions.map((s) => s.toJson()).toList();
+    await prefs.setString(_subscriptionsKey, jsonEncode(json));
+  }
+
+  Future<void> addSubscription(Subscription subscription) async {
+    final subscriptions = await loadSubscriptions();
+    subscriptions.add(subscription);
+    await saveSubscriptions(subscriptions);
+  }
+
+  Future<void> removeSubscription(String id) async {
+    final subscriptions = await loadSubscriptions();
+    subscriptions.removeWhere((s) => s.id == id);
+    await saveSubscriptions(subscriptions);
+  }
+
+  Future<void> updateSubscription(Subscription subscription) async {
+    final subscriptions = await loadSubscriptions();
+    final index = subscriptions.indexWhere((s) => s.id == subscription.id);
+    if (index != -1) {
+      subscriptions[index] = subscription;
+      await saveSubscriptions(subscriptions);
     }
   }
 }

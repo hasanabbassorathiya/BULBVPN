@@ -9,6 +9,7 @@ class ImportedServer {
   final String configJson;
   final DateTime importedAt;
   final bool isFavorite;
+  final int ping;
 
   ImportedServer({
     required this.id,
@@ -19,6 +20,7 @@ class ImportedServer {
     required this.configJson,
     required this.importedAt,
     this.isFavorite = false,
+    this.ping = 0,
   });
 
   Map<String, dynamic> toJson() {
@@ -31,6 +33,7 @@ class ImportedServer {
       'configJson': configJson,
       'importedAt': importedAt.toIso8601String(),
       'isFavorite': isFavorite,
+      'ping': ping,
     };
   }
 
@@ -47,6 +50,7 @@ class ImportedServer {
       configJson: json['configJson'] as String,
       importedAt: DateTime.parse(json['importedAt'] as String),
       isFavorite: json['isFavorite'] as bool? ?? false,
+      ping: json['ping'] as int? ?? 0,
     );
   }
 
@@ -59,6 +63,7 @@ class ImportedServer {
     String? configJson,
     DateTime? importedAt,
     bool? isFavorite,
+    int? ping,
   }) {
     return ImportedServer(
       id: id ?? this.id,
@@ -69,6 +74,7 @@ class ImportedServer {
       configJson: configJson ?? this.configJson,
       importedAt: importedAt ?? this.importedAt,
       isFavorite: isFavorite ?? this.isFavorite,
+      ping: ping ?? this.ping,
     );
   }
 }

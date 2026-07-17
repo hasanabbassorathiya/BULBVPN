@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import '../models/connection_history.dart';
 import '../models/imported_server.dart';
+import '../models/subscription.dart';
 import '../screens/paywall_screen.dart';
 import '../services/history_service.dart';
 import '../services/tier_service.dart';
@@ -12,6 +13,7 @@ import '../services/v2ray_config_parser.dart';
 import '../services/server_storage_service.dart';
 import '../services/storage_service.dart';
 import '../services/notification_triggers.dart';
+import '../services/ping_service.dart';
 import 'package:axevpn_flutter/v2ray_flutter.dart' as axe_v2ray;
 
 enum VPNStatus { disconnected, connecting, connected, disconnecting }
@@ -33,6 +35,7 @@ class VPNProvider extends ChangeNotifier {
   final ServerStorageService _serverStorage = ServerStorageService();
   List<ImportedServer> _importedServers = [];
   ImportedServer? _selectedImportedServer;
+  List<Subscription> _subscriptions = [];
   bool _initialized = false;
   bool _isSubscriber = false;
   String? _tierBlockReason;
@@ -69,6 +72,7 @@ class VPNProvider extends ChangeNotifier {
   String get vpnStageLabel => _v2rayService?.stageLabel ?? 'Disconnected';
   List<ImportedServer> get importedServers => List.unmodifiable(_importedServers);
   ImportedServer? get selectedImportedServer => _selectedImportedServer;
+  List<Subscription> get subscriptions => List.unmodifiable(_subscriptions);
   bool get autoConnect => _autoConnect;
   bool get killSwitch => _killSwitch;
   bool get autoReconnect => _autoReconnect;
@@ -99,6 +103,7 @@ class VPNProvider extends ChangeNotifier {
     _v2rayService = V2RayService();
     _v2rayService!.stageStream.listen(_onV2RayStageChanged);
     _importedServers = await _serverStorage.loadServers();
+    _subscriptions = await _serverStorage.loadSubscriptions();
 
     _initialized = true;
     notifyListeners();
@@ -293,6 +298,156 @@ class VPNProvider extends ChangeNotifier {
     } catch (_) {
       return false;
     }
+  }
+
+  Future<bool> addSubscription(String url, String name) async {
+    try {
+      final response = await http.get(Uri.parse(url));
+      if (response.statusCode != 200) return false;
+
+      final configs = V2RayConfigParser.parseSubscription(response.body);
+      if (configs.isEmpty) return false;
+
+      final subscription = Subscription(
+        id: 'sub_${DateTime.now().millisecondsSinceEpoch}',
+        name: name,
+        url: url,
+        createdAt: DateTime.now(),
+        serverCount: configs.length,
+      );
+
+      for (final config in configs) {
+        final server = ImportedServer(
+          id: 'v2ray_${DateTime.now().millisecondsSinceEpoch}_${config.address}',
+          name: config.name,
+          address: config.address,
+          port: config.port,
+          protocol: config.protocol,
+          configJson: config.jsonConfig,
+          importedAt: DateTime.now(),
+        );
+        _importedServers.add(server);
+      }
+
+      _subscriptions.add(subscription);
+      await _serverStorage.saveServers(_importedServers);
+      await _serverStorage.saveSubscriptions(_subscriptions);
+      notifyListeners();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> refreshSubscription(String id) async {
+    final index = _subscriptions.indexWhere((s) => s.id == id);
+    if (index == -1) return;
+
+    final sub = _subscriptions[index];
+    try {
+      final response = await http.get(Uri.parse(sub.url));
+      if (response.statusCode != 200) return;
+
+      final configs = V2RayConfigParser.parseSubscription(response.body);
+      if (configs.isEmpty) return;
+
+      _importedServers.removeWhere((s) => s.id.startsWith('v2ray_'));
+
+      for (final config in configs) {
+        final server = ImportedServer(
+          id: 'v2ray_${DateTime.now().millisecondsSinceEpoch}_${config.address}',
+          name: config.name,
+          address: config.address,
+          port: config.port,
+          protocol: config.protocol,
+          configJson: config.jsonConfig,
+          importedAt: DateTime.now(),
+        );
+        _importedServers.add(server);
+      }
+
+      _subscriptions[index] = sub.copyWith(
+        serverCount: configs.length,
+        lastUpdated: DateTime.now(),
+      );
+
+      if (_selectedImportedServer != null) {
+        final stillExists = _importedServers.any((s) => s.id == _selectedImportedServer!.id);
+        if (!stillExists) {
+          _selectedImportedServer = null;
+        }
+      }
+
+      await _serverStorage.saveServers(_importedServers);
+      await _serverStorage.saveSubscriptions(_subscriptions);
+      notifyListeners();
+    } catch (_) {}
+  }
+
+  Future<void> editSubscription(String id, String newName) async {
+    final index = _subscriptions.indexWhere((s) => s.id == id);
+    if (index == -1) return;
+    _subscriptions[index] = _subscriptions[index].copyWith(name: newName);
+    await _serverStorage.saveSubscriptions(_subscriptions);
+    notifyListeners();
+  }
+
+  Future<void> removeSubscription(String id) async {
+    _subscriptions.removeWhere((s) => s.id == id);
+    _importedServers.removeWhere((s) => s.id.startsWith('v2ray_'));
+
+    if (_selectedImportedServer != null) {
+      final stillExists = _importedServers.any((s) => s.id == _selectedImportedServer!.id);
+      if (!stillExists) {
+        _selectedImportedServer = null;
+      }
+    }
+
+    await _serverStorage.saveServers(_importedServers);
+    await _serverStorage.saveSubscriptions(_subscriptions);
+    notifyListeners();
+  }
+
+  Future<void> pingServer(ImportedServer server) async {
+    final result = await PingService.ping(server.address, server.port);
+    final index = _importedServers.indexWhere((s) => s.id == server.id);
+    if (index != -1) {
+      _importedServers[index] = _importedServers[index].copyWith(ping: result);
+      _importedServers.sort((a, b) {
+        if (a.ping <= 0 && b.ping <= 0) return 0;
+        if (a.ping <= 0) return 1;
+        if (b.ping <= 0) return -1;
+        return a.ping.compareTo(b.ping);
+      });
+      await _serverStorage.saveServers(_importedServers);
+      notifyListeners();
+    }
+  }
+
+  Future<void> pingAllServers() async {
+    final results = await Future.wait(
+      _importedServers.map((s) async {
+        final result = await PingService.ping(s.address, s.port);
+        return (s.id, result);
+      }),
+    );
+
+    for (final (id, pingResult) in results) {
+      final index = _importedServers.indexWhere((s) => s.id == id);
+      if (index != -1) {
+        _importedServers[index] = _importedServers[index].copyWith(ping: pingResult);
+      }
+    }
+
+    _importedServers.sort((a, b) {
+      if (a.ping <= 0 && b.ping <= 0) return 0;
+      if (a.ping <= 0) return 1;
+      if (b.ping <= 0) return -1;
+      return a.ping.compareTo(b.ping);
+    });
+
+    await _serverStorage.saveServers(_importedServers);
+    notifyListeners();
   }
 
   Future<void> removeImportedServer(String id) async {

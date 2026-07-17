@@ -26,6 +26,8 @@ dependencies:
   firebase_crashlytics: ^4.0.0
   google_sign_in: ^6.2.2
   axevpn_flutter: ^3.0.3
+  mobile_scanner: ^7.3.0
+  qr_flutter: ^4.1.0
 
 dev_dependencies:
   flutter_test:
