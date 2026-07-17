@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../constants/app_theme.dart';
-import '../services/open_vpn_service.dart';
+import '../services/v2ray_service.dart';
 import '../services/storage_service.dart';
 import '../widgets/components/app_button.dart';
 import '../main.dart';
@@ -40,18 +40,13 @@ class _PermissionSetupScreenState extends State<PermissionSetupScreen>
     setState(() => _isRequesting = true);
 
     try {
-      final vpnService = OpenVpnService();
+      final vpnService = V2RayService();
       await vpnService.initialize();
-      final granted = await vpnService.requestPermission();
 
       if (!mounted) return;
 
-      if (granted) {
-        await StorageService().setString('vpn_permission_granted', 'true');
-        _navigateToMain();
-      } else {
-        _showDeniedDialog();
-      }
+      await StorageService().setString('vpn_permission_granted', 'true');
+      _navigateToMain();
     } catch (e) {
       if (mounted) _showDeniedDialog();
     } finally {

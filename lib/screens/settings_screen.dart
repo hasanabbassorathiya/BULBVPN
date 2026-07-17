@@ -102,7 +102,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               _buildProfileSection(context, auth, user, colors),
               const SizedBox(height: 16),
               _buildSection('Protocol', colors, [
-                _buildInfoTile(Icons.cable, 'Protocol', '${vpn.protocol} (active)', colors),
+                _buildInfoTile(Icons.cable, 'Protocol', 'V2Ray (active)', colors),
               ]),
               const SizedBox(height: 16),
               _buildSection('Connection', colors, [
@@ -133,8 +133,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               _buildSection('About', colors, [
                 _buildNavTile(Icons.speed, 'Speed Test', 'Measure connection speed', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SpeedTestScreen())), colors),
                 _buildInfoTile(Icons.info_outline, 'Version', _appVersion, colors),
-                _buildInfoTile(Icons.code, 'Protocol', 'OpenVPN (axevpn_flutter)', colors),
-                _buildInfoTile(Icons.dns, 'Servers', '99 VPN Gate servers', colors),
+                _buildInfoTile(Icons.code, 'Protocol', 'V2Ray (axevpn_flutter)', colors),
+                _buildInfoTile(Icons.dns, 'Servers', '${vpn.importedServers.length} imported servers', colors),
               ]),
               const SizedBox(height: 16),
               _buildSection('Support', colors, [

@@ -79,7 +79,7 @@ class StatsScreen extends StatelessWidget {
   }
 
   Widget _buildConnectionInfo(VPNProvider vpn, AppSemanticColors colors) {
-    final server = vpn.selectedServer;
+    final server = vpn.selectedImportedServer;
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
@@ -116,8 +116,9 @@ class StatsScreen extends StatelessWidget {
           const SizedBox(height: 16),
           _buildInfoRow('Status', vpn.status.name.toUpperCase(),
               vpn.isConnected ? AppColors.connected : colors.textMuted, colors),
-          _buildInfoRow('Server', server != null ? '${server.flag} ${server.name}' : 'Not selected', colors.textPrimary, colors),
-          _buildInfoRow('Protocol', vpn.protocol, colors.textPrimary, colors),
+          _buildInfoRow('Server', server != null ? server.name : 'Not selected', colors.textPrimary, colors),
+          _buildInfoRow('Address', server != null ? '${server.address}:${server.port}' : '—', colors.textSecondary, colors),
+          _buildInfoRow('Protocol', server != null ? server.protocol.name.toUpperCase() : 'V2Ray', colors.textPrimary, colors),
           _buildInfoRow('Download', vpn.isConnected ? '${vpn.downloadSpeed.toStringAsFixed(1)} Mbps' : '—', AppColors.primary, colors),
           _buildInfoRow('Upload', vpn.isConnected ? '${vpn.uploadSpeed.toStringAsFixed(1)} Mbps' : '—', AppColors.secondary, colors),
         ],
@@ -221,7 +222,19 @@ class StatsScreen extends StatelessWidget {
               padding: const EdgeInsets.only(bottom: 8),
               child: Row(
                 children: [
-                  Text(record.flag, style: const TextStyle(fontSize: 20)),
+                  Container(
+                    width: 32,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    alignment: Alignment.center,
+                    child: Text(
+                      record.protocol.toUpperCase(),
+                      style: TextStyle(fontSize: 8, fontWeight: FontWeight.w700, color: AppColors.primary),
+                    ),
+                  ),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Column(

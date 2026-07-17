@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../constants/app_theme.dart';
+import '../models/imported_server.dart';
 import '../models/in_app_message.dart';
 import '../providers/vpn_provider.dart';
 import '../services/in_app_message_service.dart';
 import '../services/ip_info_service.dart';
-import '../utils/app_utils.dart';
-import '../widgets/components/server_score_badge.dart';
+import '../services/v2ray_config_parser.dart';
 import '../widgets/promo_banner.dart';
 import '../widgets/vpn_toggle.dart';
 import 'paywall_screen.dart';
@@ -82,6 +82,36 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  String _protocolLabel(V2RayProtocol p) {
+    switch (p) {
+      case V2RayProtocol.vmess:
+        return 'VMess';
+      case V2RayProtocol.vless:
+        return 'VLESS';
+      case V2RayProtocol.trojan:
+        return 'Trojan';
+      case V2RayProtocol.shadowsocks:
+        return 'SS';
+      case V2RayProtocol.unknown:
+        return 'V2Ray';
+    }
+  }
+
+  Color _protocolColor(V2RayProtocol p) {
+    switch (p) {
+      case V2RayProtocol.vmess:
+        return const Color(0xFF22C55E);
+      case V2RayProtocol.vless:
+        return const Color(0xFF3B82F6);
+      case V2RayProtocol.trojan:
+        return const Color(0xFFF59E0B);
+      case V2RayProtocol.shadowsocks:
+        return const Color(0xFF8B5CF6);
+      case V2RayProtocol.unknown:
+        return AppColors.primary;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Consumer<VPNProvider>(
@@ -121,7 +151,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // ─── Phone Layout (< 600px) ──────────────────────────────────────────────
   Widget _buildPhoneLayout(VPNProvider vpn, AppSemanticColors colors, double horizontalPad) {
     return Column(
       children: [
@@ -173,7 +202,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // ─── Tablet Layout (600-900px) ───────────────────────────────────────────
   Widget _buildTabletLayout(VPNProvider vpn, AppSemanticColors colors, double horizontalPad) {
     return Column(
       children: [
@@ -185,7 +213,6 @@ class _HomeScreenState extends State<HomeScreen> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Left column — VPN controls (40%)
                 Expanded(
                   flex: 4,
                   child: SingleChildScrollView(
@@ -222,7 +249,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
                 const SizedBox(width: 20),
-                // Right column — IP info + stats (60%)
                 Expanded(
                   flex: 6,
                   child: SingleChildScrollView(
@@ -244,7 +270,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // ─── Desktop Layout (> 900px) ────────────────────────────────────────────
   Widget _buildDesktopLayout(VPNProvider vpn, AppSemanticColors colors, double horizontalPad) {
     return Column(
       children: [
@@ -256,13 +281,11 @@ class _HomeScreenState extends State<HomeScreen> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Left panel — Server list (25%)
                 Expanded(
                   flex: 25,
                   child: _buildServerListSidebar(vpn, colors),
                 ),
                 const SizedBox(width: 20),
-                // Center — Main VPN area (50%)
                 Expanded(
                   flex: 50,
                   child: SingleChildScrollView(
@@ -299,7 +322,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
                 const SizedBox(width: 20),
-                // Right panel — Stats (25%)
                 Expanded(
                   flex: 25,
                   child: SingleChildScrollView(
@@ -321,9 +343,8 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // ─── Desktop Server List Sidebar ─────────────────────────────────────────
   Widget _buildServerListSidebar(VPNProvider vpn, AppSemanticColors colors) {
-    final servers = vpn.filteredServers;
+    final servers = vpn.importedServers;
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -348,7 +369,7 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Padding(
                 padding: const EdgeInsets.all(20),
                 child: Text(
-                  'No servers loaded',
+                  'No servers imported',
                   style: TextStyle(fontSize: 13, color: colors.textMuted),
                 ),
               ),
@@ -356,11 +377,11 @@ class _HomeScreenState extends State<HomeScreen> {
           else
             ...List.generate(servers.length, (index) {
               final server = servers[index];
-              final isSelected = vpn.selectedServer?.id == server.id;
+              final isSelected = vpn.selectedImportedServer?.id == server.id;
               return GestureDetector(
                 onTap: vpn.isDisconnected
                     ? () {
-                        vpn.selectServer(server);
+                        vpn.selectImportedServer(server);
                         vpn.connect();
                       }
                     : null,
@@ -378,7 +399,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   child: Row(
                     children: [
-                      Text(server.flag, style: const TextStyle(fontSize: 18)),
+                      _buildProtocolBadge(server.protocol, small: true),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Column(
@@ -394,18 +415,11 @@ class _HomeScreenState extends State<HomeScreen> {
                               overflow: TextOverflow.ellipsis,
                             ),
                             Text(
-                              server.country,
+                              '${server.address}:${server.port}',
                               style: TextStyle(fontSize: 10, color: colors.textMuted),
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ],
-                        ),
-                      ),
-                      Text(
-                        '${server.ping}ms',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: pingColor(server.ping),
                         ),
                       ),
                     ],
@@ -418,7 +432,28 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // ─── Shared Widgets ──────────────────────────────────────────────────────
+  Widget _buildProtocolBadge(V2RayProtocol protocol, {bool small = false}) {
+    final label = _protocolLabel(protocol);
+    final color = _protocolColor(protocol);
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: small ? 6 : 8,
+        vertical: small ? 3 : 4,
+      ),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: small ? 9 : 11,
+          fontWeight: FontWeight.w700,
+          color: color,
+        ),
+      ),
+    );
+  }
 
   Widget _buildConnectionStage(VPNProvider vpn) {
     if (!vpn.isConnecting) return const SizedBox.shrink();
@@ -551,7 +586,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 const SizedBox(width: 6),
                 Text(
-                  vpn.protocol,
+                  'V2Ray',
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
@@ -748,11 +783,11 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildServerSelector(BuildContext context, VPNProvider vpn, AppSemanticColors colors, double horizontalPad) {
-    final server = vpn.selectedServer;
+    final server = vpn.selectedImportedServer;
 
     return Semantics(
       label: server != null
-          ? 'Selected server: ${server.name}, ${server.country}'
+          ? 'Selected server: ${server.name}, ${_protocolLabel(server.protocol)}'
           : 'Tap to select a server',
       button: true,
       child: GestureDetector(
@@ -767,7 +802,7 @@ class _HomeScreenState extends State<HomeScreen> {
         child: server != null
             ? Row(
                 children: [
-                  Text(server.flag, style: const TextStyle(fontSize: 28)),
+                  _buildProtocolBadge(server.protocol),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
@@ -782,28 +817,12 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                         ),
                         Text(
-                          server.country,
+                          '${server.address}:${server.port}',
                           style: TextStyle(fontSize: 12, color: colors.textSecondary),
                         ),
                       ],
                     ),
                   ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: AppColors.primary.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      '${server.ping}ms',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.primary,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
                   Icon(
                     vpn.isDisconnected ? Icons.chevron_right : Icons.lock,
                     color: colors.textMuted,
@@ -848,7 +867,7 @@ class _HomeScreenState extends State<HomeScreen> {
     bool showLoader = false;
 
     if (vpn.isConnected) {
-      text = 'Connected • ${vpn.selectedServer?.name ?? "Unknown"}';
+      text = 'Connected \u2022 ${vpn.selectedImportedServer?.name ?? "Unknown"}';
       color = AppColors.connected;
     } else if (vpn.isConnecting) {
       text = 'Connecting...';
@@ -898,7 +917,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildRecommendedSection(BuildContext context, VPNProvider vpn, AppSemanticColors colors) {
-    final top = vpn.topRecommended;
+    final top = vpn.importedServers.take(3).toList();
     if (top.isEmpty) return const SizedBox.shrink();
 
     return Column(
@@ -927,10 +946,9 @@ class _HomeScreenState extends State<HomeScreen> {
             separatorBuilder: (_, __) => const SizedBox(width: 10),
             itemBuilder: (context, index) {
               final server = top[index];
-              final score = vpn.scoreFor(server);
               return GestureDetector(
                 onTap: () {
-                  vpn.selectServer(server);
+                  vpn.selectImportedServer(server);
                   vpn.connect();
                 },
                 child: Container(
@@ -946,7 +964,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     children: [
                       Row(
                         children: [
-                          Text(server.flag, style: const TextStyle(fontSize: 20)),
+                          _buildProtocolBadge(server.protocol, small: true),
                           const SizedBox(width: 6),
                           Expanded(
                             child: Text(
@@ -962,19 +980,10 @@ class _HomeScreenState extends State<HomeScreen> {
                         ],
                       ),
                       const Spacer(),
-                      Row(
-                        children: [
-                          Text(
-                            '${server.ping}ms',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                              color: pingColor(server.ping),
-                            ),
-                          ),
-                          const Spacer(),
-                          ServerScoreBadge(score: score, compact: true),
-                        ],
+                      Text(
+                        '${server.address}:${server.port}',
+                        style: TextStyle(fontSize: 11, color: colors.textMuted),
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ],
                   ),
@@ -988,9 +997,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildConnectedInfo(VPNProvider vpn, AppSemanticColors colors) {
-    final server = vpn.selectedServer;
+    final server = vpn.selectedImportedServer;
     if (server == null) return const SizedBox.shrink();
-    final score = vpn.scoreFor(server);
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -1001,7 +1009,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       child: Row(
         children: [
-          Text(server.flag, style: const TextStyle(fontSize: 28)),
+          _buildProtocolBadge(server.protocol),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -1016,13 +1024,12 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
                 Text(
-                  '${server.country} • ${server.ping}ms',
+                  '${server.address}:${server.port}',
                   style: TextStyle(fontSize: 12, color: colors.textSecondary),
                 ),
               ],
             ),
           ),
-          ServerScoreBadge(score: score),
         ],
       ),
     );
@@ -1062,11 +1069,11 @@ class _HomeScreenState extends State<HomeScreen> {
         height: 52,
         child: ElevatedButton.icon(
           onPressed: () {
-            final server = vpn.selectedServer ?? vpn.bestServer;
+            final server = vpn.selectedImportedServer ?? vpn.bestServer;
             if (server != null) {
-              vpn.selectServer(server);
-              vpn.connect();
+              vpn.selectImportedServer(server);
             }
+            vpn.connect();
           },
           icon: const Icon(Icons.bolt_rounded, size: 22),
           label: const Text(
@@ -1140,45 +1147,39 @@ class _ServerPickerSheet extends StatelessWidget {
               style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: colors.textPrimary),
             ),
           ),
-          _buildFilterChips(vpn, colors),
           const SizedBox(height: 8),
           Expanded(
             child: Consumer<VPNProvider>(
               builder: (context, vpn, _) {
-                final servers = vpn.filteredServers;
+                final servers = vpn.importedServers;
                 if (servers.isEmpty) {
-                  if (vpn.serverFilter == ServerFilter.favorites) {
-                    return Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(32),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.star_border, color: colors.textMuted, size: 40),
-                            const SizedBox(height: 12),
-                            Text(
-                              'No favorite servers yet.',
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                                color: colors.textSecondary,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Tap the star on any server to add it.',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: colors.textMuted,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  }
                   return Center(
-                    child: CircularProgressIndicator(color: AppColors.primary),
+                    child: Padding(
+                      padding: const EdgeInsets.all(32),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.cloud_off, color: colors.textMuted, size: 40),
+                          const SizedBox(height: 12),
+                          Text(
+                            'No servers imported yet.',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: colors.textSecondary,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Import a V2Ray config to get started.',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: colors.textMuted,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   );
                 }
                 return ListView.builder(
@@ -1186,7 +1187,7 @@ class _ServerPickerSheet extends StatelessWidget {
                   itemCount: servers.length,
                   itemBuilder: (context, index) {
                     final server = servers[index];
-                    final isSelected = vpn.selectedServer?.id == server.id;
+                    final isSelected = vpn.selectedImportedServer?.id == server.id;
                     return _buildServerItem(context, vpn, server, isSelected, colors);
                   },
                 );
@@ -1198,58 +1199,12 @@ class _ServerPickerSheet extends StatelessWidget {
     );
   }
 
-  Widget _buildFilterChips(VPNProvider vpn, AppSemanticColors colors) {
-    return SizedBox(
-      height: 44,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        children: ServerFilter.values.map((filter) {
-          final isSelected = vpn.serverFilter == filter;
-          final label = filter == ServerFilter.all ? 'All'
-              : filter == ServerFilter.favorites ? '★'
-              : filter == ServerFilter.asia ? 'Asia'
-              : filter == ServerFilter.europe ? 'Europe'
-              : filter == ServerFilter.americas ? 'Americas'
-              : 'Low Ping';
-          return Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: GestureDetector(
-              onTap: () => vpn.setServerFilter(filter),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                decoration: BoxDecoration(
-                  color: isSelected ? AppColors.primary : colors.card,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: isSelected ? colors.surface : colors.textSecondary,
-                  ),
-                ),
-              ),
-            ),
-          );
-        }).toList(),
-      ),
-    );
-  }
-
-  Widget _buildServerItem(BuildContext context, VPNProvider vpn, VpnServer server, bool isSelected, AppSemanticColors colors) {
-    final loadPct = (server.load * 100).round();
-    final loadColor = loadPct < 50
-        ? AppColors.connected
-        : loadPct < 80
-            ? AppColors.warning
-            : AppColors.disconnected;
+  Widget _buildServerItem(BuildContext context, VPNProvider vpn, ImportedServer server, bool isSelected, AppSemanticColors colors) {
+    final protocolLabel = _protocolLabel(server.protocol);
 
     return GestureDetector(
       onTap: () {
-        vpn.selectServer(server);
+        vpn.selectImportedServer(server);
         Navigator.pop(context);
         vpn.connect();
       },
@@ -1263,83 +1218,88 @@ class _ServerPickerSheet extends StatelessWidget {
             color: isSelected ? AppColors.primary.withValues(alpha: 0.3) : Colors.transparent,
           ),
         ),
-        child: Column(
+        child: Row(
           children: [
-            Row(
-              children: [
-                Text(server.flag, style: const TextStyle(fontSize: 28)),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        server.name,
-                        style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                          color: colors.textPrimary,
-                        ),
-                      ),
-                      Text(
-                        server.country,
-                        style: TextStyle(fontSize: 12, color: colors.textSecondary),
-                      ),
-                    ],
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: pingColor(server.ping).withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    '${server.ping}ms',
+            _buildProtocolBadge(server.protocol),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    server.name,
                     style: TextStyle(
-                      fontSize: 12,
+                      fontSize: 15,
                       fontWeight: FontWeight.w600,
-                      color: pingColor(server.ping),
+                      color: colors.textPrimary,
                     ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                GestureDetector(
-                  onTap: () => vpn.toggleFavorite(server.id),
-                  child: Icon(
-                    vpn.isFavorite(server.id) ? Icons.star : Icons.star_border,
-                    color: vpn.isFavorite(server.id) ? AppColors.warning : colors.textMuted,
-                    size: 22,
+                  Text(
+                    '${server.address}:${server.port}',
+                    style: TextStyle(fontSize: 12, color: colors.textSecondary),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(2),
-                    child: LinearProgressIndicator(
-                      value: server.load,
-                      minHeight: 3,
-                      backgroundColor: colors.cardBorder.withValues(alpha: 0.5),
-                      valueColor: AlwaysStoppedAnimation<Color>(loadColor),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  '$loadPct% load',
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w600,
-                    color: colors.textMuted,
-                  ),
-                ),
-              ],
+            GestureDetector(
+              onTap: () => vpn.toggleFavoriteServer(server.id),
+              child: Icon(
+                vpn.isFavoriteServer(server.id) ? Icons.star : Icons.star_border,
+                color: vpn.isFavoriteServer(server.id) ? AppColors.warning : colors.textMuted,
+                size: 22,
+              ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  String _protocolLabel(V2RayProtocol p) {
+    switch (p) {
+      case V2RayProtocol.vmess:
+        return 'VMess';
+      case V2RayProtocol.vless:
+        return 'VLESS';
+      case V2RayProtocol.trojan:
+        return 'Trojan';
+      case V2RayProtocol.shadowsocks:
+        return 'SS';
+      case V2RayProtocol.unknown:
+        return 'V2Ray';
+    }
+  }
+
+  Color _protocolColor(V2RayProtocol p) {
+    switch (p) {
+      case V2RayProtocol.vmess:
+        return const Color(0xFF22C55E);
+      case V2RayProtocol.vless:
+        return const Color(0xFF3B82F6);
+      case V2RayProtocol.trojan:
+        return const Color(0xFFF59E0B);
+      case V2RayProtocol.shadowsocks:
+        return const Color(0xFF8B5CF6);
+      case V2RayProtocol.unknown:
+        return AppColors.primary;
+    }
+  }
+
+  Widget _buildProtocolBadge(V2RayProtocol protocol) {
+    final label = _protocolLabel(protocol);
+    final color = _protocolColor(protocol);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          color: color,
         ),
       ),
     );

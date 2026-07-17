@@ -1,38 +1,31 @@
 import 'package:flutter/material.dart';
 import '../constants/app_theme.dart';
-import '../providers/vpn_provider.dart';
-import '../utils/app_utils.dart';
+import '../models/imported_server.dart';
+import '../services/v2ray_config_parser.dart';
 import 'components/app_badge.dart';
 
 class ServerCard extends StatelessWidget {
-  final VpnServer server;
+  final ImportedServer server;
   final bool isSelected;
   final bool isFavorite;
-  final bool isRecommended;
   final VoidCallback? onTap;
   final VoidCallback? onFavorite;
-  final VoidCallback? onLongPress;
 
   const ServerCard({
     super.key,
     required this.server,
     this.isSelected = false,
     this.isFavorite = false,
-    this.isRecommended = false,
     this.onTap,
     this.onFavorite,
-    this.onLongPress,
   });
 
   @override
   Widget build(BuildContext context) {
     final colors = AppSemanticColors.of(context);
-    final loadPct = (server.load * 100).round();
-    final loadColor = _loadBarColor(loadPct);
 
     return GestureDetector(
       onTap: onTap,
-      onLongPress: onLongPress,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
         margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
@@ -46,148 +39,82 @@ class ServerCard extends StatelessWidget {
                 : colors.cardBorder.withValues(alpha: 0.5),
           ),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Row(
           children: [
-            _buildTopRow(colors),
-            const SizedBox(height: 10),
-            _buildLoadBar(colors, loadPct, loadColor),
-            if (_hasBadges) ...[
-              const SizedBox(height: 10),
-              _buildBadges(),
-            ],
+            _buildProtocolBadge(),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    server.name,
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: colors.textPrimary,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '${server.address}:${server.port}',
+                    style: TextStyle(fontSize: 12, color: colors.textSecondary),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            GestureDetector(
+              onTap: onFavorite,
+              child: Icon(
+                isFavorite ? Icons.star_rounded : Icons.star_outline_rounded,
+                color: isFavorite ? AppColors.warning : colors.textMuted,
+                size: 20,
+              ),
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildTopRow(AppSemanticColors colors) {
-    return Row(
-      children: [
-        Text(server.flag, style: const TextStyle(fontSize: 28)),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                server.name,
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w700,
-                  color: colors.textPrimary,
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                server.country,
-                style: TextStyle(fontSize: 12, color: colors.textSecondary),
-              ),
-            ],
-          ),
-        ),
-        _buildPingBadge(),
-        const SizedBox(width: 8),
-        GestureDetector(
-          onTap: onFavorite,
-          child: Icon(
-            isFavorite ? Icons.star_rounded : Icons.star_outline_rounded,
-            color: isFavorite ? AppColors.warning : colors.textMuted,
-            size: 20,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildPingBadge() {
-    final color = pingColor(server.ping);
+  Widget _buildProtocolBadge() {
+    final info = _protocolInfo(server.protocol);
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.15),
-        borderRadius: AppRadius.pillAll,
+        color: info.color.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(12),
       ),
-      child: Text(
-        '${server.ping}ms',
-        style: TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.w600,
-          color: color,
-        ),
-      ),
+      child: Icon(info.icon, color: info.color, size: 20),
     );
   }
 
-  Widget _buildLoadBar(AppSemanticColors colors, int loadPct, Color loadColor) {
-    return Row(
-      children: [
-        Expanded(
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(2),
-            child: TweenAnimationBuilder<double>(
-              tween: Tween(begin: 0, end: server.load),
-              duration: const Duration(milliseconds: 600),
-              curve: Curves.easeOutCubic,
-              builder: (context, value, _) {
-                return LinearProgressIndicator(
-                  value: value,
-                  minHeight: 4,
-                  backgroundColor: colors.cardBorder.withValues(alpha: 0.5),
-                  valueColor: AlwaysStoppedAnimation<Color>(loadColor),
-                );
-              },
-            ),
-          ),
-        ),
-        const SizedBox(width: 8),
-        Text(
-          '$loadPct%',
-          style: TextStyle(
-            fontSize: 11,
-            fontWeight: FontWeight.w600,
-            color: colors.textMuted,
-          ),
-        ),
-      ],
-    );
+  _ProtocolInfo _protocolInfo(V2RayProtocol protocol) {
+    switch (protocol) {
+      case V2RayProtocol.vmess:
+        return _ProtocolInfo('VMess', Icons.lock_outline, AppColors.primary);
+      case V2RayProtocol.vless:
+        return _ProtocolInfo('VLESS', Icons.flash_on, AppColors.connected);
+      case V2RayProtocol.trojan:
+        return _ProtocolInfo('Trojan', Icons.shield_outlined, AppColors.info);
+      case V2RayProtocol.shadowsocks:
+        return _ProtocolInfo('SS', Icons.speed, AppColors.secondary);
+      case V2RayProtocol.unknown:
+        return _ProtocolInfo('Unknown', Icons.help_outline, AppColors.textMuted);
+      default:
+        return _ProtocolInfo('Unknown', Icons.help_outline, AppColors.textMuted);
+    }
   }
+}
 
-  Widget _buildBadges() {
-    return Wrap(
-      spacing: 6,
-      runSpacing: 4,
-      children: [
-        if (server.ping < 50)
-          const AppBadge(
-            label: 'Gaming',
-            color: AppColors.secondary,
-            size: AppBadgeSize.small,
-          ),
-        if (isRecommended)
-          const AppBadge(
-            label: 'Recommended',
-            color: AppColors.connected,
-            icon: Icons.thumb_up_alt_outlined,
-            size: AppBadgeSize.small,
-          ),
-        if (server.isPremium)
-          const AppBadge(
-            label: 'Streaming',
-            color: AppColors.info,
-            icon: Icons.play_circle_outline,
-            size: AppBadgeSize.small,
-          ),
-      ],
-    );
-  }
-
-  bool get _hasBadges => server.ping < 50 || isRecommended || server.isPremium;
-
-  Color _loadBarColor(int loadPct) {
-    if (loadPct < 50) return AppColors.connected;
-    if (loadPct < 80) return AppColors.warning;
-    return AppColors.disconnected;
-  }
+class _ProtocolInfo {
+  final String label;
+  final IconData icon;
+  final Color color;
+  const _ProtocolInfo(this.label, this.icon, this.color);
 }

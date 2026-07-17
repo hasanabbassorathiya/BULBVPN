@@ -33,18 +33,12 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
       return;
     }
 
-    final pingScore = vpn.selectedServer != null
-        ? (100 - (vpn.selectedServer!.ping.clamp(0, 300) / 3)).round().clamp(0, 100)
-        : 50;
-    final loadScore = vpn.selectedServer != null
-        ? ((1 - vpn.selectedServer!.load) * 100).round().clamp(0, 100)
-        : 50;
     final speedScore = vpn.downloadSpeed > 0
         ? (vpn.downloadSpeed * 2).round().clamp(0, 100)
         : 50;
     final uptimeScore = vpn.isConnected ? 90 : 0;
 
-    final score = ((pingScore * 0.3) + (loadScore * 0.2) + (speedScore * 0.3) + (uptimeScore * 0.2)).round();
+    final score = ((speedScore * 0.5) + (uptimeScore * 0.5)).round();
     setState(() => _qualityScore = score.clamp(0, 100));
   }
 
@@ -95,7 +89,7 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
               const SizedBox(height: 12),
               _buildMetricsGrid(vpn, colors),
 
-              if (vpn.selectedServer != null) ...[
+              if (vpn.selectedImportedServer != null) ...[
                 const SizedBox(height: 24),
                 Text('SERVER INFO', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: colors.textMuted, letterSpacing: 1.2)),
                 const SizedBox(height: 12),
@@ -180,10 +174,6 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
   }
 
   Widget _buildMetricsGrid(VPNProvider vpn, AppSemanticColors colors) {
-    final ping = vpn.selectedServer?.ping ?? 0;
-    final load = vpn.selectedServer?.load ?? 0;
-    final pingColor = AppColors.pingColor(ping);
-
     return GridView.count(
       crossAxisCount: 2,
       shrinkWrap: true,
@@ -192,18 +182,10 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
       crossAxisSpacing: 12,
       childAspectRatio: 1.3,
       children: [
-        _buildMetricCard('Latency', vpn.isConnected ? '${ping}ms' : '--', pingColor, colors, Icons.wifi_tethering),
-        _buildMetricCard('Server Load', vpn.isConnected ? '${(load * 100).round()}%' : '--', _loadColor(load), colors, Icons.dns),
         _buildMetricCard('Uptime', vpn.isConnected ? vpn.formattedDuration : '--', AppColors.connected, colors, Icons.timer),
         _buildMetricCard('Speed', vpn.isConnected ? '${vpn.downloadSpeed.toStringAsFixed(1)} Mbps' : '--', AppColors.info, colors, Icons.arrow_downward),
       ],
     );
-  }
-
-  Color _loadColor(double load) {
-    if (load < 0.4) return AppColors.connected;
-    if (load < 0.7) return AppColors.warning;
-    return AppColors.disconnected;
   }
 
   Widget _buildMetricCard(String label, String value, Color valueColor, AppSemanticColors colors, IconData icon) {
@@ -233,7 +215,7 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
   }
 
   Widget _buildServerInfo(VPNProvider vpn, AppSemanticColors colors) {
-    final server = vpn.selectedServer!;
+    final server = vpn.selectedImportedServer!;
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -243,11 +225,10 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
       ),
       child: Column(
         children: [
-          _buildInfoRow('Server', '${server.name} ${server.flag}', colors),
-          _buildInfoRow('Country', '${server.country} (${server.countryCode})', colors),
-          _buildInfoRow('IP Address', server.id, colors),
-          _buildInfoRow('Protocol', vpn.protocol, colors),
-          _buildInfoRow('Port', '1194', colors),
+          _buildInfoRow('Server', server.name, colors),
+          _buildInfoRow('Address', '${server.address}:${server.port}', colors),
+          _buildInfoRow('Protocol', 'V2Ray', colors),
+          _buildInfoRow('Type', server.protocol.name.toUpperCase(), colors),
         ],
       ),
     );

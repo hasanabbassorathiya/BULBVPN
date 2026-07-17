@@ -1,16 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../constants/app_theme.dart';
+import '../models/imported_server.dart';
 import '../providers/vpn_provider.dart';
-import '../utils/app_utils.dart';
+import '../services/v2ray_config_parser.dart';
 import 'components/app_bottom_sheet.dart';
 
 class ServerDetailSheet extends StatefulWidget {
-  final VpnServer server;
+  final ImportedServer server;
 
   const ServerDetailSheet({super.key, required this.server});
 
-  static void show(BuildContext context, VpnServer server) {
+  static void show(BuildContext context, ImportedServer server) {
     AppBottomSheet.show(
       context: context,
       maxHeightFraction: 0.75,
@@ -30,14 +31,13 @@ class _ServerDetailSheetState extends State<ServerDetailSheet> {
   void initState() {
     super.initState();
     final vpn = context.read<VPNProvider>();
-    _isFavorite = vpn.isFavorite(widget.server.id);
+    _isFavorite = vpn.isFavoriteServer(widget.server.id);
   }
 
   @override
   Widget build(BuildContext context) {
     final colors = AppSemanticColors.of(context);
     final server = widget.server;
-    final loadPct = (server.load * 100).round();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -45,7 +45,7 @@ class _ServerDetailSheetState extends State<ServerDetailSheet> {
         const SizedBox(height: 8),
         _buildHeader(colors, server),
         const SizedBox(height: 16),
-        _buildMetricCards(colors, server, loadPct),
+        _buildProtocolCards(colors, server),
         const SizedBox(height: 20),
         _buildInfoSection(colors, server),
         const SizedBox(height: 20),
@@ -57,10 +57,19 @@ class _ServerDetailSheetState extends State<ServerDetailSheet> {
     );
   }
 
-  Widget _buildHeader(AppSemanticColors colors, VpnServer server) {
+  Widget _buildHeader(AppSemanticColors colors, ImportedServer server) {
+    final info = _protocolInfo(server.protocol);
     return Row(
       children: [
-        Text(server.flag, style: const TextStyle(fontSize: 32)),
+        Container(
+          width: 48,
+          height: 48,
+          decoration: BoxDecoration(
+            color: info.color.withValues(alpha: 0.15),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Icon(info.icon, color: info.color, size: 24),
+        ),
         const SizedBox(width: 12),
         Expanded(
           child: Column(
@@ -71,10 +80,12 @@ class _ServerDetailSheetState extends State<ServerDetailSheet> {
                 style: AppTypography.titleLarge(context).copyWith(
                   color: colors.textPrimary,
                 ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
               const SizedBox(height: 2),
               Text(
-                server.country,
+                '${server.address}:${server.port}',
                 style: AppTypography.bodyMedium(context).copyWith(
                   color: colors.textSecondary,
                 ),
@@ -86,49 +97,46 @@ class _ServerDetailSheetState extends State<ServerDetailSheet> {
     );
   }
 
-  Widget _buildMetricCards(
-    AppSemanticColors colors,
-    VpnServer server,
-    int loadPct,
-  ) {
+  Widget _buildProtocolCards(AppSemanticColors colors, ImportedServer server) {
+    final info = _protocolInfo(server.protocol);
     return Row(
       children: [
         Expanded(
           child: _MetricCard(
-            value: '${server.ping}ms',
-            label: 'Latency',
-            icon: Icons.speed,
-            color: pingColor(server.ping),
-          ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: _MetricCard(
-            value: '$loadPct%',
-            label: 'Load',
-            icon: Icons.bar_chart,
-            color: _loadColor(loadPct),
-          ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: _MetricCard(
-            value: 'OpenVPN',
+            value: info.label,
             label: 'Protocol',
-            icon: Icons.lock_outline,
-            color: AppColors.info,
+            icon: info.icon,
+            color: info.color,
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: _MetricCard(
+            value: '${server.port}',
+            label: 'Port',
+            icon: Icons.numbers,
+            color: AppColors.primary,
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: _MetricCard(
+            value: server.configJson.length > 8 ? 'Yes' : 'No',
+            label: 'Configured',
+            icon: Icons.check_circle_outline,
+            color: AppColors.connected,
           ),
         ),
       ],
     );
   }
 
-  Widget _buildInfoSection(AppSemanticColors colors, VpnServer server) {
+  Widget _buildInfoSection(AppSemanticColors colors, ImportedServer server) {
     final items = [
-      _InfoItem(label: 'Region', value: _regionFor(server)),
-      _InfoItem(label: 'City', value: server.name),
-      _InfoItem(label: 'Uptime', value: '99.9%'),
-      _InfoItem(label: 'Speed', value: '1 Gbps'),
+      _InfoItem(label: 'Protocol', value: _protocolInfo(server.protocol).label),
+      _InfoItem(label: 'Address', value: server.address),
+      _InfoItem(label: 'Port', value: '${server.port}'),
+      _InfoItem(label: 'Imported', value: _formatDate(server.importedAt)),
     ];
 
     return Column(
@@ -165,6 +173,8 @@ class _ServerDetailSheetState extends State<ServerDetailSheet> {
                 color: colors.textPrimary,
               ),
               textAlign: TextAlign.end,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
           ),
         ],
@@ -176,14 +186,14 @@ class _ServerDetailSheetState extends State<ServerDetailSheet> {
     final server = widget.server;
     return Consumer<VPNProvider>(
       builder: (context, vpn, _) {
-        final isCurrentServer = vpn.selectedServer?.id == server.id;
+        final isCurrentServer = vpn.selectedImportedServer?.id == server.id;
         final isConnected = vpn.isConnected && isCurrentServer;
 
         return SizedBox(
           width: double.infinity,
           child: GestureDetector(
             onTap: () async {
-              vpn.selectServer(server);
+              vpn.selectImportedServer(server);
               if (!isConnected) {
                 Navigator.of(context).pop();
                 await vpn.connect();
@@ -231,7 +241,7 @@ class _ServerDetailSheetState extends State<ServerDetailSheet> {
               final vpn = context.read<VPNProvider>();
               final best = vpn.bestServer;
               if (best != null) {
-                vpn.selectServer(best);
+                vpn.selectImportedServer(best);
                 Navigator.of(context).pop();
                 await vpn.connect();
               }
@@ -242,14 +252,14 @@ class _ServerDetailSheetState extends State<ServerDetailSheet> {
         Expanded(
           child: Consumer<VPNProvider>(
             builder: (context, vpn, _) {
-              final fav = vpn.isFavorite(widget.server.id);
+              final fav = vpn.isFavoriteServer(widget.server.id);
               return _ActionButton(
                 label: fav ? 'Remove Favorite' : 'Add to Favorites',
                 icon: fav ? Icons.star_rounded : Icons.star_outline_rounded,
                 isHighlighted: fav,
                 onTap: () {
                   setState(() => _isFavorite = !_isFavorite);
-                  vpn.toggleFavorite(widget.server.id);
+                  vpn.toggleFavoriteServer(widget.server.id);
                 },
               );
             },
@@ -259,29 +269,33 @@ class _ServerDetailSheetState extends State<ServerDetailSheet> {
     );
   }
 
-  String _regionFor(VpnServer server) {
-    const regions = {
-      'US': 'North America',
-      'CA': 'North America',
-      'GB': 'Europe',
-      'DE': 'Europe',
-      'FR': 'Europe',
-      'NL': 'Europe',
-      'JP': 'Asia',
-      'SG': 'Asia',
-      'KR': 'Asia',
-      'IN': 'Asia',
-      'BR': 'South America',
-      'AU': 'Oceania',
-    };
-    return regions[server.countryCode] ?? 'Other';
+  _ProtocolInfo _protocolInfo(V2RayProtocol protocol) {
+    switch (protocol) {
+      case V2RayProtocol.vmess:
+        return _ProtocolInfo('VMess', Icons.lock_outline, AppColors.primary);
+      case V2RayProtocol.vless:
+        return _ProtocolInfo('VLESS', Icons.flash_on, AppColors.connected);
+      case V2RayProtocol.trojan:
+        return _ProtocolInfo('Trojan', Icons.shield_outlined, AppColors.info);
+      case V2RayProtocol.shadowsocks:
+        return _ProtocolInfo('SS', Icons.speed, AppColors.secondary);
+      case V2RayProtocol.unknown:
+        return _ProtocolInfo('Unknown', Icons.help_outline, AppColors.textMuted);
+      default:
+        return _ProtocolInfo('Unknown', Icons.help_outline, AppColors.textMuted);
+    }
   }
 
-  Color _loadColor(int loadPct) {
-    if (loadPct < 50) return AppColors.connected;
-    if (loadPct < 80) return AppColors.warning;
-    return AppColors.disconnected;
+  String _formatDate(DateTime date) {
+    return '${date.month.toString().padLeft(2, '0')}/${date.day.toString().padLeft(2, '0')}/${date.year}';
   }
+}
+
+class _ProtocolInfo {
+  final String label;
+  final IconData icon;
+  final Color color;
+  const _ProtocolInfo(this.label, this.icon, this.color);
 }
 
 class _MetricCard extends StatelessWidget {
