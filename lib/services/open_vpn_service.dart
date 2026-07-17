@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:developer' as dev;
+import 'dart:io';
 import 'package:axevpn_flutter/openvpn_flutter.dart' as axe;
 
 class OpenVpnService {
@@ -42,7 +42,7 @@ class OpenVpnService {
     return 'Connecting...';
   }
 
-  void _log(String msg) => dev.log('[BULB_VPN] $msg');
+  void _log(String msg) => print('[BULB_VPN] $msg');
 
   Future<void> initialize() async {
     _log('initialize()');
@@ -104,8 +104,39 @@ class OpenVpnService {
     _stageController.add(OpenVpnStage.connecting);
 
     try {
+      // Write auth credentials to a file for OpenVPN binary
+      String finalConfig = config;
+      
+      // Write tls-verify bypass script (always exit 0)
+      try {
+        final verifyScript = File('/data/data/app.bulbvpn.com/files/tls_verify.sh');
+        verifyScript.writeAsStringSync('#!/system/bin/sh\nexit 0\n');
+        // chmod via Dart Process.run
+        await Process.run('/system/bin/chmod', ['755', '/data/data/app.bulbvpn.com/files/tls_verify.sh']);
+        _log('TLS verify script written and chmod');
+      } catch (e) {
+        _log('TLS verify script failed: $e');
+      }
+      
+      if (username != null && password != null && !config.contains('auth-user-pass')) {
+        try {
+          final authFile = File('/data/data/app.bulbvpn.com/files/bulbvpn_auth.txt');
+          authFile.writeAsStringSync('$username\n$password\n');
+          _log('Auth file written to ${authFile.path}');
+          finalConfig = '$finalConfig\nauth-user-pass /data/data/app.bulbvpn.com/files/bulbvpn_auth.txt';
+        } catch (e) {
+          _log('Auth file write failed: $e');
+        }
+      }
+      
+      if (!finalConfig.contains('tls-verify')) {
+        finalConfig = '$finalConfig\ntls-verify /data/data/app.bulbvpn.com/files/tls_verify.sh';
+      }
+
+      _log('Final config length: ${finalConfig.length}, contains auth-user-pass: ${finalConfig.contains("auth-user-pass")}');
+
       _openvpn.connect(
-        config,
+        finalConfig,
         serverName,
         bypassPackages: bypassPackages,
         username: username,

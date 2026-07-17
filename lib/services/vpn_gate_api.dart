@@ -85,8 +85,6 @@ cipher AES-128-CBC
 auth SHA1
 verb 3
 remote-cert-tls server
-tls-client
-key-direction 1
 ''',
       ),
       VpnGateServer(
@@ -111,8 +109,6 @@ cipher AES-128-CBC
 auth SHA1
 verb 3
 remote-cert-tls server
-tls-client
-key-direction 1
 ''',
       ),
       VpnGateServer(
@@ -137,8 +133,6 @@ cipher AES-128-CBC
 auth SHA1
 verb 3
 remote-cert-tls server
-tls-client
-key-direction 1
 ''',
       ),
       VpnGateServer(
@@ -163,8 +157,6 @@ cipher AES-128-CBC
 auth SHA1
 verb 3
 remote-cert-tls server
-tls-client
-key-direction 1
 ''',
       ),
       VpnGateServer(
@@ -189,8 +181,6 @@ cipher AES-128-CBC
 auth SHA1
 verb 3
 remote-cert-tls server
-tls-client
-key-direction 1
 ''',
       ),
       VpnGateServer(
@@ -215,8 +205,6 @@ cipher AES-128-CBC
 auth SHA1
 verb 3
 remote-cert-tls server
-tls-client
-key-direction 1
 ''',
       ),
       VpnGateServer(
@@ -241,8 +229,6 @@ cipher AES-128-CBC
 auth SHA1
 verb 3
 remote-cert-tls server
-tls-client
-key-direction 1
 ''',
       ),
       VpnGateServer(
@@ -267,8 +253,6 @@ cipher AES-128-CBC
 auth SHA1
 verb 3
 remote-cert-tls server
-tls-client
-key-direction 1
 ''',
       ),
     ];
