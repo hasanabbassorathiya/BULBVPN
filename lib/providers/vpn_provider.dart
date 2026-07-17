@@ -2,8 +2,9 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:developer' as dev;
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
 import '../models/connection_history.dart';
+import '../models/imported_server.dart';
 import '../models/vpn_server.dart';
 import '../models/vpn_status.dart';
 import '../screens/paywall_screen.dart';
@@ -12,8 +13,12 @@ import '../services/tier_service.dart';
 import '../services/analytics_service.dart';
 import '../services/vpn_gate_api.dart';
 import '../services/open_vpn_service.dart';
+import '../services/v2ray_service.dart';
+import '../services/v2ray_config_parser.dart';
+import '../services/server_storage_service.dart';
 import '../services/storage_service.dart';
 import '../services/notification_triggers.dart';
+import 'package:axevpn_flutter/v2ray_flutter.dart' as axe_v2ray;
 
 export '../models/vpn_status.dart' show VPNStatus, ServerFilter;
 export '../models/vpn_server.dart' show VpnServer;
@@ -41,6 +46,10 @@ class VPNProvider extends ChangeNotifier {
   late StorageService _storageService;
   late HistoryService _historyService;
   late TierService _tierService;
+  V2RayService? _v2rayService;
+  final ServerStorageService _serverStorage = ServerStorageService();
+  List<ImportedServer> _importedServers = [];
+  ImportedServer? _selectedImportedServer;
   bool _initialized = false;
   bool _isSubscriber = false;
   String? _tierBlockReason;
@@ -52,6 +61,7 @@ class VPNProvider extends ChangeNotifier {
   List<String> _bypassPackages = [];
 
   String _protocol = 'OpenVPN';
+  final bool _useV2Ray = true;
   bool _autoConnect = false;
   bool _killSwitch = false;
   bool _autoReconnect = false;
@@ -138,7 +148,9 @@ class VPNProvider extends ChangeNotifier {
       _servers.where((s) => _favoriteIds.contains(s.id)).toList();
 
   List<String> get bypassPackages => List.unmodifiable(_bypassPackages);
-  String get vpnStageLabel => _vpnService.stageLabel;
+  String get vpnStageLabel => _useV2Ray ? _v2rayService?.stageLabel ?? 'Disconnected' : _vpnService.stageLabel;
+  List<ImportedServer> get importedServers => List.unmodifiable(_importedServers);
+  ImportedServer? get selectedImportedServer => _selectedImportedServer;
 
   void setBypassPackages(List<String> packages) {
     _bypassPackages = List.from(packages);
@@ -228,6 +240,10 @@ class VPNProvider extends ChangeNotifier {
 
     _initialized = true;
     notifyListeners();
+
+    _v2rayService = V2RayService();
+    _v2rayService!.stageStream.listen(_onV2RayStageChanged);
+    _importedServers = await _serverStorage.loadServers();
 
     // Initialize notification triggers
     NotificationTriggers().recordActiveDate();
@@ -551,7 +567,11 @@ class VPNProvider extends ChangeNotifier {
     }
 
     try {
-      await _vpnService.disconnect();
+      if (_selectedImportedServer != null && _v2rayService != null) {
+        await _v2rayService!.disconnect();
+      } else {
+        await _vpnService.disconnect();
+      }
     } catch (e) {
       dev.log('Disconnect error: $e', name: 'BULB_VPN');
       _status = VPNStatus.disconnected;
@@ -785,6 +805,124 @@ class VPNProvider extends ChangeNotifier {
     _navigatorContext = context;
   }
 
+  void _onV2RayStageChanged(V2RayVpnStage stage) {
+    switch (stage) {
+      case V2RayVpnStage.connected:
+        _status = VPNStatus.connected;
+        break;
+      case V2RayVpnStage.connecting:
+        _status = VPNStatus.connecting;
+        break;
+      case V2RayVpnStage.disconnecting:
+        _status = VPNStatus.disconnecting;
+        break;
+      case V2RayVpnStage.disconnected:
+        _selectedImportedServer = null;
+        _status = VPNStatus.disconnected;
+        break;
+      case V2RayVpnStage.error:
+        _selectedImportedServer = null;
+        _status = VPNStatus.disconnected;
+        break;
+    }
+    notifyListeners();
+  }
+
+  Future<void> connectV2Ray(ImportedServer server) async {
+    _selectedImportedServer = server;
+    _selectedServer = null;
+    _status = VPNStatus.connecting;
+    notifyListeners();
+
+    try {
+      await _v2rayService!.initialize();
+      await _v2rayService!.connect(
+        server.configJson,
+        server.name,
+        subProtocol: _v2raySubProtocolFor(server.protocol),
+        bypassPackages: _bypassPackages,
+      );
+      _storageService.setLastServerId(server.id);
+    } catch (e) {
+      print('[BULB_VPN] connectV2Ray FAILED: $e');
+      _status = VPNStatus.disconnected;
+      _selectedImportedServer = null;
+      notifyListeners();
+    }
+  }
+
+  axe_v2ray.V2RaySubProtocol _v2raySubProtocolFor(V2RayProtocol p) {
+    switch (p) {
+      case V2RayProtocol.vmess: return axe_v2ray.V2RaySubProtocol.vmess;
+      case V2RayProtocol.vless: return axe_v2ray.V2RaySubProtocol.vless;
+      case V2RayProtocol.trojan: return axe_v2ray.V2RaySubProtocol.trojan;
+      case V2RayProtocol.shadowsocks: return axe_v2ray.V2RaySubProtocol.shadowsocks;
+      case V2RayProtocol.unknown: return axe_v2ray.V2RaySubProtocol.unknown;
+    }
+  }
+
+  Future<bool> importConfig(String rawInput) async {
+    final parsed = V2RayConfigParser.parse(rawInput);
+    if (parsed == null) return false;
+
+    final server = ImportedServer(
+      id: 'v2ray_${DateTime.now().millisecondsSinceEpoch}',
+      name: parsed.name,
+      address: parsed.address,
+      port: parsed.port,
+      protocol: parsed.protocol,
+      configJson: parsed.jsonConfig,
+      importedAt: DateTime.now(),
+    );
+
+    _importedServers.add(server);
+    await _serverStorage.saveServers(_importedServers);
+    notifyListeners();
+    return true;
+  }
+
+  Future<bool> importSubscription(String url) async {
+    try {
+      final response = await http.get(Uri.parse(url));
+      if (response.statusCode != 200) return false;
+
+      final configs = V2RayConfigParser.parseSubscription(response.body);
+      if (configs.isEmpty) return false;
+
+      for (final config in configs) {
+        final server = ImportedServer(
+          id: 'v2ray_${DateTime.now().millisecondsSinceEpoch}_${config.address}',
+          name: config.name,
+          address: config.address,
+          port: config.port,
+          protocol: config.protocol,
+          configJson: config.jsonConfig,
+          importedAt: DateTime.now(),
+        );
+        _importedServers.add(server);
+      }
+      await _serverStorage.saveServers(_importedServers);
+      notifyListeners();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> removeImportedServer(String id) async {
+    _importedServers.removeWhere((s) => s.id == id);
+    if (_selectedImportedServer?.id == id) {
+      _selectedImportedServer = null;
+    }
+    await _serverStorage.saveServers(_importedServers);
+    notifyListeners();
+  }
+
+  void selectImportedServer(ImportedServer server) {
+    _selectedImportedServer = server;
+    notifyListeners();
+  }
+
   @override
   void dispose() {
     _stopTimers();
@@ -793,6 +931,7 @@ class VPNProvider extends ChangeNotifier {
     _connectionReminderTimer?.cancel();
     _vpnStateSubscription?.cancel();
     _vpnService.dispose();
+    _v2rayService?.dispose();
     super.dispose();
   }
 }
