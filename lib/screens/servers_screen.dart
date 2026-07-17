@@ -2,7 +2,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../constants/app_theme.dart';
+import '../models/imported_server.dart';
 import '../providers/vpn_provider.dart';
+import '../screens/import_server_screen.dart';
+import '../services/v2ray_config_parser.dart';
 import '../widgets/components/app_badge.dart';
 import '../widgets/components/app_text_field.dart';
 import '../utils/app_utils.dart';
@@ -19,6 +22,7 @@ class _ServersScreenState extends State<ServersScreen> {
   Timer? _debounceTimer;
   String _debouncedQuery = '';
   final Set<String> _expandedCountries = {};
+  int _selectedTab = 0;
 
   @override
   void initState() {
@@ -99,25 +103,25 @@ class _ServersScreenState extends State<ServersScreen> {
       child: SafeArea(
         child: Consumer<VPNProvider>(
           builder: (context, vpn, _) {
-            final servers = _getFilteredServers(vpn);
-            final favCount = vpn.favoriteServers.length;
-            final grouped = _groupByCountry(servers);
-
             return Stack(
               children: [
                 Column(
                   children: [
                     _buildHeader(colors, horizontalPad, vpn),
-                    _buildCategoryTabs(colors, horizontalPad, vpn, favCount),
-                    _buildSearchBar(colors, horizontalPad),
+                    _buildCategoryTabs(colors, horizontalPad, vpn),
+                    if (_selectedTab != 2) _buildSearchBar(colors, horizontalPad),
                     const SizedBox(height: AppSpacing.sm),
                     Expanded(
-                      child: _buildServerList(colors, vpn, grouped),
+                      child: _selectedTab == 2
+                          ? _buildImportedServerList(colors, vpn)
+                          : _buildServerList(colors, vpn, _groupByCountry(_getFilteredServers(vpn))),
                     ),
                   ],
                 ),
-                if (vpn.selectedServer != null && !vpn.isConnected && !vpn.isConnecting)
+                if (_selectedTab != 2 && vpn.selectedServer != null && !vpn.isConnected && !vpn.isConnecting)
                   _buildQuickConnectButton(colors, horizontalPad, vpn),
+                if (_selectedTab == 2 && !vpn.isConnected && !vpn.isConnecting)
+                  _buildImportFAB(colors, horizontalPad),
               ],
             );
           },
@@ -177,11 +181,13 @@ class _ServersScreenState extends State<ServersScreen> {
     AppSemanticColors colors,
     double horizontalPad,
     VPNProvider vpn,
-    int favCount,
   ) {
+    final favCount = vpn.favoriteServers.length;
+    final myCount = vpn.importedServers.length;
     final tabs = [
-      _TabData('All', Icons.apps, ServerFilter.all),
-      _TabData('★ Favorites', Icons.star, ServerFilter.favorites, count: favCount),
+      _TabData('All', Icons.apps, 0),
+      _TabData('★ Favorites', Icons.star, 1, count: favCount),
+      _TabData('My Servers', Icons.dns, 2, count: myCount),
     ];
 
     return SizedBox(
@@ -193,9 +199,13 @@ class _ServersScreenState extends State<ServersScreen> {
         separatorBuilder: (_, __) => const SizedBox(width: AppSpacing.sm),
         itemBuilder: (context, index) {
           final tab = tabs[index];
-          final isSelected = vpn.serverFilter == tab.filter;
+          final isSelected = _selectedTab == tab.filter;
           return GestureDetector(
-            onTap: () => vpn.setServerFilter(tab.filter),
+            onTap: () {
+              setState(() => _selectedTab = tab.filter);
+              if (tab.filter == 0) vpn.setServerFilter(ServerFilter.all);
+              if (tab.filter == 1) vpn.setServerFilter(ServerFilter.favorites);
+            },
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 200),
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
@@ -647,12 +657,119 @@ class _ServersScreenState extends State<ServersScreen> {
       ),
     );
   }
+
+  Widget _buildImportedServerList(AppSemanticColors colors, VPNProvider vpn) {
+    final servers = vpn.importedServers;
+    if (servers.isEmpty) {
+      return _buildEmptyState(
+        colors,
+        icon: Icons.dns_outlined,
+        title: 'No servers imported',
+        subtitle: 'Tap + to add your own V2Ray/Xray servers',
+      );
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.only(bottom: 100),
+      itemCount: servers.length,
+      itemBuilder: (context, index) {
+        final server = servers[index];
+        return _buildImportedServerCard(colors, vpn, server);
+      },
+    );
+  }
+
+  Widget _buildImportedServerCard(AppSemanticColors colors, VPNProvider vpn, ImportedServer server) {
+    final isSelected = vpn.selectedImportedServer?.id == server.id;
+    final protoColor = {
+      V2RayProtocol.vmess: const Color(0xFF4FC3F7),
+      V2RayProtocol.vless: const Color(0xFF66BB6A),
+      V2RayProtocol.trojan: const Color(0xFFEF5350),
+      V2RayProtocol.shadowsocks: const Color(0xFFFFA726),
+      V2RayProtocol.unknown: colors.textMuted,
+    }[server.protocol] ?? colors.textMuted;
+
+    return GestureDetector(
+      onTap: () {
+        vpn.selectImportedServer(server);
+        vpn.connectV2Ray(server);
+      },
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: isSelected ? AppColors.primary.withValues(alpha: 0.08) : colors.card,
+          borderRadius: AppRadius.mdAll,
+          border: Border.all(color: isSelected ? AppColors.primary.withValues(alpha: 0.3) : colors.cardBorder),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+              decoration: BoxDecoration(
+                color: protoColor.withValues(alpha: 0.15),
+                borderRadius: AppRadius.smAll,
+              ),
+              child: Text(
+                server.protocol.name.toUpperCase(),
+                style: AppTypography.labelSmall(context).copyWith(
+                  color: protoColor,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 10,
+                ),
+              ),
+            ),
+            const SizedBox(width: AppSpacing.md),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    server.name,
+                    style: AppTypography.bodyLarge(context).copyWith(
+                      color: colors.textPrimary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    '${server.address}:${server.port}',
+                    style: AppTypography.labelSmall(context).copyWith(color: colors.textMuted),
+                  ),
+                ],
+              ),
+            ),
+            GestureDetector(
+              onTap: () => vpn.removeImportedServer(server.id),
+              child: Icon(Icons.delete_outline, color: colors.textMuted, size: 20),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildImportFAB(AppSemanticColors colors, double horizontalPad) {
+    return Positioned(
+      right: horizontalPad,
+      bottom: 20,
+      child: FloatingActionButton(
+        backgroundColor: AppColors.primary,
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const ImportServerScreen()),
+          );
+        },
+        child: const Icon(Icons.add, color: Colors.white),
+      ),
+    );
+  }
 }
 
 class _TabData {
   final String label;
   final IconData icon;
-  final ServerFilter filter;
+  final int filter;
   final int? count;
   const _TabData(this.label, this.icon, this.filter, {this.count});
 }

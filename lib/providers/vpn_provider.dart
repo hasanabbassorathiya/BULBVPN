@@ -457,6 +457,11 @@ class VPNProvider extends ChangeNotifier {
   }
 
   Future<void> connect() async {
+    if (_selectedImportedServer != null) {
+      await connectV2Ray(_selectedImportedServer!);
+      return;
+    }
+
     _selectedServer ??= bestServer;
     if (_selectedServer == null) {
       dev.log('No server selected, aborting', name: 'BULB_VPN');
