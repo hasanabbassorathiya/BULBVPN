@@ -105,6 +105,10 @@ class VPNProvider extends ChangeNotifier {
     _importedServers = await _serverStorage.loadServers();
     _subscriptions = await _serverStorage.loadSubscriptions();
 
+    if (_importedServers.isEmpty && _subscriptions.isEmpty) {
+      Future.microtask(() => _loadDefaultSubscription());
+    }
+
     _initialized = true;
     notifyListeners();
 
@@ -270,6 +274,22 @@ class VPNProvider extends ChangeNotifier {
     await _serverStorage.saveServers(_importedServers);
     notifyListeners();
     return true;
+  }
+
+  static const String _defaultSubscriptionUrl = 'https://raw.githubusercontent.com/barry-far/V2ray-config/main/All_Configs_base64_Sub.txt';
+
+  Future<void> _loadDefaultSubscription() async {
+    try {
+      print('[BULB_VPN] Loading default subscription...');
+      final success = await importSubscription(_defaultSubscriptionUrl);
+      if (success) {
+        print('[BULB_VPN] Default subscription loaded: ${_importedServers.length} servers');
+      } else {
+        print('[BULB_VPN] Default subscription failed to load');
+      }
+    } catch (e) {
+      print('[BULB_VPN] Default subscription error: $e');
+    }
   }
 
   Future<bool> importSubscription(String url) async {
