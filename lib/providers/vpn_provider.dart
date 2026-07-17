@@ -391,7 +391,7 @@ class VPNProvider extends ChangeNotifier {
 
     _vpnService.resetState();
     try {
-      await _vpnService.connect(_pendingConfig!, _pendingServerName!, bypassPackages: _bypassPackages);
+      await _vpnService.connect(_pendingConfig!, _pendingServerName!, bypassPackages: _bypassPackages, username: 'vpn', password: 'vpn');
     } catch (e) {
       dev.log('Retry failed: $e', name: 'BULB_VPN');
       _status = VPNStatus.disconnected;
@@ -471,16 +471,27 @@ class VPNProvider extends ChangeNotifier {
 
     var config = _selectedServer!.openVpnConfig;
     if (config == null || config.isEmpty) {
-      print('[BULB_VPN] No OpenVPN config for server ${_selectedServer!.name}, aborting');
+      print('[BULB_VPN] ERROR: No OpenVPN config for server ${_selectedServer!.name}, aborting');
+      _tierBlockReason = 'No VPN config available for this server';
+      notifyListeners();
       return;
     }
 
     // Clean up SoftEther/PacketiX config headers — keep only standard OpenVPN directives
     config = _cleanConfig(config);
 
+    // Validate config has required directives
+    if (!config.contains('remote ')) {
+      print('[BULB_VPN] ERROR: Config missing remote directive after cleaning');
+      _tierBlockReason = 'Invalid VPN configuration';
+      notifyListeners();
+      return;
+    }
+
     final serverName = _selectedServer!.name;
     print('[BULB_VPN] Connecting to: $serverName (${_selectedServer!.country}) configLen=${config.length}');
-    print('[BULB_VPN] Config first 300 chars: ${config.substring(0, config.length > 300 ? 300 : config.length)}');
+    print('[BULB_VPN] Config first 500 chars: ${config.substring(0, config.length > 500 ? 500 : config.length)}');
+    print('[BULB_VPN] Server IP: ${_selectedServer!.openVpnConfig?.contains("remote") ?? false}');
 
     _status = VPNStatus.connecting;
     _connectAttempts = 0;
@@ -499,8 +510,8 @@ class VPNProvider extends ChangeNotifier {
       _vpnService.resetState();
       _connectCalled = true;
 
-      // Connect directly — the plugin handles permission internally
-      await _vpnService.connect(config, serverName, bypassPackages: _bypassPackages);
+      // Connect with VPN Gate credentials (username: vpn, password: vpn)
+      await _vpnService.connect(config, serverName, bypassPackages: _bypassPackages, username: 'vpn', password: 'vpn');
 
       // Save last server
       _storageService.setLastServerId(_selectedServer!.id);

@@ -96,24 +96,22 @@ class OpenVpnService {
     }
   }
 
-  Future<void> connect(String config, String serverName, {List<String>? bypassPackages}) async {
-    print('[BULB_VPN] OpenVpnService.connect() server=$serverName configLen=${config.length} bypass=$bypassPackages');
-    print('[BULB_VPN] Config first 200 chars: ${config.substring(0, config.length > 200 ? 200 : config.length)}');
+  Future<void> connect(String config, String serverName, {List<String>? bypassPackages, String? username, String? password}) async {
+    _log('connect() server=$serverName configLen=${config.length} bypass=$bypassPackages user=$username');
     if (!_initialized) await initialize();
-
-    // Skip filteredConfig — pass raw config directly to avoid corruption
-    String filteredConfig = config;
 
     _currentStage = OpenVpnStage.connecting;
     _stageController.add(OpenVpnStage.connecting);
 
     try {
       _openvpn.connect(
-        filteredConfig,
+        config,
         serverName,
         bypassPackages: bypassPackages,
+        username: username,
+        password: password,
       );
-      _log('connect() dispatched with ${bypassPackages?.length ?? 0} bypass packages');
+      _log('connect() dispatched with user=$username bypass=${bypassPackages?.length ?? 0}');
     } catch (e) {
       _log('connect() FAILED: $e');
       _currentStage = OpenVpnStage.disconnected;
