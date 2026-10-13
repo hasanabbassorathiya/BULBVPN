@@ -1,3 +1,4 @@
+import 'package:bulbvpn/app/links.dart';
 import 'package:bulbvpn/core/theme/app_colors.dart';
 import 'package:bulbvpn/core/theme/app_text_styles.dart';
 import 'package:bulbvpn/shared/layout/navbar/widgets/copyable_link.dart';
@@ -51,7 +52,7 @@ class IntroductionDialog extends StatelessWidget {
             SizedBox(height: 15.h),
             IntroLinkItem(
               title: 'Source code',
-              url: 'https://github.com/UnboundTechCo/defyxVPN',
+              url: AppLinks.source,
             ),
             SizedBox(height: 10.h),
             IntroLinkItem(
@@ -60,7 +61,7 @@ class IntroductionDialog extends StatelessWidget {
                   'https://github.com/UnboundTechCo/DXcore?tab=readme-ov-file#third-party-licenses',
             ),
             SizedBox(height: 10.h),
-            CopyableLink(text: 'defyxvpn.com'),
+            CopyableLink(text: AppLinks.website),
             SizedBox(height: 10.h),
             IntroLinkItem(
               title: 'Beta Community',

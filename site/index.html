@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BULBVPN — the tunnel you can inspect</title>
+  <meta name="description" content="BULBVPN is a lean Android VPN. One tap to connect, your exit IP on screen, a readable session log, and no account in the way.">
+  <meta name="theme-color" content="#0A0D14">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="BULBVPN">
+  <meta property="og:title" content="BULBVPN — the tunnel you can inspect">
+  <meta property="og:description" content="One tap to connect, your exit IP on screen, a readable session log. A VPN built to be checked.">
+  <meta property="og:url" content="https://bulbvpn-e9b4c.web.app/">
+  <meta property="og:image" content="https://bulbvpn-e9b4c.web.app/assets/screenshots/connected.webp">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500&family=Outfit:wght@300;400;500;600;700&display=swap">
+  <script>document.documentElement.classList.add("js")</script>
+  <link rel="stylesheet" href="assets/css/main.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="container">
+      <a class="wordmark" href="index.html">BULB<span class="v">VPN</span>
+        <span class="tag">SECURE TUNNEL</span>
+      </a>
+      <nav class="nav" aria-label="Primary">
+        <a href="index.html" aria-current="page">Introduction</a>
+        <a href="app.html">The app</a>
+        <a href="privacy.html">Privacy</a>
+        <a href="terms.html">Terms</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="hero">
+      <div class="container hero-grid">
+        <div class="hero-copy">
+          <span class="eyebrow">Introduction</span>
+          <h1>The tunnel you can <span class="amber">inspect</span>.</h1>
+          <p class="lead">
+            BULBVPN is a lean Android VPN. One tap connects you through a community
+            OpenVPN endpoint — and instead of asking you to trust a green padlock,
+            it puts the evidence on screen: your public exit IP, the server you
+            landed on, and a session log written line by line.
+          </p>
+          <div class="hero-actions">
+            <a class="btn btn-primary" href="app.html">See the app</a>
+            <a class="btn btn-ghost" href="https://github.com/hasanabbassorathiya/BULBVPN" rel="noopener">View source</a>
+          </div>
+        </div>
+        <div class="hero-visual" aria-hidden="true">
+          <div class="phone">
+            <img src="assets/screenshots/connected.webp" width="720" height="1600"
+                 alt="" fetchpriority="high">
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div class="fact-strip">
+      <div class="container">
+        <span class="fact"><b>OpenVPN</b> core</span>
+        <span class="fact"><b data-server-count>96</b> community endpoints</span>
+        <span class="fact"><b>No account</b> required</span>
+        <span class="fact"><b>Exit IP</b> on screen</span>
+        <span class="fact"><b>Open source</b> Android app</span>
+      </div>
+    </div>
+
+    <section class="section" aria-labelledby="how-title">
+      <div class="container">
+        <div class="section-head reveal">
+          <div>
+            <span class="eyebrow">How it works</span>
+            <h2 id="how-title">Four steps. Nothing hidden.</h2>
+          </div>
+          <p>
+            Most VPN apps ask for faith. BULBVPN asks you to look. Every stage of
+            the connection leaves a visible trace you can read, copy, or verify
+            against a third party of your choosing.
+          </p>
+        </div>
+
+        <div class="rows">
+          <article class="row reveal">
+            <span class="idx">01</span>
+            <h3>Connect</h3>
+            <div class="body">
+              <p>
+                One tap on the orb. The app pulls the live community endpoint list,
+                picks a server with a valid OpenVPN profile, and negotiates the
+                tunnel — with each step reported in the in-app log as it happens.
+              </p>
+            </div>
+          </article>
+
+          <article class="row reveal">
+            <span class="idx">02</span>
+            <h3>Verify</h3>
+            <div class="body">
+              <p>
+                The moment the tunnel is up, your public exit IP appears on the
+                home screen — country, address, and a copy button. Paste it into
+                any lookup service and check the claim yourself.
+              </p>
+            </div>
+          </article>
+
+          <article class="row reveal">
+            <span class="idx">03</span>
+            <h3>Prove it</h3>
+            <div class="body">
+              <p>
+                Run the built-in throughput check against Cloudflare's edge:
+                latency, jitter, packet loss, download and upload — measured live
+                through the tunnel, not estimated from a marketing slide.
+              </p>
+            </div>
+          </article>
+
+          <article class="row reveal">
+            <span class="idx">04</span>
+            <h3>Read the tape</h3>
+            <div class="body">
+              <p>
+                Every handshake, retry, and state change is appended to a
+                plain-text session log on the device. When a connection behaves
+                oddly, the evidence is already there — <a href="app.html">see the screens</a>.
+              </p>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section section-tint" aria-labelledby="numbers-title">
+      <div class="container">
+        <div class="section-head reveal">
+          <div>
+            <span class="eyebrow">The shape of it</span>
+            <h2 id="numbers-title">Small surface, honest numbers.</h2>
+          </div>
+          <p>
+            No accounts, no subscription wall, no browsing history leaving the
+            phone. What the app does send — connection events to Firebase
+            Analytics, an exit-IP lookup to Cloudflare, the endpoint list from a
+            public mirror — is itemised in the privacy policy.
+          </p>
+        </div>
+
+        <div class="bento">
+          <div class="card span-4 accent-edge tall reveal">
+            <span class="k">Endpoints</span>
+            <span class="stat"><span data-server-count>96</span> <span class="unit">NODES LIVE</span></span>
+            <p>
+              Community-run VPN Gate servers across dozens of countries, refreshed
+              from the public list on every connection attempt. Slow nodes happen;
+              the log will tell you which one you got.
+            </p>
+          </div>
+
+          <div class="card span-2 reveal">
+            <span class="k">Time to tunnel</span>
+            <span class="stat">1 <span class="unit">TAP</span></span>
+            <p>Tap the orb, watch the states, get the exit IP. No forms, no sign-in.</p>
+          </div>
+
+          <div class="card span-2 reveal">
+            <span class="k">Measurement</span>
+            <span class="stat">8 <span class="unit">PROBES</span></span>
+            <p>Latency packets, staged download and upload passes against Cloudflare's edge.</p>
+          </div>
+
+          <div class="card span-4 reveal">
+            <span class="k">Disclosure</span>
+            <h3>What runs, and what it talks to</h3>
+            <p>
+              The app integrates Firebase Analytics and connects to four kinds of
+              remote services: the VPN endpoint itself, a public server list
+              mirror, Cloudflare's speed and trace endpoints, and Google's
+              connectivity probe. Each is named in the
+              <a href="privacy.html">privacy policy</a> — read it before you
+              connect, not after.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="cta-band">
+      <div class="container reveal">
+        <span class="eyebrow">The app</span>
+        <h2>Four screens: home, servers, speed, settings.</h2>
+        <p class="lead">
+          Screenshots, the live endpoint list, and download links — everything
+          the Android build puts in front of you.
+        </p>
+        <div class="hero-actions">
+          <a class="btn btn-primary" href="app.html">Open the showcase</a>
+          <a class="btn btn-ghost" href="privacy.html">Read the privacy policy</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <div class="footer-grid">
+        <div class="footer-brand">
+          <a class="wordmark" href="index.html">BULB<span class="v">VPN</span>
+            <span class="tag">SECURE TUNNEL</span>
+          </a>
+          <p>
+            A lean Android VPN that shows its work: exit IP on screen, session
+            logs on device, open source on GitHub.
+          </p>
+        </div>
+        <div class="footer-col">
+          <div class="label">Product</div>
+          <a href="index.html">Introduction</a>
+          <a href="app.html">The app</a>
+          <a href="app.html#downloads">Download</a>
+        </div>
+        <div class="footer-col">
+          <div class="label">Legal</div>
+          <a href="privacy.html">Privacy policy</a>
+          <a href="terms.html">Terms</a>
+        </div>
+        <div class="footer-col">
+          <div class="label">Source</div>
+          <a href="https://github.com/hasanabbassorathiya/BULBVPN" rel="noopener">GitHub repository</a>
+          <a href="https://github.com/hasanabbassorathiya/BULBVPN/issues" rel="noopener">Issues</a>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <span>© <span data-year>2026</span> BULBVPN</span>
+        <span>bulbvpn-e9b4c.web.app · Firebase Hosting</span>
+      </div>
+    </div>
+  </footer>
+
+  <script src="assets/js/main.js" defer></script>
+</body>
+</html>

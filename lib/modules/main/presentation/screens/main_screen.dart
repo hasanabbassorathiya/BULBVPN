@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:http/http.dart' as http;
@@ -13,6 +14,7 @@ import 'package:bulbvpn/modules/main/presentation/widgets/bulb_orb.dart';
 import 'package:bulbvpn/modules/main/presentation/widgets/server_sheet.dart';
 import 'package:bulbvpn/shared/layout/main_screen_background.dart';
 import 'package:bulbvpn/shared/providers/connection_state_provider.dart';
+import 'package:bulbvpn/shared/providers/exit_ip_provider.dart';
 import 'package:bulbvpn/shared/widgets/staggered_in.dart';
 
 final log = Log();
@@ -61,17 +63,22 @@ class VpnServer {
 }
 
 final serversProvider = FutureProvider<List<VpnServer>>((ref) async {
-  const url = 'https://raw.githubusercontent.com/alihusains/apigate/main/response.json';
+  const url =
+      'https://raw.githubusercontent.com/alihusains/apigate/main/response.json';
   log.addLog('[MainScreen] Fetching servers from: $url');
   final response = await http.get(Uri.parse(url));
-  log.addLog('[MainScreen] Response status: ${response.statusCode}, bytes: ${response.bodyBytes.length}');
+  log.addLog(
+    '[MainScreen] Response status: ${response.statusCode}, bytes: ${response.bodyBytes.length}',
+  );
   if (response.statusCode == 200) {
     final List<dynamic> data = json.decode(response.body);
     final servers = data.map((json) => VpnServer.fromJson(json)).toList();
     log.addLog('[MainScreen] Parsed ${servers.length} servers');
     return servers;
   }
-  log.addLog('[MainScreen] ERROR: Failed to load servers - status ${response.statusCode}');
+  log.addLog(
+    '[MainScreen] ERROR: Failed to load servers - status ${response.statusCode}',
+  );
   throw Exception('Failed to load servers: ${response.statusCode}');
 });
 
@@ -98,7 +105,9 @@ class _MainScreenState extends ConsumerState<MainScreen> {
     log.addLog('[MainScreen] initState');
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) => _tick());
     // Warm the server list so the sheet opens instantly.
-    Future.microtask(() => ref.read(serversProvider.future).catchError((_) => <VpnServer>[]));
+    Future.microtask(
+      () => ref.read(serversProvider.future).catchError((_) => <VpnServer>[]),
+    );
   }
 
   @override
@@ -158,8 +167,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
     final cs = ref.read(connectionStateProvider);
     if (cs.status == ConnectionStatus.connected) {
       _connectedAt ??= DateTime.now();
-      final session =
-          formatDuration(DateTime.now().difference(_connectedAt!));
+      final session = formatDuration(DateTime.now().difference(_connectedAt!));
       final byteIn = int.tryParse(cs.vpnStatus?.byteIn ?? '') ?? 0;
       String rate = _rateLabel;
       if (_prevByteIn != null && byteIn >= _prevByteIn!) {
@@ -197,6 +205,33 @@ class _MainScreenState extends ConsumerState<MainScreen> {
       log.addLog('[MainScreen] ERROR in handleConnectionButton: $e');
       log.addLog('[MainScreen] Stack trace: $stackTrace');
     }
+  }
+
+  Future<void> _copyExitIp() async {
+    final info = ref.read(exitIpProvider);
+    if (info == null) return;
+    await Clipboard.setData(ClipboardData(text: info.ip));
+    if (!mounted) return;
+    ScaffoldMessenger.maybeOf(context)
+      ?..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(
+            'Exit IP ${info.ip} copied',
+            style: const TextStyle(
+              color: AppColors.ink,
+              fontSize: 13,
+              fontFamily: 'GeistMono',
+            ),
+          ),
+          backgroundColor: AppColors.raised,
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 2),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+      );
   }
 
   void _showLogs() {
@@ -264,7 +299,10 @@ class _MainScreenState extends ConsumerState<MainScreen> {
                   final line = lines[i];
                   return Padding(
                     padding: const EdgeInsets.symmetric(vertical: 2),
-                    child: Text(line, style: AppTextStyles.logLine(color: _logColor(line))),
+                    child: Text(
+                      line,
+                      style: AppTextStyles.logLine(color: _logColor(line)),
+                    ),
                   );
                 },
               ),
@@ -386,6 +424,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
   Widget build(BuildContext context) {
     final cs = ref.watch(connectionStateProvider);
     final selected = ref.watch(selectedServerProvider);
+    final exitIp = ref.watch(exitIpProvider);
     final status = cs.status;
 
     // Push server picks into the controller.
@@ -436,10 +475,15 @@ class _MainScreenState extends ConsumerState<MainScreen> {
                         IconButton(
                           onPressed: _showLogs,
                           tooltip: 'Logs',
-                          icon: const Icon(Icons.terminal,
-                              color: AppColors.steel, size: 22),
+                          icon: const Icon(
+                            Icons.terminal,
+                            color: AppColors.steel,
+                            size: 22,
+                          ),
                           constraints: const BoxConstraints(
-                              minWidth: 44, minHeight: 44),
+                            minWidth: 44,
+                            minHeight: 44,
+                          ),
                         ),
                       ],
                     ),
@@ -487,7 +531,9 @@ class _MainScreenState extends ConsumerState<MainScreen> {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: AppTextStyles.monoValue(
-                              size: 11, color: AppColors.steel),
+                            size: 11,
+                            color: AppColors.steel,
+                          ),
                         ),
                       ],
                     ),
@@ -528,72 +574,131 @@ class _MainScreenState extends ConsumerState<MainScreen> {
                     delayMs: 140,
                     child: Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 14),
+                        horizontal: 16,
+                        vertical: 14,
+                      ),
                       decoration: BoxDecoration(
                         color: AppColors.surface.withValues(alpha: 0.85),
                         borderRadius: BorderRadius.circular(16),
                         border: Border.all(color: AppColors.hairline),
                       ),
-                      child: IntrinsicHeight(
-                        child: Row(
-                          children: [
-                            Expanded(
-                              flex: 16,
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text('SESSION',
-                                      style: AppTextStyles.microLabel()),
-                                  const SizedBox(height: 6),
-                                  Text(_sessionLabel,
-                                      style: AppTextStyles.metric(size: 20)),
-                                ],
-                              ),
-                            ),
-                            Container(
-                              width: 1,
-                              color: AppColors.hairline,
-                            ),
-                            Expanded(
-                              flex: 10,
-                              child: Padding(
-                                padding: const EdgeInsets.only(left: 16),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text('DOWN',
-                                        style: AppTextStyles.microLabel()),
-                                    const SizedBox(height: 6),
-                                    Row(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          IntrinsicHeight(
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  flex: 16,
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'SESSION',
+                                        style: AppTextStyles.microLabel(),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Text(
+                                        _sessionLabel,
+                                        style: AppTextStyles.metric(size: 20),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Container(width: 1, color: AppColors.hairline),
+                                Expanded(
+                                  flex: 10,
+                                  child: Padding(
+                                    padding: const EdgeInsets.only(left: 16),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
-                                        const Icon(Icons.arrow_downward,
-                                            size: 14,
-                                            color: AppColors.emerald),
-                                        const SizedBox(width: 5),
                                         Text(
-                                          _rateLabel,
-                                          style: AppTextStyles.metric(
-                                              size: 20,
-                                              color: AppColors.emerald),
+                                          'DOWN',
+                                          style: AppTextStyles.microLabel(),
+                                        ),
+                                        const SizedBox(height: 6),
+                                        Row(
+                                          children: [
+                                            const Icon(
+                                              Icons.arrow_downward,
+                                              size: 14,
+                                              color: AppColors.emerald,
+                                            ),
+                                            const SizedBox(width: 5),
+                                            Text(
+                                              _rateLabel,
+                                              style: AppTextStyles.metric(
+                                                size: 20,
+                                                color: AppColors.emerald,
+                                              ),
+                                            ),
+                                          ],
                                         ),
                                       ],
                                     ),
-                                  ],
+                                  ),
                                 ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          Container(height: 1, color: AppColors.hairline),
+                          const SizedBox(height: 12),
+                          Semantics(
+                            button: exitIp != null,
+                            label: exitIp == null
+                                ? 'Exit IP unavailable'
+                                : 'Exit IP ${exitIp.ip}, double tap to copy',
+                            child: GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onTap: exitIp == null ? null : _copyExitIp,
+                              child: Row(
+                                children: [
+                                  Text(
+                                    exitIp == null || exitIp.loc.isEmpty
+                                        ? 'EXIT IP'
+                                        : 'EXIT IP · ${exitIp.loc.toUpperCase()}',
+                                    style: AppTextStyles.microLabel(
+                                      color: exitIp == null
+                                          ? AppColors.mute
+                                          : AppColors.steel,
+                                    ),
+                                  ),
+                                  const Spacer(),
+                                  Text(
+                                    exitIp?.ip ?? '—',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: AppTextStyles.monoValue(
+                                      size: 15,
+                                      color: exitIp == null
+                                          ? AppColors.mute
+                                          : AppColors.ink,
+                                    ),
+                                  ),
+                                  if (exitIp != null) ...[
+                                    const SizedBox(width: 6),
+                                    const Icon(
+                                      Icons.copy_rounded,
+                                      size: 12,
+                                      color: AppColors.mute,
+                                    ),
+                                  ],
+                                ],
                               ),
                             ),
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
                   const SizedBox(height: 12),
 
                   // ---- Server pill ------------------------------------
-                  StaggeredIn(
-                    delayMs: 200,
-                    child: _serverPill(selected),
-                  ),
+                  StaggeredIn(delayMs: 200, child: _serverPill(selected)),
 
                   // ---- Nav clearance ----------------------------------
                   const SizedBox(height: 96),
@@ -643,8 +748,8 @@ class _MainScreenState extends ConsumerState<MainScreen> {
     final flagCode = selected == null
         ? null
         : (selected.countryShort.toLowerCase().length == 2
-            ? selected.countryShort.toLowerCase()
-            : 'xx');
+              ? selected.countryShort.toLowerCase()
+              : 'xx');
     return GestureDetector(
       onTap: () => showServerSheet(context),
       behavior: HitTestBehavior.opaque,
@@ -664,8 +769,11 @@ class _MainScreenState extends ConsumerState<MainScreen> {
                 child: SvgPicture.asset(
                   'assets/flags/$flagCode.svg',
                   fit: BoxFit.contain,
-                  errorBuilder: (_, __, ___) => const Icon(Icons.public,
-                      size: 20, color: AppColors.steel),
+                  errorBuilder: (_, __, ___) => const Icon(
+                    Icons.public,
+                    size: 20,
+                    color: AppColors.steel,
+                  ),
                 ),
               )
             else
@@ -691,7 +799,9 @@ class _MainScreenState extends ConsumerState<MainScreen> {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: AppTextStyles.monoValue(
-                        size: 11, color: AppColors.mute),
+                      size: 11,
+                      color: AppColors.mute,
+                    ),
                   ),
                 ],
               ),
@@ -701,22 +811,24 @@ class _MainScreenState extends ConsumerState<MainScreen> {
               Text(
                 '${selected.ping} ms',
                 style: AppTextStyles.monoValue(
-                    size: 12, color: AppColors.steel),
+                  size: 12,
+                  color: AppColors.steel,
+                ),
               )
             else
               Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 7, vertical: 3),
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
                 decoration: BoxDecoration(
                   color: AppColors.amberTint,
                   borderRadius: BorderRadius.circular(6),
                 ),
-                child: Text('AUTO',
-                    style: AppTextStyles.microLabel(color: AppColors.amber)),
+                child: Text(
+                  'AUTO',
+                  style: AppTextStyles.microLabel(color: AppColors.amber),
+                ),
               ),
             const SizedBox(width: 6),
-            const Icon(Icons.chevron_right,
-                size: 18, color: AppColors.mute),
+            const Icon(Icons.chevron_right, size: 18, color: AppColors.mute),
           ],
         ),
       ),

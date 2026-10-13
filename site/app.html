@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>The app — BULBVPN</title>
+  <meta name="description" content="Screens, servers, speed and settings: what the BULBVPN Android app puts in front of you — plus live community endpoints and download links.">
+  <meta name="theme-color" content="#0A0D14">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="BULBVPN">
+  <meta property="og:title" content="The app — BULBVPN">
+  <meta property="og:description" content="Four screens, one button: connect, verify your exit IP, check throughput, read the log.">
+  <meta property="og:url" content="https://bulbvpn-e9b4c.web.app/app">
+  <meta property="og:image" content="https://bulbvpn-e9b4c.web.app/assets/screenshots/connected.webp">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500&family=Outfit:wght@300;400;500;600;700&display=swap">
+  <script>document.documentElement.classList.add("js")</script>
+  <link rel="stylesheet" href="assets/css/main.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="container">
+      <a class="wordmark" href="index.html">BULB<span class="v">VPN</span>
+        <span class="tag">SECURE TUNNEL</span>
+      </a>
+      <nav class="nav" aria-label="Primary">
+        <a href="index.html">Introduction</a>
+        <a href="app.html" aria-current="page">The app</a>
+        <a href="privacy.html">Privacy</a>
+        <a href="terms.html">Terms</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="doc-hero">
+      <div class="container">
+        <span class="eyebrow">The app</span>
+        <h1>Four screens,<br>one button.</h1>
+        <p class="lead">
+          The Android build is deliberately short on menus. Home owns the tunnel
+          and your exit IP; a bottom sheet owns the server list; speed and
+          settings sit one tap away in the navigation bar.
+        </p>
+        <div class="doc-meta">
+          <span>Platform · Android</span>
+          <span>Core · OpenVPN</span>
+          <span>Build · Open source</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="screens-title">
+      <div class="container">
+        <div class="section-head reveal">
+          <div>
+            <span class="eyebrow">Screens</span>
+            <h2 id="screens-title">Captured from a running build.</h2>
+          </div>
+          <p>
+            Not mock-ups — every frame below is a screenshot of the actual app
+            connected to a live community endpoint on Android.
+          </p>
+        </div>
+
+        <div class="gallery">
+          <figure class="shot wide reveal">
+            <div class="phone">
+              <img src="assets/screenshots/standby.webp" width="720" height="1600"
+                   alt="Home screen in standby: connect orb, server pill, empty exit IP slot" loading="lazy">
+            </div>
+            <figcaption><span>Standby</span><span class="no">01</span></figcaption>
+          </figure>
+
+          <figure class="shot wide offset reveal">
+            <div class="phone">
+              <img src="assets/screenshots/connected.webp" width="720" height="1600"
+                   alt="Connected: exit IP with country and copy action shown on the home screen" loading="lazy">
+            </div>
+            <figcaption><span>Connected · exit IP</span><span class="no">02</span></figcaption>
+          </figure>
+
+          <figure class="shot reveal">
+            <div class="phone">
+              <img src="assets/screenshots/servers.webp" width="720" height="1600"
+                   alt="Server sheet listing community endpoints with flags and latency" loading="lazy">
+            </div>
+            <figcaption><span>Servers</span><span class="no">03</span></figcaption>
+          </figure>
+
+          <figure class="shot reveal">
+            <div class="phone">
+              <img src="assets/screenshots/speed-idle.webp" width="720" height="1600"
+                   alt="Speed test screen before running: gauge and metric slots" loading="lazy">
+            </div>
+            <figcaption><span>Speed test</span><span class="no">04</span></figcaption>
+          </figure>
+
+          <figure class="shot reveal">
+            <div class="phone">
+              <img src="assets/screenshots/speed-results.webp" width="720" height="1166"
+                   alt="Speed test results: download, upload, ping, latency, packet loss and jitter" loading="lazy">
+            </div>
+            <figcaption><span>Results</span><span class="no">05</span></figcaption>
+          </figure>
+
+          <figure class="shot reveal">
+            <div class="phone">
+              <img src="assets/screenshots/settings.webp" width="720" height="1600"
+                   alt="Settings screen with preferences and legal links section" loading="lazy">
+            </div>
+            <figcaption><span>Settings</span><span class="no">06</span></figcaption>
+          </figure>
+        </div>
+      </div>
+    </section>
+
+    <section class="section section-tint" aria-labelledby="features-title">
+      <div class="container">
+        <div class="section-head reveal">
+          <div>
+            <span class="eyebrow">Features</span>
+            <h2 id="features-title">What each screen actually does.</h2>
+          </div>
+          <p>
+            A feature list you can verify against the screenshots above — and,
+            if you want the implementation, against the source.
+          </p>
+        </div>
+
+        <div class="bento">
+          <div class="card span-4 accent-edge reveal">
+            <span class="k">Home · the orb</span>
+            <h3>One control for the whole tunnel</h3>
+            <p>
+              Tap to connect, tap to disconnect. Around it: live connection state
+              with staged statuses, the selected server pill, and — once the
+              tunnel is up — the exit IP block with a copy action that confirms
+              itself with a toast.
+            </p>
+          </div>
+
+          <div class="card span-2 reveal">
+            <span class="k">Home · exit IP</span>
+            <h3>Proof, not a padlock</h3>
+            <p>
+              Country flag, public address, one tap to copy. A failed lookup
+              leaves the slot empty rather than guessing.
+            </p>
+          </div>
+
+          <div class="card span-2 reveal">
+            <span class="k">Sheet · servers</span>
+            <h3>The endpoint list</h3>
+            <p>
+              Flags, host names, countries and latency for every live community
+              node — refreshed from the public mirror each time you open it.
+            </p>
+          </div>
+
+          <div class="card span-2 reveal">
+            <span class="k">Speed · probes</span>
+            <h3>Eight real measurements</h3>
+            <p>
+              Latency packets, staged download and upload passes against
+              Cloudflare — reported as ping, jitter, packet loss, and throughput.
+            </p>
+          </div>
+
+          <div class="card span-2 reveal">
+            <span class="k">Speed · honesty</span>
+            <h3>Instability is reported</h3>
+            <p>
+              If the connection degrades mid-test, the app says so instead of
+              publishing an optimistic number.
+            </p>
+          </div>
+
+          <div class="card span-4 reveal">
+            <span class="k">Session · the tape</span>
+            <h3>A plain-text log, on the device</h3>
+            <p>
+              Initialization, server selection, handshake, state transitions,
+              errors — appended line by line during the session and kept local.
+              When something misbehaves, you can read exactly what the tunnel
+              did, and share it in a bug report without exporting personal data.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="servers-title" id="servers">
+      <div class="container">
+        <div class="section-head reveal">
+          <div>
+            <span class="eyebrow">Endpoints</span>
+            <h2 id="servers-title">Live community servers.</h2>
+          </div>
+          <p>
+            The list below is fetched live from the same public mirror the app
+            uses — <span class="mono"><span data-server-count>96</span> nodes</span>
+            at last check, sorted by latency. Endpoints are run by the VPN Gate
+            community; see the <a href="privacy.html">privacy policy</a> for what
+            that means for your traffic.
+          </p>
+        </div>
+
+        <div class="servers-panel reveal">
+          <div class="servers-note">
+            <span class="live">Live from public mirror</span>
+            <span>Fastest 8 of <span data-server-count>96</span></span>
+          </div>
+          <div class="server-row head" role="row">
+            <span></span>
+            <span>Host</span>
+            <span>Location</span>
+            <span class="num">Ping</span>
+            <span class="num sessions">Sessions</span>
+          </div>
+          <div data-server-rows role="rowgroup" aria-live="polite"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="cta-band" aria-labelledby="dl-title" id="downloads">
+      <div class="container reveal">
+        <span class="eyebrow">Get it</span>
+        <h2 id="dl-title">Download, or build it yourself.</h2>
+        <p class="lead">
+          Signed release builds will appear here when they are published. Until
+          then the full source — Gradle project included — is on GitHub.
+        </p>
+        <div class="downloads">
+          <span data-download="android"></span>
+          <a class="btn btn-ghost" href="https://github.com/hasanabbassorathiya/BULBVPN" rel="noopener">View source</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <div class="footer-grid">
+        <div class="footer-brand">
+          <a class="wordmark" href="index.html">BULB<span class="v">VPN</span>
+            <span class="tag">SECURE TUNNEL</span>
+          </a>
+          <p>
+            A lean Android VPN that shows its work: exit IP on screen, session
+            logs on device, open source on GitHub.
+          </p>
+        </div>
+        <div class="footer-col">
+          <div class="label">Product</div>
+          <a href="index.html">Introduction</a>
+          <a href="app.html">The app</a>
+          <a href="#downloads">Download</a>
+        </div>
+        <div class="footer-col">
+          <div class="label">Legal</div>
+          <a href="privacy.html">Privacy policy</a>
+          <a href="terms.html">Terms</a>
+        </div>
+        <div class="footer-col">
+          <div class="label">Source</div>
+          <a href="https://github.com/hasanabbassorathiya/BULBVPN" rel="noopener">GitHub repository</a>
+          <a href="https://github.com/hasanabbassorathiya/BULBVPN/issues" rel="noopener">Issues</a>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <span>© <span data-year>2026</span> BULBVPN</span>
+        <span>bulbvpn-e9b4c.web.app · Firebase Hosting</span>
+      </div>
+    </div>
+  </footer>
+
+  <script src="assets/js/main.js" defer></script>
+</body>
+</html>

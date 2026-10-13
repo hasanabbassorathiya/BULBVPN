@@ -1,1 +1,58 @@
-{"flutter":{"platforms":{"android":{"default":{"projectId":"bulbvpn-e9b4c","appId":"1:1068168730517:android:1654ddc98deb74e3e5c89c","fileOutput":"android/app/google-services.json"}},"ios":{"default":{"projectId":"bulbvpn-e9b4c","appId":"1:1068168730517:ios:da1096f11ed437fbe5c89c","uploadDebugSymbols":false,"fileOutput":"ios/Runner/GoogleService-Info.plist"}},"dart":{"lib/firebase_options.dart":{"projectId":"bulbvpn-e9b4c","configurations":{"android":"1:1068168730517:android:1654ddc98deb74e3e5c89c","ios":"1:1068168730517:ios:da1096f11ed437fbe5c89c"}}}}}}
+{
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "bulbvpn-e9b4c",
+          "appId": "1:1068168730517:android:1654ddc98deb74e3e5c89c",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "ios": {
+        "default": {
+          "projectId": "bulbvpn-e9b4c",
+          "appId": "1:1068168730517:ios:da1096f11ed437fbe5c89c",
+          "uploadDebugSymbols": false,
+          "fileOutput": "ios/Runner/GoogleService-Info.plist"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "bulbvpn-e9b4c",
+          "configurations": {
+            "android": "1:1068168730517:android:1654ddc98deb74e3e5c89c",
+            "ios": "1:1068168730517:ios:da1096f11ed437fbe5c89c"
+          }
+        }
+      }
+    }
+  },
+  "hosting": {
+    "public": "site",
+    "cleanUrls": true,
+    "trailingSlash": false,
+    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+    "headers": [
+      {
+        "source": "**/*.@(webp|png|jpg|svg|css|js|woff2)",
+        "headers": [
+          { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+        ]
+      },
+      {
+        "source": "**/*.html",
+        "headers": [
+          { "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }
+        ]
+      },
+      {
+        "source": "**",
+        "headers": [
+          { "key": "X-Content-Type-Options", "value": "nosniff" },
+          { "key": "X-Frame-Options", "value": "DENY" },
+          { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" }
+        ]
+      }
+    ]
+  }
+}

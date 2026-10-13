@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import '../../providers/settings_provider.dart';
+import '../widgets/legal_links_section.dart';
 import '../widgets/settings_group_widget.dart';
 
 class SettingsScreen extends ConsumerWidget {
@@ -21,19 +22,20 @@ class SettingsScreen extends ConsumerWidget {
         bottom: false,
         child: Center(
           child: ConstrainedBox(
-              constraints: BoxConstraints(maxWidth: 393.w),
-              child: Padding(
-                padding: EdgeInsets.symmetric(horizontal: 24.w),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    SizedBox(height: 28.h),
-                    _buildHeaderSection(),
-                    SizedBox(height: 32.h),
-                    _buildSettingsContent(ref),
-                  ],
-                ),
-              )),
+            constraints: BoxConstraints(maxWidth: 393.w),
+            child: SingleChildScrollView(
+              padding: EdgeInsets.fromLTRB(24.w, 0, 24.w, 120.h),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  SizedBox(height: 28.h),
+                  _buildHeaderSection(),
+                  SizedBox(height: 32.h),
+                  _buildSettingsContent(ref),
+                ],
+              ),
+            ),
+          ),
         ),
       ),
     );
@@ -44,10 +46,7 @@ class SettingsScreen extends ConsumerWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(
-          'CONFIGURATION',
-          style: AppTextStyles.microLabel(),
-        ),
+        Text('CONFIGURATION', style: AppTextStyles.microLabel()),
         const SizedBox(height: 8),
         Text(
           'Settings',
@@ -68,8 +67,10 @@ class SettingsScreen extends ConsumerWidget {
     final settingsNotifier = ref.read(settingsProvider.notifier);
 
     return Column(
-      children: settings
-          .map((group) => SettingsGroupWidget(
+      children: [
+        ...settings
+            .map(
+              (group) => SettingsGroupWidget(
                 key: ValueKey(group.id),
                 group: group,
                 showSeparators: group.id == 'connection_method',
@@ -78,7 +79,10 @@ class SettingsScreen extends ConsumerWidget {
                 },
                 onReorder: group.id == 'connection_method'
                     ? (oldIndex, newIndex) {
-                        settingsNotifier.reorderConnectionMethodItems(oldIndex, newIndex);
+                        settingsNotifier.reorderConnectionMethodItems(
+                          oldIndex,
+                          newIndex,
+                        );
                       }
                     : null,
                 onReset: group.id == 'connection_method'
@@ -86,8 +90,10 @@ class SettingsScreen extends ConsumerWidget {
                         settingsNotifier.resetConnectionMethodToDefault();
                       }
                     : null,
-              ))
-          .toList(),
+              ),
+            ),
+        const LegalLinksSection(),
+      ],
     );
   }
 }

@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Privacy policy — BULBVPN</title>
+  <meta name="description" content="What BULBVPN collects, what it connects to, and what community VPN endpoints can see. No accounts, no browsing logs uploaded.">
+  <meta name="theme-color" content="#0A0D14">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="BULBVPN">
+  <meta property="og:title" content="Privacy policy — BULBVPN">
+  <meta property="og:description" content="No accounts, no browsing logs uploaded — and an itemised list of every remote service the app talks to.">
+  <meta property="og:url" content="https://bulbvpn-e9b4c.web.app/privacy">
+  <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500&family=Outfit:wght@300;400;500;600;700&display=swap">
+  <script>document.documentElement.classList.add("js")</script>
+  <link rel="stylesheet" href="assets/css/main.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="container">
+      <a class="wordmark" href="index.html">BULB<span class="v">VPN</span>
+        <span class="tag">SECURE TUNNEL</span>
+      </a>
+      <nav class="nav" aria-label="Primary">
+        <a href="index.html">Introduction</a>
+        <a href="app.html">The app</a>
+        <a href="privacy.html" aria-current="page">Privacy</a>
+        <a href="terms.html">Terms</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="doc-hero">
+      <div class="container">
+        <span class="eyebrow">Legal</span>
+        <h1>Privacy policy</h1>
+        <p class="lead">
+          The short version: the app has no accounts, does not upload your
+          browsing history, and keeps its session log on your device. It does
+          talk to a small, fixed set of remote services — each named below — and
+          routes your traffic through community-run VPN servers.
+        </p>
+        <div class="doc-meta">
+          <span>Effective · 13 October 2026</span>
+          <span>Applies to · BULBVPN Android app &amp; this website</span>
+        </div>
+      </div>
+    </section>
+
+    <div class="container doc-layout">
+      <nav class="doc-toc" aria-label="On this page">
+        <span class="toc-label">On this page</span>
+        <a href="#scope">Scope</a>
+        <a href="#collect">What we collect</a>
+        <a href="#analytics">Analytics events</a>
+        <a href="#network">Remote services</a>
+        <a href="#endpoints">Community endpoints</a>
+        <a href="#logs">Session logs</a>
+        <a href="#website">This website</a>
+        <a href="#children">Children</a>
+        <a href="#changes">Changes</a>
+        <a href="#contact">Contact</a>
+      </nav>
+
+      <article class="doc-body">
+        <h2 id="scope">1. Scope</h2>
+        <p>
+          This policy covers the BULBVPN Android application and this website,
+          operated by the BULBVPN project ("we"). It describes what information
+          is processed when you install the app, connect to a VPN endpoint,
+          run a speed test, or browse this site.
+        </p>
+        <p>
+          BULBVPN does not require an account. We do not know who you are, and
+          we do not want to find out.
+        </p>
+
+        <h2 id="collect">2. What we collect</h2>
+        <p>We collect only the following categories of information:</p>
+        <ul>
+          <li>
+            <strong>Usage events via Firebase Analytics</strong> — how the app's
+            connection features are used, described in section 3.
+          </li>
+          <li>
+            <strong>Standard Google Play / Firebase technical data</strong> —
+            such as app version, device model, operating system version, and
+            crash diagnostics that Google processes on our behalf under the
+            Google Privacy Policy.
+          </li>
+          <li>
+            <strong>Your public IP address, transiently</strong> — when the app
+            looks up your post-connection exit IP (section 4), that lookup is
+            performed by Cloudflare; we store no result beyond rendering it on
+            your screen.
+          </li>
+        </ul>
+        <div class="callout">
+          We do <strong>not</strong> collect: your name, email, phone number,
+          payment details (there is no billing), the domains or addresses you
+          visit through the tunnel, DNS queries, or the contents of any traffic.
+        </div>
+
+        <h2 id="analytics">3. Analytics events</h2>
+        <p>
+          The app integrates <strong>Firebase Analytics</strong> (Google
+          Ireland Limited, governed by the Google Privacy Policy). The
+          following events may be sent:
+        </p>
+        <table class="event-table">
+          <thead>
+            <tr><th>Event</th><th>Payload</th><th>When</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>vpn_connect_attempt</td>
+              <td>connection method</td>
+              <td>You tap connect</td>
+            </tr>
+            <tr>
+              <td>vpn_connected</td>
+              <td>connection method, server name, connection duration</td>
+              <td>Tunnel established / closed</td>
+            </tr>
+            <tr>
+              <td>vpn_disconnected</td>
+              <td>—</td>
+              <td>You disconnect</td>
+            </tr>
+            <tr>
+              <td>connection_method_changed</td>
+              <td>new method</td>
+              <td>You change connection preferences</td>
+            </tr>
+            <tr>
+              <td>server_selected</td>
+              <td>server name</td>
+              <td>You pick a server from the list</td>
+            </tr>
+          </tbody>
+        </table>
+        <p>
+          You can limit or reset analytics at any time through the Android
+          system settings for Google Play Services, or by using Google's
+          Ads Settings and My Activity controls.
+        </p>
+
+        <h2 id="network">4. Remote services the app contacts</h2>
+        <p>Beyond the VPN tunnel itself, the app makes outbound requests to exactly these kinds of services:</p>
+        <ul>
+          <li>
+            <strong>Server list mirror</strong> — a public JSON file on
+            GitHub's raw content CDN
+            (<code>raw.githubusercontent.com</code>) containing community
+            VPN Gate server records (host name, country, IP, latency, session
+            counts, operator notes, and OpenVPN profiles). Fetched on each
+            connection or list refresh.
+          </li>
+          <li>
+            <strong>Exit-IP lookup</strong> —
+            <code>www.cloudflare.com/cdn-cgi/trace</code>, which returns the
+            public address and network attributes of the connection leaving the
+            tunnel. Used solely to display your exit IP on the home screen.
+          </li>
+          <li>
+            <strong>Speed measurement</strong> —
+            <code>speed.cloudflare.com</code>, contacted while a throughput test
+            runs. Payload: timing samples of synthetic download/upload
+            requests. No identifiers are attached.
+          </li>
+          <li>
+            <strong>Connectivity probe</strong> —
+            <code>www.google.com/generate_204</code>, a standard Android-style
+            reachability check used to decide whether the network is online.
+          </li>
+          <li>
+            <strong>VPN endpoints</strong> — the community servers you connect
+            through; see section 5.
+          </li>
+        </ul>
+
+        <h2 id="endpoints">5. Community VPN endpoints</h2>
+        <div class="callout">
+          BULBVPN connects you to <strong>third-party community servers</strong>
+          from the VPN Gate project. These operators are independent of us and
+          can observe that traffic is passing through their machine — including
+          your incoming IP address and the destination addresses of your
+          traffic. Choose endpoints accordingly.
+        </div>
+        <ul>
+          <li>
+            Endpoint metadata (operator name, country, uptime, public stats)
+            comes from the public VPN Gate dataset and may be attributed to the
+            community operator who published it.
+          </li>
+          <li>
+            Server availability, latency, and trustworthiness vary; the app
+            shows this data so you can decide where to connect.
+          </li>
+          <li>
+            While tunneled, websites you visit see the endpoint's address
+            instead of yours — that is the point of the product — but they are
+            still the sites you visit, under their own privacy policies.
+          </li>
+        </ul>
+
+        <h2 id="logs">6. Session logs</h2>
+        <p>
+          The app maintains a plain-text log of connection events (initialization,
+          server selection, handshake progress, state changes, errors) in memory
+          on your device for the duration of the session. It is not uploaded to
+          us. If you attach a log to a bug report voluntarily, you do so
+          yourself, and the report may include the server IP you connected
+          through — review it before posting.
+        </p>
+
+        <h2 id="website">7. This website</h2>
+        <ul>
+          <li>
+            <strong>No tracking cookies.</strong> Firebase Hosting serves these
+            pages; it does not set analytics cookies of its own.
+          </li>
+          <li>
+            <strong>Live server list.</strong> Your browser fetches the same
+            public server-list JSON from GitHub's CDN when you open the app
+            page; the response is cached in your browser's local storage for
+            six hours to avoid refetching.
+          </li>
+          <li>
+            <strong>Fonts.</strong> Google Fonts serves the typefaces used on
+            these pages; standard IP-level processing applies under Google's
+            policies.
+          </li>
+        </ul>
+
+        <h2 id="children">8. Children</h2>
+        <p>
+          The app and this site are not directed at children under 13 (or the
+          equivalent minimum age in your jurisdiction), and we do not
+          knowingly collect data from them.
+        </p>
+
+        <h2 id="changes">9. Changes</h2>
+        <p>
+          If the app's data practices change — new events, new remote
+          services, new SDKs — this policy will be updated and the effective
+          date revised. Continued use after a revision means you accept the
+          updated policy.
+        </p>
+
+        <h2 id="contact">10. Contact</h2>
+        <p>
+          Questions about this policy can be raised through the project's
+          public issue tracker on
+          <a href="https://github.com/hasanabbassorathiya/BULBVPN/issues" rel="noopener">GitHub</a>
+          or via the contact channels listed by the project at
+          <a href="https://defyxvpn.com/contact" rel="noopener">defyxvpn.com/contact</a>.
+        </p>
+      </article>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <div class="footer-grid">
+        <div class="footer-brand">
+          <a class="wordmark" href="index.html">BULB<span class="v">VPN</span>
+            <span class="tag">SECURE TUNNEL</span>
+          </a>
+          <p>
+            A lean Android VPN that shows its work: exit IP on screen, session
+            logs on device, open source on GitHub.
+          </p>
+        </div>
+        <div class="footer-col">
+          <div class="label">Product</div>
+          <a href="index.html">Introduction</a>
+          <a href="app.html">The app</a>
+          <a href="app.html#downloads">Download</a>
+        </div>
+        <div class="footer-col">
+          <div class="label">Legal</div>
+          <a href="privacy.html">Privacy policy</a>
+          <a href="terms.html">Terms</a>
+        </div>
+        <div class="footer-col">
+          <div class="label">Source</div>
+          <a href="https://github.com/hasanabbassorathiya/BULBVPN" rel="noopener">GitHub repository</a>
+          <a href="https://github.com/hasanabbassorathiya/BULBVPN/issues" rel="noopener">Issues</a>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <span>© <span data-year>2026</span> BULBVPN</span>
+        <span>bulbvpn-e9b4c.web.app · Firebase Hosting</span>
+      </div>
+    </div>
+  </footer>
+
+  <script src="assets/js/main.js" defer></script>
+</body>
+</html>

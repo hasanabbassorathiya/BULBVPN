@@ -1,3 +1,4 @@
+import 'package:bulbvpn/app/links.dart';
 import 'package:bulbvpn/core/theme/app_colors.dart';
 import 'package:bulbvpn/core/theme/app_icons.dart';
 import 'package:bulbvpn/shared/layout/navbar/widgets/custom_webview_screen.dart';
@@ -77,7 +78,7 @@ class _QuickMenuDialogState extends State<QuickMenuDialog> {
                           Navigator.of(context).push(
                             MaterialPageRoute(
                               builder: (context) => const CustomWebViewScreen(
-                                url: 'https://defyxvpn.com/privacy-policy',
+                                url: AppLinks.privacy,
                                 title: 'Privacy Policy',
                               ),
                             ),
@@ -92,7 +93,7 @@ class _QuickMenuDialogState extends State<QuickMenuDialog> {
                           Navigator.of(context).push(
                             MaterialPageRoute(
                               builder: (context) => const CustomWebViewScreen(
-                                url: 'https://defyxvpn.com/terms-and-conditions',
+                                url: AppLinks.terms,
                                 title: 'Terms & Conditions',
                               ),
                             ),
