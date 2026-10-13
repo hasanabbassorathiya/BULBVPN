@@ -1,14 +1,13 @@
 import 'package:bulbvpn/app/links.dart';
 import 'package:bulbvpn/core/theme/app_colors.dart';
-import 'package:bulbvpn/core/theme/app_icons.dart';
 import 'package:bulbvpn/shared/layout/navbar/widgets/custom_webview_screen.dart';
 import 'package:bulbvpn/shared/layout/navbar/widgets/introduction_dialog.dart';
 import 'package:bulbvpn/shared/layout/navbar/widgets/quick_menu_item.dart';
-import 'package:bulbvpn/shared/layout/navbar/widgets/social_icon_button.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class QuickMenuDialog extends StatefulWidget {
   const QuickMenuDialog({super.key});
@@ -101,43 +100,6 @@ class _QuickMenuDialogState extends State<QuickMenuDialog> {
                         },
                       ),
                       Divider(height: 1.h, thickness: 1, color: AppColors.hairline),
-                      SizedBox(
-                        height: 44,
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                          children: [
-                            SocialIconButton(
-                              iconPath: AppIcons.telegramPath,
-                              url: 'https://t.me/defyxvpn',
-                              iconWidth: 17.w,
-                              iconHeight: 17.w,
-                            ),
-                            SocialIconButton(
-                              iconPath: AppIcons.instagramPath,
-                              url: 'https://instagram.com/defyxvpn',
-                              iconWidth: 24.w,
-                              iconHeight: 24.w,
-                            ),
-                            SocialIconButton(
-                              iconPath: AppIcons.xPath,
-                              url: 'https://x.com/defyxvpn',
-                              iconWidth: 20.w,
-                              iconHeight: 20.w,
-                            ),
-                            SocialIconButton(
-                              iconPath: AppIcons.facebookPath,
-                              url: 'https://fb.com/defyxvpn',
-                              enable: false,
-                            ),
-                            SocialIconButton(
-                              iconPath: AppIcons.linkedinPath,
-                              url: 'https://linkedin.com/company/defyxvpn',
-                              enable: false,
-                            ),
-                          ],
-                        ),
-                      ),
-                      Divider(height: 1.h, thickness: 1, color: AppColors.hairline),
                       QuickMenuItem(
                         title: 'Our Website',
                         onTap: () {
@@ -145,10 +107,21 @@ class _QuickMenuDialogState extends State<QuickMenuDialog> {
                           Navigator.of(context).push(
                             MaterialPageRoute(
                               builder: (context) => const CustomWebViewScreen(
-                                url: 'https://defyxvpn.com/contact',
+                                url: AppLinks.website,
                                 title: 'Our Website',
                               ),
                             ),
+                          );
+                        },
+                      ),
+                      Divider(height: 1.h, thickness: 1, color: AppColors.hairline),
+                      QuickMenuItem(
+                        title: 'Contact Us',
+                        onTap: () {
+                          Navigator.of(context).pop();
+                          launchUrl(
+                            Uri.parse('mailto:${AppLinks.contactEmail}'),
+                            mode: LaunchMode.externalApplication,
                           );
                         },
                       ),

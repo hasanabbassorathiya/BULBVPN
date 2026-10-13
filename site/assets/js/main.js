@@ -4,12 +4,11 @@
   "use strict";
 
   /* ------------------------------------------------------------------ *
-   * Download links. Left null until a signed build is published under
-   * GitHub Releases; buttons render as disabled "Coming soon" until then.
+   * Download links. Set each store URL once the app is published; buttons
+   * render as disabled "Coming soon" while null.
    * ------------------------------------------------------------------ */
   var DOWNLOADS = {
     android: null
-    // android: "https://github.com/hasanabbassorathiya/BULBVPN/releases/latest/download/BULBVPN.apk"
   };
 
   var SERVERS_API =

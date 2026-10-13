@@ -28,9 +28,9 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSDocumentsFolderUsageDescription</key>
-	<string>WARP needs access to store its configuration files</string>
+	<string>BULBVPN needs access to store its configuration files</string>
 	<key>NSVPNConfigurationUsageDescription</key>
-	<string>Defyx needs access to VPN configurations to secure your connection.</string>
+	<string>BULBVPN needs access to VPN configurations to secure your connection.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>
@@ -54,7 +54,7 @@
 	</array>
 	<key>com.apple.security.application-groups</key>
 	<array>
-		<string>group.de.unboundtech.defyxvpn</string>
+		<string>group.com.bulbvpn.app</string>
 	</array>
 </dict>
 </plist>

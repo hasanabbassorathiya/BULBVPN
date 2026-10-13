@@ -72,7 +72,6 @@ flutter:
     - assets/fonts/
     - assets/lottie/
     - assets/flags/
-    - assets/settings/config.json
     - .env
 
   fonts:

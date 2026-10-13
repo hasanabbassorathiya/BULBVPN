@@ -69,6 +69,12 @@ class LegalLinksSection extends StatelessWidget {
                 color: AppColors.hairline,
               ),
               _row(context, 'Website', AppLinks.website),
+              Container(
+                height: 1,
+                margin: EdgeInsets.symmetric(horizontal: 12.w),
+                color: AppColors.hairline,
+              ),
+              _row(context, 'Contact', 'mailto:${AppLinks.contactEmail}'),
             ],
           ),
         ),
