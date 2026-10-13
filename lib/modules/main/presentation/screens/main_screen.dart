@@ -1,22 +1,79 @@
-import 'package:defyx_vpn/modules/core/vpn.dart';
-import 'package:defyx_vpn/modules/core/vpn_bridge.dart';
-import 'package:defyx_vpn/modules/main/presentation/widgets/update_dialog_handler.dart';
-import 'package:defyx_vpn/modules/main/presentation/widgets/scroll_manager.dart';
-import 'package:defyx_vpn/modules/main/presentation/widgets/secret_tap_handler.dart';
-import 'package:defyx_vpn/modules/main/presentation/widgets/privacy_notice_dialog.dart';
-import 'package:defyx_vpn/modules/main/application/main_screen_provider.dart';
-import 'package:defyx_vpn/modules/main/presentation/widgets/connection_button.dart';
-import 'package:defyx_vpn/modules/main/presentation/widgets/google_ads.dart';
-import 'package:defyx_vpn/modules/main/presentation/widgets/dino.dart';
-import 'package:defyx_vpn/shared/layout/main_screen_background.dart';
-import 'package:defyx_vpn/modules/main/presentation/widgets/header_section.dart';
-import 'package:defyx_vpn/modules/main/presentation/widgets/tips_slider_section.dart';
-import 'package:defyx_vpn/shared/providers/connection_state_provider.dart';
-import 'package:defyx_vpn/shared/services/animation_service.dart';
+import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flame/game.dart';
-import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:flutter_svg/flutter_svg.dart';
+import 'package:http/http.dart' as http;
+import 'package:openvpn_flutter/openvpn_flutter.dart';
+import 'package:bulbvpn/core/theme/app_colors.dart';
+import 'package:bulbvpn/core/theme/app_text_styles.dart';
+import 'package:bulbvpn/modules/core/log.dart';
+import 'package:bulbvpn/modules/core/vpn_controller.dart';
+import 'package:bulbvpn/modules/main/presentation/widgets/bulb_orb.dart';
+import 'package:bulbvpn/modules/main/presentation/widgets/server_sheet.dart';
+import 'package:bulbvpn/shared/layout/main_screen_background.dart';
+import 'package:bulbvpn/shared/providers/connection_state_provider.dart';
+import 'package:bulbvpn/shared/widgets/staggered_in.dart';
+
+final log = Log();
+
+class VpnServer {
+  final String hostName;
+  final String ip;
+  final String countryLong;
+  final String countryShort;
+  final int score;
+  final int ping;
+  final int speed;
+  final int numVpnSessions;
+  final int uptime;
+  final String openVpnConfigBase64;
+
+  VpnServer({
+    required this.hostName,
+    required this.ip,
+    required this.countryLong,
+    required this.countryShort,
+    required this.score,
+    required this.ping,
+    required this.speed,
+    required this.numVpnSessions,
+    required this.uptime,
+    required this.openVpnConfigBase64,
+  });
+
+  factory VpnServer.fromJson(Map<String, dynamic> json) {
+    return VpnServer(
+      hostName: json['#HostName'] ?? '',
+      ip: json['IP'] ?? '',
+      countryLong: json['CountryLong'] ?? '',
+      countryShort: json['CountryShort'] ?? '',
+      score: int.tryParse(json['Score'] ?? '0') ?? 0,
+      ping: int.tryParse(json['Ping'] ?? '0') ?? 0,
+      speed: int.tryParse(json['Speed'] ?? '0') ?? 0,
+      numVpnSessions: int.tryParse(json['NumVpnSessions'] ?? '0') ?? 0,
+      uptime: int.tryParse(json['Uptime'] ?? '0') ?? 0,
+      openVpnConfigBase64: json['OpenVPN_ConfigData_Base64'] ?? '',
+    );
+  }
+
+  String get speedMbps => (speed / 1024 / 1024).toStringAsFixed(1);
+}
+
+final serversProvider = FutureProvider<List<VpnServer>>((ref) async {
+  const url = 'https://raw.githubusercontent.com/alihusains/apigate/main/response.json';
+  log.addLog('[MainScreen] Fetching servers from: $url');
+  final response = await http.get(Uri.parse(url));
+  log.addLog('[MainScreen] Response status: ${response.statusCode}, bytes: ${response.bodyBytes.length}');
+  if (response.statusCode == 200) {
+    final List<dynamic> data = json.decode(response.body);
+    final servers = data.map((json) => VpnServer.fromJson(json)).toList();
+    log.addLog('[MainScreen] Parsed ${servers.length} servers');
+    return servers;
+  }
+  log.addLog('[MainScreen] ERROR: Failed to load servers - status ${response.statusCode}');
+  throw Exception('Failed to load servers: ${response.statusCode}');
+});
 
 class MainScreen extends ConsumerStatefulWidget {
   const MainScreen({super.key});
@@ -26,227 +83,522 @@ class MainScreen extends ConsumerStatefulWidget {
 }
 
 class _MainScreenState extends ConsumerState<MainScreen> {
-  final ScrollController _scrollController = ScrollController();
-  final AnimationService _animationService = AnimationService();
-  bool _showHeaderShadow = false;
-  ConnectionStatus? _previousConnectionStatus;
-  bool? _previousShowCountdown;
-  late MainScreenLogic _logic;
-  late final GoogleAds _googleAds;
-  late ScrollManager _scrollManager;
-  late SecretTapHandler _secretTapHandler;
+  VpnController? _vpnController;
+  bool _vpnInitialized = false;
+  Timer? _ticker;
 
-  DinoGame? _dinoGame;
+  DateTime? _connectedAt;
+  int? _prevByteIn;
+  String _sessionLabel = '00:00:00';
+  String _rateLabel = '—';
 
   @override
   void initState() {
     super.initState();
-    _logic = MainScreenLogic(ref);
-    _scrollManager = ScrollManager(_scrollController);
-    _secretTapHandler = SecretTapHandler();
-
-    _googleAds = GoogleAds(
-      backgroundColor: const Color(0xFF19312F),
-      cornerRadius: 10.0.r,
-    );
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _logic.checkAndReconnect();
-      _logic.checkAndShowPrivacyNotice(_showPrivacyNoticeDialog);
-      _checkInitialConnectionState();
-
-      UpdateDialogHandler.checkAndShowUpdates(context, _logic.checkForUpdate);
-    });
+    log.addLog('[MainScreen] initState');
+    _ticker = Timer.periodic(const Duration(seconds: 1), (_) => _tick());
+    // Warm the server list so the sheet opens instantly.
+    Future.microtask(() => ref.read(serversProvider.future).catchError((_) => <VpnServer>[]));
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final connectionState = ref.read(connectionStateProvider);
-    if (_previousConnectionStatus != connectionState.status) {
-      _previousConnectionStatus = connectionState.status;
-      _handleConnectionStateChange(connectionState.status);
+    if (!_vpnInitialized) {
+      _vpnInitialized = true;
+      _initVpnController();
     }
   }
 
   @override
   void dispose() {
-    _scrollController.dispose();
-    if (_dinoGame != null) {
-      _dinoGame!.pauseEngine();
-      _dinoGame!.onRemove();
-      _dinoGame = null;
-    }
+    _ticker?.cancel();
     super.dispose();
   }
 
-  void _handleConnectionStateChange(ConnectionStatus status) {
-    // CRITICAL FIX: Check if widget is still mounted before setState
-    Future.delayed(const Duration(milliseconds: 300), () {
-      if (!mounted) return;
+  Future<void> _initVpnController() async {
+    log.addLog('[MainScreen] Initializing VPN controller...');
+    final container = ProviderScope.containerOf(context);
+    _vpnController = VpnController();
+    try {
+      await _vpnController!.initialize(container);
+      log.addLog('[MainScreen] VPN controller initialized successfully');
+      // Apply a server picked before the controller was ready.
+      final picked = ref.read(selectedServerProvider);
+      if (picked != null) _applyServerConfig(picked);
+    } catch (e, stackTrace) {
+      log.addLog('[MainScreen] VPN Controller init error: $e');
+      log.addLog('[MainScreen] Stack trace: $stackTrace');
+    }
+  }
 
-      final newShadowState = status == ConnectionStatus.connected;
-      if (_showHeaderShadow != newShadowState) {
-        setState(() {
-          _showHeaderShadow = newShadowState;
-        });
+  void _applyServerConfig(VpnServer server) {
+    final ctrl = _vpnController;
+    if (ctrl == null) return;
+    try {
+      final config = utf8.decode(base64.decode(server.openVpnConfigBase64));
+      ctrl.selectServerConfig(config, '${server.countryLong} · ${server.ip}');
+    } catch (e) {
+      log.addLog('[MainScreen] ERROR decoding server config: $e');
+      ref.read(selectedServerProvider.notifier).state = null;
+      ctrl.clearServerConfig();
+    }
+  }
+
+  void _tick() {
+    if (!mounted) return;
+    try {
+      _updateSession();
+    } on FlutterError {
+      // Element deactivated mid route transition; the next tick catches up.
+    }
+  }
+
+  void _updateSession() {
+    final cs = ref.read(connectionStateProvider);
+    if (cs.status == ConnectionStatus.connected) {
+      _connectedAt ??= DateTime.now();
+      final session =
+          formatDuration(DateTime.now().difference(_connectedAt!));
+      final byteIn = int.tryParse(cs.vpnStatus?.byteIn ?? '') ?? 0;
+      String rate = _rateLabel;
+      if (_prevByteIn != null && byteIn >= _prevByteIn!) {
+        rate = formatRate(byteIn - _prevByteIn!);
       }
-
-      if (status == ConnectionStatus.connected) {
-        _scrollManager.scrollToBottomWithRetry();
-      } else {
-        _scrollManager.scrollToTopWithRetry();
-      }
-    });
+      _prevByteIn = byteIn;
+      setState(() {
+        _sessionLabel = session;
+        _rateLabel = rate;
+      });
+    } else if (_connectedAt != null ||
+        _sessionLabel != '00:00:00' ||
+        _rateLabel != '—') {
+      _connectedAt = null;
+      _prevByteIn = null;
+      setState(() {
+        _sessionLabel = '00:00:00';
+        _rateLabel = '—';
+      });
+    }
   }
 
-  void _handleAdsStateChange(bool showCountdown) {
-    _scrollManager.handleAdsStateChange(showCountdown);
+  Future<void> _onConnectPressed() async {
+    log.addLog('[MainScreen] Orb pressed');
+    if (_vpnController == null) {
+      await _initVpnController();
+    }
+    if (_vpnController == null) {
+      log.addLog('[MainScreen] ERROR: VPN controller still null after init');
+      return;
+    }
+    try {
+      await _vpnController!.handleConnectionButton(ref);
+    } catch (e, stackTrace) {
+      log.addLog('[MainScreen] ERROR in handleConnectionButton: $e');
+      log.addLog('[MainScreen] Stack trace: $stackTrace');
+    }
   }
 
-  void _checkInitialConnectionState() {
-    Future.delayed(const Duration(milliseconds: 1000), () {
-      if (!mounted) return;
-
-      final connectionState = ref.read(connectionStateProvider);
-      _previousConnectionStatus = connectionState.status;
-
-      final newShadowState = connectionState.status == ConnectionStatus.connected;
-      if (_showHeaderShadow != newShadowState) {
-        setState(() {
-          _showHeaderShadow = newShadowState;
-        });
-      }
-
-      _scrollManager.checkInitialConnectionState(connectionState.status);
-    });
-  }
-
-  void _handleSecretTap() {
-    _secretTapHandler.handleSecretTap(context);
-  }
-
-  void _showPrivacyNoticeDialog() {
-    PrivacyNoticeDialog.show(
-      context,
-      () async {
-        if (ref.context.mounted) {
-          final vpnBridge = VpnBridge();
-          final result = await vpnBridge.prepareVpn();
-          if (result && ref.context.mounted) {
-            final vpn = VPN(ProviderScope.containerOf(ref.context));
-            await vpn.initVPN();
-            await _logic.markPrivacyNoticeShown();
-            return true;
-          }
-        }
-        return false;
-      },
+  void _showLogs() {
+    final lines = Log().recent(200);
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AppColors.surface,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => SizedBox(
+        height: MediaQuery.sizeOf(context).height * 0.72,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(top: 12, bottom: 4),
+              child: Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AppColors.mute,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 10, 8, 8),
+              child: Row(
+                children: [
+                  const Text(
+                    'Logs',
+                    style: TextStyle(
+                      color: AppColors.ink,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: -0.3,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Text('${lines.length}', style: AppTextStyles.microLabel()),
+                  const Spacer(),
+                  TextButton(
+                    onPressed: () {
+                      Log().clearLogs();
+                      Navigator.pop(context);
+                    },
+                    child: const Text(
+                      'Clear',
+                      style: TextStyle(
+                        color: AppColors.amber,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: ListView.builder(
+                padding: const EdgeInsets.fromLTRB(20, 4, 20, 32),
+                itemCount: lines.length,
+                itemBuilder: (_, i) {
+                  final line = lines[i];
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 2),
+                    child: Text(line, style: AppTextStyles.logLine(color: _logColor(line))),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
     );
+  }
+
+  Color _logColor(String line) {
+    final lower = line.toLowerCase();
+    if (lower.contains('error') || lower.contains('exception')) {
+      return AppColors.red;
+    }
+    if (lower.contains('connected') || lower.contains('success')) {
+      return AppColors.emerald;
+    }
+    return AppColors.steel;
+  }
+
+  BulbPhase _bulbPhase(ConnectionStatus status) {
+    switch (status) {
+      case ConnectionStatus.connected:
+        return BulbPhase.connected;
+      case ConnectionStatus.loading:
+      case ConnectionStatus.connecting:
+      case ConnectionStatus.analyzing:
+      case ConnectionStatus.disconnecting:
+        return BulbPhase.connecting;
+      case ConnectionStatus.error:
+      case ConnectionStatus.noInternet:
+        return BulbPhase.failed;
+      case ConnectionStatus.disconnected:
+        return BulbPhase.idle;
+    }
+  }
+
+  (String, Color) _statusPresentation(ConnectionStatus status) {
+    switch (status) {
+      case ConnectionStatus.connected:
+        return ('Connected', AppColors.emerald);
+      case ConnectionStatus.loading:
+      case ConnectionStatus.connecting:
+      case ConnectionStatus.analyzing:
+        return ('Connecting', AppColors.amber);
+      case ConnectionStatus.disconnecting:
+        return ('Disconnecting', AppColors.amber);
+      case ConnectionStatus.error:
+        return ('Connection failed', AppColors.red);
+      case ConnectionStatus.noInternet:
+        return ('No internet', AppColors.red);
+      case ConnectionStatus.disconnected:
+        return ('Standby', AppColors.ink);
+    }
+  }
+
+  String _stageLabel(VPNStage? stage, ConnectionStatus status) {
+    if (status == ConnectionStatus.disconnected ||
+        status == ConnectionStatus.error ||
+        status == ConnectionStatus.noInternet) {
+      return status == ConnectionStatus.disconnected ? 'idle' : 'tunnel closed';
+    }
+    switch (stage) {
+      case VPNStage.connected:
+        return 'secure tunnel';
+      case VPNStage.tcp_connect:
+      case VPNStage.udp_connect:
+        return 'opening tunnel';
+      case VPNStage.wait_connection:
+        return 'waiting for tunnel';
+      case VPNStage.authenticating:
+      case VPNStage.authentication:
+        return 'authenticating';
+      case VPNStage.vpn_generate_config:
+        return 'generating config';
+      case VPNStage.get_config:
+        return 'loading config';
+      case VPNStage.assign_ip:
+        return 'assigning ip';
+      case VPNStage.resolve:
+        return 'resolving host';
+      case VPNStage.prepare:
+        return 'preparing';
+      case VPNStage.connecting:
+        return 'connecting';
+      case VPNStage.disconnecting:
+      case VPNStage.exiting:
+        return 'closing tunnel';
+      case VPNStage.denied:
+      case VPNStage.error:
+        return 'rejected';
+      case VPNStage.disconnected:
+      case VPNStage.unknown:
+      case null:
+        return 'idle';
+    }
+  }
+
+  String _orbLabel(ConnectionStatus status, VPNStage? stage) {
+    switch (status) {
+      case ConnectionStatus.connected:
+        return 'Tap to disconnect';
+      case ConnectionStatus.loading:
+      case ConnectionStatus.connecting:
+      case ConnectionStatus.analyzing:
+        return _stageLabel(stage, status);
+      case ConnectionStatus.disconnecting:
+        return 'closing tunnel';
+      case ConnectionStatus.error:
+      case ConnectionStatus.noInternet:
+        return 'Tap to retry';
+      case ConnectionStatus.disconnected:
+        return 'Tap to connect';
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final connectionState = ref.watch(connectionStateProvider);
-    final adsState = ref.watch(googleAdsProvider);
+    final cs = ref.watch(connectionStateProvider);
+    final selected = ref.watch(selectedServerProvider);
+    final status = cs.status;
 
-    // CRITICAL FIX: Only handle state changes when actually different
-    // This prevents infinite rebuild loops that crash Samsung devices
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && _previousConnectionStatus != connectionState.status) {
-        _previousConnectionStatus = connectionState.status;
-        _handleConnectionStateChange(connectionState.status);
+    // Push server picks into the controller.
+    ref.listen(selectedServerProvider, (prev, next) {
+      if (next == null) {
+        _vpnController?.clearServerConfig();
+      } else {
+        _applyServerConfig(next);
       }
-
-      if (mounted &&
-          _previousShowCountdown != null &&
-          _previousShowCountdown != adsState.showCountdown &&
-          _previousShowCountdown! &&
-          !adsState.showCountdown) {
-        _handleAdsStateChange(adsState.showCountdown);
+    });
+    // Track session start/stop precisely on transitions.
+    ref.listen(connectionStateProvider.select((s) => s.status), (prev, next) {
+      if (next == ConnectionStatus.connected &&
+          prev != ConnectionStatus.connected) {
+        _connectedAt = DateTime.now();
+        _prevByteIn = null;
+      } else if (prev == ConnectionStatus.connected &&
+          next != ConnectionStatus.connected) {
+        _connectedAt = null;
+        _prevByteIn = null;
+        setState(() {
+          _sessionLabel = '00:00:00';
+          _rateLabel = '—';
+        });
       }
-      _previousShowCountdown = adsState.showCountdown;
     });
 
+    final (statusTitle, statusColor) = _statusPresentation(status);
+    final phase = _bulbPhase(status);
+
     return MainScreenBackground(
-      connectionStatus: connectionState.status,
+      connectionStatus: status,
       child: SafeArea(
-        bottom: false,
-        child: Align(
-          alignment: Alignment.topCenter,
+        child: Center(
           child: ConstrainedBox(
-            constraints: BoxConstraints(maxWidth: 393.w),
-            child: Stack(
-              children: [
-                SingleChildScrollView(
-                  controller: _scrollController,
-                  physics: const NeverScrollableScrollPhysics(),
-                  child: Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 24.w),
-                    child: Stack(
-                      alignment: Alignment.center,
+            constraints: const BoxConstraints(maxWidth: 480),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 6, 20, 0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // ---- Top bar: brand + logs -------------------------
+                  StaggeredIn(
+                    child: Row(
                       children: [
-                        Positioned(
-                          top: 130.h,
-                          child: ConnectionButton(
-                            onTap: connectionState.status == ConnectionStatus.loading ||
-                                    connectionState.status == ConnectionStatus.disconnecting
-                                ? () {}
-                                : _logic.connectOrDisconnect,
-                          ),
-                        ),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.center,
-                          children: [
-                            SizedBox(height: 45.h),
-                            HeaderSection(
-                              onSecretTap: _handleSecretTap,
-                              onPingRefresh: _logic.refreshPing,
-                            ),
-                            SizedBox(
-                              height: connectionState.status == ConnectionStatus.connected
-                                  ? 40.h
-                                  : 80.h,
-                            ),
-                            SizedBox(
-                              height: connectionState.status == ConnectionStatus.connected
-                                  ? 0.24.sh
-                                  : 0.28.sh,
-                            ),
-                            _buildContentSection(connectionState.status, adsState),
-                            SizedBox(height: 0.15.sh),
-                          ],
+                        _brandWordmark(),
+                        const Spacer(),
+                        IconButton(
+                          onPressed: _showLogs,
+                          tooltip: 'Logs',
+                          icon: const Icon(Icons.terminal,
+                              color: AppColors.steel, size: 22),
+                          constraints: const BoxConstraints(
+                              minWidth: 44, minHeight: 44),
                         ),
                       ],
                     ),
                   ),
-                ),
-                Positioned(
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  child: IgnorePointer(
-                    child: AnimatedOpacity(
-                      duration: _animationService.adjustDuration(const Duration(milliseconds: 300)),
-                      opacity: _showHeaderShadow ? 1.0 : 0.0,
-                      child: Container(
-                        height: 150.h,
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [
-                              Colors.black.withValues(alpha: 0.7),
-                              Colors.black.withValues(alpha: 0.0),
-                            ],
-                            stops: const [0.0, 1.0],
+                  const SizedBox(height: 16),
+
+                  // ---- Status rail ------------------------------------
+                  StaggeredIn(
+                    delayMs: 60,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('STATUS', style: AppTextStyles.microLabel()),
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            AnimatedContainer(
+                              duration: const Duration(milliseconds: 400),
+                              width: 9,
+                              height: 9,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: statusColor,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Flexible(
+                              child: Text(
+                                statusTitle,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: statusColor,
+                                  fontSize: 26,
+                                  fontWeight: FontWeight.w600,
+                                  letterSpacing: -0.5,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 5),
+                        Text(
+                          '${_stageLabel(cs.vpnStage, status)} · ${selected?.ip ?? 'auto'}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTextStyles.monoValue(
+                              size: 11, color: AppColors.steel),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  // ---- Orb zone (optical center) ---------------------
+                  Expanded(
+                    child: Align(
+                      alignment: const Alignment(0, -0.18),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          BulbOrb(
+                            phase: phase,
+                            onTap: _onConnectPressed,
+                            size: 210,
                           ),
+                          const SizedBox(height: 20),
+                          StaggeredIn(
+                            delayMs: 100,
+                            offset: 8,
+                            child: Text(
+                              _orbLabel(status, cs.vpnStage),
+                              style: AppTextStyles.microLabel(
+                                color: phase == BulbPhase.idle
+                                    ? AppColors.steel
+                                    : AppColors.ink,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  // ---- Metric rail: SESSION + DOWN (1.6fr / 1fr) ------
+                  StaggeredIn(
+                    delayMs: 140,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 14),
+                      decoration: BoxDecoration(
+                        color: AppColors.surface.withValues(alpha: 0.85),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: AppColors.hairline),
+                      ),
+                      child: IntrinsicHeight(
+                        child: Row(
+                          children: [
+                            Expanded(
+                              flex: 16,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text('SESSION',
+                                      style: AppTextStyles.microLabel()),
+                                  const SizedBox(height: 6),
+                                  Text(_sessionLabel,
+                                      style: AppTextStyles.metric(size: 20)),
+                                ],
+                              ),
+                            ),
+                            Container(
+                              width: 1,
+                              color: AppColors.hairline,
+                            ),
+                            Expanded(
+                              flex: 10,
+                              child: Padding(
+                                padding: const EdgeInsets.only(left: 16),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text('DOWN',
+                                        style: AppTextStyles.microLabel()),
+                                    const SizedBox(height: 6),
+                                    Row(
+                                      children: [
+                                        const Icon(Icons.arrow_downward,
+                                            size: 14,
+                                            color: AppColors.emerald),
+                                        const SizedBox(width: 5),
+                                        Text(
+                                          _rateLabel,
+                                          style: AppTextStyles.metric(
+                                              size: 20,
+                                              color: AppColors.emerald),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ),
                   ),
-                ),
-              ],
+                  const SizedBox(height: 12),
+
+                  // ---- Server pill ------------------------------------
+                  StaggeredIn(
+                    delayMs: 200,
+                    child: _serverPill(selected),
+                  ),
+
+                  // ---- Nav clearance ----------------------------------
+                  const SizedBox(height: 96),
+                ],
+              ),
             ),
           ),
         ),
@@ -254,50 +606,120 @@ class _MainScreenState extends ConsumerState<MainScreen> {
     );
   }
 
-  Widget _buildContentSection(ConnectionStatus status, dynamic adsState) {
-    switch (status) {
-      case ConnectionStatus.noInternet:
-        _dinoGame ??= DinoGame();
-        return SizedBox(
-          height: 200.h,
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(16.r),
-            child: GameWidget(game: _dinoGame!),
+  Widget _brandWordmark() {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.baseline,
+      textBaseline: TextBaseline.alphabetic,
+      children: [
+        const Text(
+          'BULB',
+          style: TextStyle(
+            color: AppColors.ink,
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+            letterSpacing: -0.4,
           ),
-        );
+        ),
+        const Text(
+          'VPN',
+          style: TextStyle(
+            color: AppColors.amber,
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+            letterSpacing: -0.4,
+          ),
+        ),
+        const SizedBox(width: 10),
+        Transform.translate(
+          offset: const Offset(0, -1),
+          child: Text('SECURE TUNNEL', style: AppTextStyles.microLabel()),
+        ),
+      ],
+    );
+  }
 
-      case ConnectionStatus.disconnected:
-        return TipsSliderSection(
-          status: status,
-        );
-
-      default:
-        final shouldShowAd = status == ConnectionStatus.connected && adsState.showCountdown;
-
-        return SizedBox(
-          height: 280.h,
-          width: 336.w,
-          child: AnimatedSlide(
-            offset: Offset(
-              0,
-              shouldShowAd ? 0.0 : 1.0,
-            ),
-            duration: _animationService.adjustDuration(const Duration(milliseconds: 800)),
-            curve: Curves.easeOut,
-            child: AnimatedOpacity(
-              opacity: shouldShowAd ? 1.0 : 0.0,
-              duration: _animationService.adjustDuration(const Duration(milliseconds: 500)),
-              curve: Curves.easeInOut,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: const Color(0xFF19312F),
-                  borderRadius: BorderRadius.circular(10.r),
+  Widget _serverPill(VpnServer? selected) {
+    final flagCode = selected == null
+        ? null
+        : (selected.countryShort.toLowerCase().length == 2
+            ? selected.countryShort.toLowerCase()
+            : 'xx');
+    return GestureDetector(
+      onTap: () => showServerSheet(context),
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+        decoration: BoxDecoration(
+          color: AppColors.surface.withValues(alpha: 0.85),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppColors.hairline),
+        ),
+        child: Row(
+          children: [
+            if (flagCode != null)
+              SizedBox(
+                width: 30,
+                height: 22,
+                child: SvgPicture.asset(
+                  'assets/flags/$flagCode.svg',
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, __, ___) => const Icon(Icons.public,
+                      size: 20, color: AppColors.steel),
                 ),
-                child: _googleAds,
+              )
+            else
+              const Icon(Icons.public, size: 20, color: AppColors.steel),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    selected?.countryLong ?? 'Auto select',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: AppColors.ink,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    selected?.ip ?? 'fastest available',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTextStyles.monoValue(
+                        size: 11, color: AppColors.mute),
+                  ),
+                ],
               ),
             ),
-          ),
-        );
-    }
+            const SizedBox(width: 10),
+            if (selected != null && selected.ping > 0)
+              Text(
+                '${selected.ping} ms',
+                style: AppTextStyles.monoValue(
+                    size: 12, color: AppColors.steel),
+              )
+            else
+              Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 7, vertical: 3),
+                decoration: BoxDecoration(
+                  color: AppColors.amberTint,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text('AUTO',
+                    style: AppTextStyles.microLabel(color: AppColors.amber)),
+              ),
+            const SizedBox(width: 6),
+            const Icon(Icons.chevron_right,
+                size: 18, color: AppColors.mute),
+          ],
+        ),
+      ),
+    );
   }
 }

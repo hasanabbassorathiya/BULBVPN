@@ -1,4 +1,5 @@
-import 'package:defyx_vpn/shared/layout/navbar/widgets/custom_webview_screen.dart';
+import 'package:bulbvpn/core/theme/app_colors.dart';
+import 'package:bulbvpn/shared/layout/navbar/widgets/custom_webview_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
@@ -30,7 +31,7 @@ class IntroLinkItem extends StatelessWidget {
         height: 56.h,
         padding: EdgeInsets.symmetric(vertical: 14.h, horizontal: 15.w),
         decoration: BoxDecoration(
-          border: Border.all(color: Colors.grey[300]!),
+          border: Border.all(color: AppColors.hairline),
           borderRadius: BorderRadius.circular(8.r),
         ),
         child: Row(
@@ -40,10 +41,11 @@ class IntroLinkItem extends StatelessWidget {
               title,
               style: TextStyle(
                 fontSize: 14.sp,
-                color: Colors.black,
+                fontFamily: 'Outfit',
+                color: AppColors.ink,
               ),
             ),
-            Icon(Icons.chevron_right, size: 20.w, color: Colors.grey),
+            Icon(Icons.chevron_right, size: 20.w, color: AppColors.steel),
           ],
         ),
       ),

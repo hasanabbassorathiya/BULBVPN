@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import '../../../../core/theme/app_colors.dart';
 import '../../models/settings_item.dart';
 import '../../../../shared/widgets/defyx_switch.dart';
 
@@ -45,7 +46,7 @@ class SettingsItemWidget extends StatelessWidget {
                 width: 24.w,
                 height: 24.h,
                 colorFilter: ColorFilter.mode(
-                  item.isAccessible ? Colors.grey[400]! : Colors.grey[600]!,
+                  item.isAccessible ? AppColors.steel : AppColors.mute,
                   BlendMode.srcIn,
                 ),
               ),
@@ -57,9 +58,9 @@ class SettingsItemWidget extends StatelessWidget {
             item.title.toUpperCase(),
             style: TextStyle(
               fontSize: 17.sp,
-              fontFamily: 'Lato',
+              fontFamily: 'Outfit',
               fontWeight: FontWeight.w400,
-              color: item.isAccessible ? Colors.white : Colors.grey[600],
+              color: item.isAccessible ? AppColors.ink : AppColors.mute,
             ),
           ),
         ),
@@ -92,7 +93,7 @@ class SettingsItemWidget extends StatelessWidget {
         if (!isLastItem && showSeparator)
           Container(
             height: 1,
-            color: Colors.white.withValues(alpha: 0.05),
+            color: AppColors.hairline,
             margin: EdgeInsets.symmetric(vertical: 2.h),
           ),
       ],

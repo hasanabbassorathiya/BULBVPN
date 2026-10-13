@@ -1,4 +1,4 @@
-import 'package:defyx_vpn/core/data/local/vpn_data/vpn_data_interface.dart';
+import 'package:bulbvpn/core/data/local/vpn_data/vpn_data_interface.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 

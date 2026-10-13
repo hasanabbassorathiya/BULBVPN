@@ -1,5 +1,7 @@
-import 'package:defyx_vpn/modules/settings/models/settings_item.dart';
-import 'package:defyx_vpn/shared/services/animation_service.dart';
+import 'package:bulbvpn/core/theme/app_colors.dart';
+import 'package:bulbvpn/core/theme/app_text_styles.dart';
+import 'package:bulbvpn/modules/settings/models/settings_item.dart';
+import 'package:bulbvpn/shared/services/animation_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
@@ -75,7 +77,7 @@ class _SettingsGroupWidgetState extends State<SettingsGroupWidget>
     return ReorderableListView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
-      onReorder: (oldIndex, newIndex) {
+      onReorderItem: (oldIndex, newIndex) {
         HapticFeedback.lightImpact();
         widget.onReorder?.call(oldIndex, newIndex);
       },
@@ -102,7 +104,7 @@ class _SettingsGroupWidgetState extends State<SettingsGroupWidget>
               color: Colors.transparent,
               child: Container(
                 decoration: BoxDecoration(
-                  color: const Color.fromRGBO(29, 29, 29, 1),
+                  color: AppColors.raised,
                   borderRadius: BorderRadius.circular(12.r),
                 ),
                 child: Container(
@@ -121,7 +123,7 @@ class _SettingsGroupWidgetState extends State<SettingsGroupWidget>
                           width: 24.w,
                           height: 24.h,
                           colorFilter: ColorFilter.mode(
-                            Colors.grey[400]!,
+                            AppColors.steel,
                             BlendMode.srcIn,
                           ),
                         ),
@@ -132,9 +134,9 @@ class _SettingsGroupWidgetState extends State<SettingsGroupWidget>
                           item.title.toString().toUpperCase(),
                           style: TextStyle(
                             fontSize: 17.sp,
-                            fontFamily: 'Lato',
+                            fontFamily: 'Outfit',
                             fontWeight: FontWeight.w400,
-                            color: Colors.white,
+                            color: AppColors.ink,
                           ),
                         ),
                       ),
@@ -213,13 +215,7 @@ class _SettingsGroupWidgetState extends State<SettingsGroupWidget>
               children: [
                 Text(
                   widget.group.title,
-                  style: TextStyle(
-                    fontSize: 13.sp,
-                    fontFamily: 'SF Pro',
-                    fontWeight: FontWeight.w400,
-                    color: Colors.grey[400],
-                    letterSpacing: 0.5,
-                  ),
+                  style: AppTextStyles.microLabel(),
                 ),
               ],
             ),
@@ -228,7 +224,7 @@ class _SettingsGroupWidgetState extends State<SettingsGroupWidget>
           // Settings items container with dark background
           Container(
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.1),
+              color: AppColors.surface,
               borderRadius: BorderRadius.circular(16.r),
             ),
             padding: EdgeInsets.fromLTRB(2.w, 1.h, 2.w, 1.h),
@@ -258,7 +254,7 @@ class _SettingsGroupWidgetState extends State<SettingsGroupWidget>
                               angle: _rotationAnimation.value * 2 * 3.14159,
                               child: Icon(
                                 Icons.refresh,
-                                color: const Color(0xFFFF9A9A),
+                                color: AppColors.red,
                                 size: 16.sp,
                               ),
                             );
@@ -269,9 +265,9 @@ class _SettingsGroupWidgetState extends State<SettingsGroupWidget>
                           'RESET TO DEFAULT',
                           style: TextStyle(
                             fontSize: 12.sp,
-                            fontFamily: 'Lato',
+                            fontFamily: 'Outfit',
                             fontWeight: FontWeight.w600,
-                            color: const Color(0xFFFF9A9A),
+                            color: AppColors.red,
                             letterSpacing: 0.5,
                           ),
                         ),

@@ -1,5 +1,5 @@
 import 'dart:math' as math;
-import 'package:defyx_vpn/core/theme/app_colors.dart';
+import 'package:bulbvpn/core/theme/app_colors.dart';
 import 'package:flutter/material.dart';
 
 enum ProgressStep { upload, download }
@@ -28,7 +28,7 @@ class SemicircularProgressPainter extends CustomPainter {
     const sweepAngle = math.pi * 1.3;
 
     final backgroundPaint = Paint()
-      ..color = Colors.grey.shade300.withValues(alpha: 0.3)
+      ..color = AppColors.graphite.withValues(alpha: 0.6)
       ..strokeWidth = strokeWidth
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round;
@@ -46,7 +46,7 @@ class SemicircularProgressPainter extends CustomPainter {
     if (animatedProgress > 0) {
       // Draw shadow first
       final shadowPaint = Paint()
-        ..color = const Color(0x6687BD23) // #87BD2366
+        ..color = color.withValues(alpha: 0.25)
         ..strokeWidth = strokeWidth
         ..style = PaintingStyle.stroke
         ..strokeCap = StrokeCap.round
@@ -97,39 +97,11 @@ class SemicircularProgressPainter extends CustomPainter {
   Shader _createGradient(Color baseColor, Offset center, double radius, double progress) {
     List<Color> gradientColors;
 
-    if (baseColor == Colors.green) {
-      gradientColors = [
-        AppColors.downloadColor,
-        AppColors.downloadColor,
-        AppColors.downloadColor,
-        // const Color(0xFF00FF00),
-        // const Color(0xFF00DD00),
-      ];
-    } else if (baseColor == Colors.blue) {
-      gradientColors = [
-        AppColors.uploadColor,
-        AppColors.uploadColor,
-        AppColors.uploadColor,
-        // const Color(0xFF0099FF),
-        // const Color(0xFF0077DD),
-      ];
-    } else if (baseColor == Colors.orange) {
-      gradientColors = [
-        AppColors.warningColor,
-        AppColors.warningColor,
-        AppColors.warningColor,
-        // const Color(0xFFFF8833),
-        // const Color(0xFFFF6600),
-      ];
-    } else {
-      gradientColors = [
-        baseColor,
-        baseColor,
-        baseColor,
-        // baseColor.withValues(alpha: 0.7),
-        // baseColor.withValues(alpha: 0.9),
-      ];
-    }
+    gradientColors = [
+      baseColor,
+      baseColor,
+      baseColor,
+    ];
 
     const startAngle = math.pi * 0.85;
     const sweepAngle = math.pi * 1.3;

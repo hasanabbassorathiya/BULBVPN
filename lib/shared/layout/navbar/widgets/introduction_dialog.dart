@@ -1,5 +1,7 @@
-import 'package:defyx_vpn/shared/layout/navbar/widgets/copyable_link.dart';
-import 'package:defyx_vpn/shared/layout/navbar/widgets/intro_link_item.dart';
+import 'package:bulbvpn/core/theme/app_colors.dart';
+import 'package:bulbvpn/core/theme/app_text_styles.dart';
+import 'package:bulbvpn/shared/layout/navbar/widgets/copyable_link.dart';
+import 'package:bulbvpn/shared/layout/navbar/widgets/intro_link_item.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
@@ -10,8 +12,11 @@ class IntroductionDialog extends StatelessWidget {
   Widget build(BuildContext context) {
     return Dialog(
       insetPadding: EdgeInsets.symmetric(horizontal: 24.w),
-      backgroundColor: Colors.white,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15.r)),
+      backgroundColor: AppColors.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(15.r),
+        side: const BorderSide(color: AppColors.hairline),
+      ),
       child: Container(
         padding: EdgeInsets.all(25.w),
         width: 343.w,
@@ -23,26 +28,25 @@ class IntroductionDialog extends StatelessWidget {
               'Introduction',
               style: TextStyle(
                 fontSize: 18.sp,
-                fontWeight: FontWeight.bold,
-                color: Colors.black,
+                fontFamily: 'Outfit',
+                fontWeight: FontWeight.w600,
+                color: AppColors.ink,
               ),
             ),
             SizedBox(height: 15.h),
             Text(
-              'The goal of Defyx is to ensure secure access to public information and provide a free browsing experience.',
+              'BULB VPN ensures secure access to public information and a free browsing experience.',
               style: TextStyle(
                 fontSize: 15.sp,
-                color: Colors.grey,
+                fontFamily: 'Outfit',
+                color: AppColors.steel,
+                height: 1.4,
               ),
             ),
             SizedBox(height: 10.h),
             Text(
               'LEARN MORE',
-              style: TextStyle(
-                fontSize: 13.sp,
-                fontWeight: FontWeight.bold,
-                color: Colors.green,
-              ),
+              style: AppTextStyles.microLabel(color: AppColors.amber),
             ),
             SizedBox(height: 15.h),
             IntroLinkItem(
@@ -70,8 +74,8 @@ class IntroductionDialog extends StatelessWidget {
                 onPressed: () => Navigator.of(context).pop(),
                 style: ElevatedButton.styleFrom(
                   shadowColor: Colors.transparent,
-                  backgroundColor: Colors.grey[200],
-                  foregroundColor: Colors.black,
+                  backgroundColor: AppColors.raised,
+                  foregroundColor: AppColors.ink,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(8.r),
                   ),
@@ -82,7 +86,7 @@ class IntroductionDialog extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 14.sp,
                     fontWeight: FontWeight.bold,
-                    color: Colors.grey[700],
+                    color: AppColors.steel,
                   ),
                 ),
               ),

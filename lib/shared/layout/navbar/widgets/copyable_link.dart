@@ -1,3 +1,4 @@
+import 'package:bulbvpn/core/theme/app_colors.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
@@ -35,7 +36,7 @@ class _CopyableLinkState extends State<CopyableLink> {
         height: 56.h,
         padding: EdgeInsets.symmetric(vertical: 0.h, horizontal: 15.w),
         decoration: BoxDecoration(
-          border: Border.all(color: Colors.grey[300]!),
+          border: Border.all(color: AppColors.hairline),
           borderRadius: BorderRadius.circular(8.r),
         ),
         child: Row(
@@ -45,12 +46,13 @@ class _CopyableLinkState extends State<CopyableLink> {
               widget.text,
               style: TextStyle(
                 fontSize: 14.sp,
-                color: Colors.black,
+                fontFamily: 'Outfit',
+                color: AppColors.ink,
               ),
             ),
             _copied
-                ? Icon(Icons.check_circle, size: 15.w, color: Colors.green)
-                : Icon(Icons.content_copy, size: 15.w, color: Colors.grey),
+                ? Icon(Icons.check_circle, size: 15.w, color: AppColors.emerald)
+                : Icon(Icons.content_copy, size: 15.w, color: AppColors.steel),
           ],
         ),
       ),

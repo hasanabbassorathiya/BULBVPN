@@ -1,7 +1,8 @@
-import 'package:defyx_vpn/app/router/app_router.dart';
-import 'package:defyx_vpn/shared/providers/app_screen_provider.dart';
-import 'package:defyx_vpn/shared/layout/navbar/widgets/defyx_nav_item.dart';
-import 'package:defyx_vpn/shared/layout/navbar/widgets/quick_menu_dialog.dart';
+import 'package:bulbvpn/app/router/app_router.dart';
+import 'package:bulbvpn/core/theme/app_colors.dart';
+import 'package:bulbvpn/shared/providers/app_screen_provider.dart';
+import 'package:bulbvpn/shared/layout/navbar/widgets/defyx_nav_item.dart';
+import 'package:bulbvpn/shared/layout/navbar/widgets/quick_menu_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -23,11 +24,12 @@ class DefyxNavBar extends ConsumerWidget {
         alignment: Alignment.center,
         children: [
           Container(
-            width: 200.w,
-            height: 65.h,
+            width: 210.w,
+            height: 62.h,
             decoration: BoxDecoration(
-              color: Colors.black,
+              color: AppColors.surface,
               borderRadius: BorderRadius.circular(100.r),
+              border: Border.all(color: AppColors.hairline),
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -58,19 +60,19 @@ class DefyxNavBar extends ConsumerWidget {
             child: GestureDetector(
               onTap: () => _showShareDialog(context, ref),
               child: Container(
-                width: 60.w,
-                height: 60.w,
+                width: 56.w,
+                height: 56.w,
                 decoration: const BoxDecoration(
-                  color: Colors.black,
+                  color: AppColors.surface,
                   shape: BoxShape.circle,
                 ),
                 child: Center(
                   child: SvgPicture.asset(
                     'assets/icons/info.svg',
-                    width: 25.w,
-                    height: 25.w,
+                    width: 24.w,
+                    height: 24.w,
                     colorFilter: const ColorFilter.mode(
-                      Colors.white,
+                      AppColors.steel,
                       BlendMode.srcIn,
                     ),
                   ),
@@ -114,7 +116,7 @@ class DefyxNavBar extends ConsumerWidget {
       context: context,
       barrierDismissible: true,
       barrierLabel: 'Quick Menu',
-      barrierColor: Colors.black.withValues(alpha: 0.5),
+      barrierColor: AppColors.canvas.withValues(alpha: 0.6),
       transitionDuration: const Duration(milliseconds: 250),
       pageBuilder: (context, animation, secondaryAnimation) {
         return const QuickMenuDialog();

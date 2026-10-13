@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
-import 'package:defyx_vpn/shared/layout/main_screen_background.dart';
-import 'package:defyx_vpn/shared/providers/connection_state_provider.dart' as conn;
+import 'package:bulbvpn/shared/layout/main_screen_background.dart';
+import 'package:bulbvpn/shared/providers/connection_state_provider.dart' as conn;
 
 import '../widgets/speed_test_header.dart';
 import '../../application/speed_test_provider.dart';
@@ -104,6 +104,7 @@ class _SpeedTestScreenState extends ConsumerState<SpeedTestScreen> {
               padding: EdgeInsets.symmetric(horizontal: 24.w),
               child: Stack(
                 alignment: Alignment.center,
+                fit: StackFit.expand,
                 children: [
                   Column(
                     children: [

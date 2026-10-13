@@ -1,4 +1,5 @@
-import 'package:defyx_vpn/core/utils/format_number.dart';
+import 'package:bulbvpn/core/theme/app_colors.dart';
+import 'package:bulbvpn/core/utils/format_number.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
@@ -26,7 +27,7 @@ class SpeedValueDisplay extends StatelessWidget {
             subtitle!,
             style: TextStyle(
               fontSize: 12.sp,
-              fontFamily: 'Lato',
+              fontFamily: 'Outfit',
               color: subtitleColor,
               fontWeight: FontWeight.w600,
             ),
@@ -49,9 +50,9 @@ class SpeedValueDisplay extends StatelessWidget {
                             : value >= 10
                                 ? 70.sp
                                 : 90.sp,
-                    fontFamily: 'Lato',
+                    fontFamily: 'Outfit',
                     fontWeight: FontWeight.bold,
-                    color: Colors.white,
+                    color: AppColors.ink,
                     height: 1.0,
                   ),
                 ),
@@ -63,9 +64,9 @@ class SpeedValueDisplay extends StatelessWidget {
                 unit,
                 style: TextStyle(
                   fontSize: 14.sp,
-                  fontFamily: 'Lato',
+                  fontFamily: 'Outfit',
                   fontWeight: FontWeight.w400,
-                  color: Colors.grey.shade400,
+                  color: AppColors.steel,
                   height: 1.0,
                 ),
               ),

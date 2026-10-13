@@ -1,3 +1,5 @@
+import 'package:bulbvpn/core/theme/app_colors.dart';
+import 'package:bulbvpn/core/theme/app_text_styles.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import '../../models/speed_test_result.dart';
@@ -12,64 +14,27 @@ class SpeedTestHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    String upperText;
-    String bottomText;
-
-    switch (step) {
-      case SpeedTestStep.loading:
-      case SpeedTestStep.download:
-      case SpeedTestStep.upload:
-        upperText = 'is';
-        bottomText = 'testing speed ...';
-        break;
-      case SpeedTestStep.ready:
-        upperText = 'is ready';
-        bottomText = 'to speed test';
-        break;
-    }
+    final bool testing = step != SpeedTestStep.ready;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Row(
-          children: [
-            Text(
-              'D',
-              style: TextStyle(
-                fontSize: 35.sp,
-                fontFamily: 'Lato',
-                fontWeight: FontWeight.w700,
-                color: const Color(0xFFFFC927),
-              ),
-            ),
-            Text(
-              'efyx ',
-              style: TextStyle(
-                fontSize: 32.sp,
-                fontFamily: 'Lato',
-                fontWeight: FontWeight.w400,
-                color: const Color(0xFFFFC927),
-              ),
-            ),
-            Text(
-              upperText,
-              style: TextStyle(
-                fontSize: 32.sp,
-                fontFamily: 'Lato',
-                fontWeight: FontWeight.w400,
-                color: Colors.white,
-              ),
-            ),
-          ],
-        ),
         Text(
-          bottomText,
+          testing ? 'LIVE MEASUREMENT' : 'THROUGHPUT CHECK',
+          style: AppTextStyles.microLabel(
+            color: testing ? AppColors.amber : AppColors.mute,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          testing ? 'Measuring link' : 'Speed test',
           style: TextStyle(
             fontSize: 32.sp,
-            fontFamily: 'Lato',
-            fontWeight: FontWeight.w700,
-            color: Colors.white,
+            fontFamily: 'Outfit',
+            fontWeight: FontWeight.w600,
+            letterSpacing: -0.6,
+            color: AppColors.ink,
           ),
         ),
       ],

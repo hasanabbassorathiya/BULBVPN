@@ -1,11 +1,11 @@
 import 'dart:async';
 import 'dart:math';
-import 'package:defyx_vpn/core/network/http_client.dart';
-import 'package:defyx_vpn/core/network/http_client_interface.dart';
-import 'package:defyx_vpn/modules/speed_test/data/api/speed_test_api.dart';
-import 'package:defyx_vpn/modules/speed_test/models/speed_test_result.dart';
-import 'package:defyx_vpn/shared/providers/connection_state_provider.dart';
-import 'package:defyx_vpn/shared/services/vibration_service.dart';
+import 'package:bulbvpn/core/network/http_client.dart';
+import 'package:bulbvpn/core/network/http_client_interface.dart';
+import 'package:bulbvpn/modules/speed_test/data/api/speed_test_api.dart';
+import 'package:bulbvpn/modules/speed_test/models/speed_test_result.dart';
+import 'package:bulbvpn/shared/providers/connection_state_provider.dart';
+import 'package:bulbvpn/shared/services/vibration_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'services/cloudflare_logger_service.dart';
@@ -92,7 +92,7 @@ class SpeedTestNotifier extends StateNotifier<SpeedTestState> {
     dio.options.connectTimeout = SpeedMeasurementConfig.connectTimeout;
     dio.options.receiveTimeout = SpeedMeasurementConfig.receiveTimeout;
     dio.options.sendTimeout = SpeedMeasurementConfig.sendTimeout;
-    dio.options.headers['User-Agent'] = 'Defyx VPN Speed Test';
+    dio.options.headers['User-Agent'] = 'BULB VPN Speed Test';
 
     _api = SpeedTestApi(dio);
     _logger = CloudflareLoggerService(_api);

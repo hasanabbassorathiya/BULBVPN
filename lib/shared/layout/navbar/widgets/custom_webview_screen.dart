@@ -1,4 +1,4 @@
-import 'package:defyx_vpn/core/theme/app_colors.dart';
+import 'package:bulbvpn/core/theme/app_colors.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:webview_flutter/webview_flutter.dart';
@@ -48,7 +48,7 @@ class _CustomWebViewScreenState extends State<CustomWebViewScreen> {
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
-        backgroundColor: AppColors.primary,
+        backgroundColor: AppColors.canvas,
         foregroundColor: Colors.white,
         elevation: 0,
         centerTitle: true,
@@ -71,7 +71,7 @@ class _CustomWebViewScreenState extends State<CustomWebViewScreen> {
           if (_isLoading)
             Center(
               child: CircularProgressIndicator(
-                color: AppColors.primary,
+                color: AppColors.ink,
               ),
             ),
         ],

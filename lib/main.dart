@@ -1,4 +1,4 @@
-import 'package:defyx_vpn/firebase_options.dart';
+import 'package:bulbvpn/firebase_options.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
@@ -10,9 +10,9 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await dotenv.load();
   await Firebase.initializeApp(
-    name: "defyx-vpn",
+    name: "bulbvpn",
     options: DefaultFirebaseOptions.currentPlatform,
   );
-  await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
-  runApp(const ProviderScope(child: App()));
+  await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp,],);
+  runApp(const ProviderScope(child: App(),),);
 }

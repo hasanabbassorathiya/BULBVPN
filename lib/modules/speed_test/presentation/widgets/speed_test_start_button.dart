@@ -1,4 +1,5 @@
-import 'package:defyx_vpn/shared/services/animation_service.dart';
+import 'package:bulbvpn/core/theme/app_colors.dart';
+import 'package:bulbvpn/shared/services/animation_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'dart:math' as math;
@@ -96,7 +97,7 @@ class _SpeedTestStartButtonState extends State<SpeedTestStartButton>
                     size: Size(50.w, 50.w),
                     painter: RadialLinesPainter(
                       progress: _animation.value,
-                      color: Colors.white,
+                      color: AppColors.amber,
                     ),
                   );
                 },
@@ -112,7 +113,7 @@ class _SpeedTestStartButtonState extends State<SpeedTestStartButton>
                     : 0,
                 child: Icon(
                   _getIcon(),
-                  color: Colors.white,
+                  color: AppColors.ink,
                   size: widget.currentStep == SpeedTestStep.ready && widget.previousStep == null
                       ? 20.sp
                       : 36.sp,

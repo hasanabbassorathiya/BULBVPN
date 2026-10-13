@@ -1,3 +1,4 @@
+import 'package:bulbvpn/core/theme/app_colors.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
@@ -19,9 +20,9 @@ class QuickMenuItem extends StatelessWidget {
   Widget build(BuildContext context) {
     return InkWell(
       onTap: onTap,
-      hoverColor: const Color(0xffDFDFDF),
-      splashColor: const Color(0xffDFDFDF),
-      highlightColor: const Color(0xffDFDFDF),
+      hoverColor: AppColors.raised,
+      splashColor: AppColors.raised,
+      highlightColor: AppColors.raised,
       borderRadius: BorderRadius.only(
         topLeft: Radius.circular(topBorderRadius! ? 12.r : 0),
         topRight: Radius.circular(topBorderRadius! ? 12.r : 0),
@@ -37,8 +38,9 @@ class QuickMenuItem extends StatelessWidget {
             Text(
               title,
               style: TextStyle(
-                fontSize: 17.sp,
-                color: Colors.black,
+                fontSize: 16.sp,
+                fontFamily: 'Outfit',
+                color: AppColors.ink,
                 fontWeight: FontWeight.w500,
               ),
             ),

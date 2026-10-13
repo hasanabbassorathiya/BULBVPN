@@ -1,4 +1,5 @@
-import 'package:defyx_vpn/shared/layout/navbar/widgets/custom_webview_screen.dart';
+import 'package:bulbvpn/core/theme/app_colors.dart';
+import 'package:bulbvpn/shared/layout/navbar/widgets/custom_webview_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
@@ -22,9 +23,9 @@ class SocialIconButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return InkWell(
-      hoverColor: enable ? const Color(0xffDFDFDF) : Colors.transparent,
-      splashColor: enable ? const Color(0xffDFDFDF) : Colors.transparent,
-      highlightColor: enable ? const Color(0xffDFDFDF) : Colors.transparent,
+      hoverColor: enable ? AppColors.raised : Colors.transparent,
+      splashColor: enable ? AppColors.raised : Colors.transparent,
+      highlightColor: enable ? AppColors.raised : Colors.transparent,
       borderRadius: BorderRadius.circular(50.r),
       onTap: () {
         if (!enable) return;
@@ -46,7 +47,7 @@ class SocialIconButton extends StatelessWidget {
             width: iconWidth ?? 22.w,
             height: iconHeight ?? 22.w,
             colorFilter: ColorFilter.mode(
-              enable ? Colors.black : const Color(0xffAEAEAE),
+              enable ? AppColors.steel : AppColors.mute,
               BlendMode.srcIn,
             ),
           ),

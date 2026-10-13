@@ -1,5 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools">
+    xmlns:tools="http://schemas.android.com/tools"
+    package="app.bulbvpn.com">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -16,8 +17,10 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <application
-        android:label="DefyxVPN"
+        android:name="${applicationName}"
+        android:label="BULBVPN"
         android:icon="@mipmap/ic_launcher"
+        android:extractNativeLibs="true"
         tools:ignore="ForegroundServicePermission">
 
         <receiver
@@ -29,19 +32,6 @@
             android:exported="false"
             android:stopWithTask="false"
             android:foregroundServiceType="systemExempted"/>
-
-        <!-- Register the VPN service with Samsung compatibility -->
-        <service
-            android:name="de.unboundtech.defyxvpn.DefyxVpnService"
-            android:permission="android.permission.BIND_VPN_SERVICE"
-            android:foregroundServiceType="connectedDevice"
-            android:exported="false"
-            android:stopWithTask="false"
-            android:enabled="true">
-            <intent-filter>
-                <action android:name="android.net.VpnService" />
-            </intent-filter>
-        </service>
 
         <activity
             android:name=".MainActivity"

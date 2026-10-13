@@ -1,14 +1,14 @@
 import 'dart:io';
 
-import 'package:defyx_vpn/app/advertise_director.dart';
-import 'package:defyx_vpn/app/router/app_router.dart';
-import 'package:defyx_vpn/core/theme/app_theme.dart';
+import 'package:bulbvpn/app/router/app_router.dart';
+import 'package:bulbvpn/core/theme/app_theme.dart';
+import 'package:bulbvpn/modules/core/vpn_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
-import 'package:defyx_vpn/shared/services/animation_service.dart';
-import 'package:defyx_vpn/shared/services/vibration_service.dart';
+import 'package:bulbvpn/shared/services/animation_service.dart';
+import 'package:bulbvpn/shared/services/vibration_service.dart';
 
 class App extends ConsumerWidget {
   const App({super.key});
@@ -16,18 +16,24 @@ class App extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return FutureBuilder<bool>(
-      future: _initializeApp(ref),
+      future: _initializeApp(),
       builder: (context, snapshot) {
+        if (!snapshot.hasData) {
+          return const MaterialApp(
+            home: Scaffold(body: Center(child: CircularProgressIndicator())),
+          );
+        }
+        
         _handleAdConfiguration(snapshot);
         return _buildApp(context, ref);
       },
     );
   }
 
-  Future<bool> _initializeApp(WidgetRef ref) async {
+  Future<bool> _initializeApp() async {
     await VibrationService().init();
     await AnimationService().init();
-    return await AdvertiseDirector.shouldUseInternalAds(ref);
+    return true;
   }
 
   void _handleAdConfiguration(AsyncSnapshot<bool> snapshot) {
@@ -61,14 +67,16 @@ class App extends ConsumerWidget {
       minTextAdapt: true,
       splitScreenMode: true,
       builder: (_, __) {
-        return MaterialApp.router(
-          title: 'Defyx',
-          theme: AppTheme.lightTheme,
-          darkTheme: AppTheme.darkTheme,
-          themeMode: ThemeMode.light,
-          routerConfig: router,
-          builder: _appBuilder,
-          debugShowCheckedModeBanner: false,
+        return _VpnInitializer(
+          child: MaterialApp.router(
+            title: 'BULB VPN',
+            theme: AppTheme.lightTheme,
+            darkTheme: AppTheme.darkTheme,
+            themeMode: ThemeMode.dark,
+            routerConfig: router,
+            builder: _appBuilder,
+            debugShowCheckedModeBanner: false,
+          ),
         );
       },
     );
@@ -91,5 +99,42 @@ class App extends ConsumerWidget {
       data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(1.0)),
       child: child ?? const SizedBox.shrink(),
     );
+  }
+}
+
+class _VpnInitializer extends ConsumerStatefulWidget {
+  final Widget child;
+  const _VpnInitializer({required this.child});
+
+  @override
+  ConsumerState<_VpnInitializer> createState() => _VpnInitializerState();
+}
+
+class _VpnInitializerState extends ConsumerState<_VpnInitializer> {
+  bool _vpnInitAttempted = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_vpnInitAttempted) {
+      _vpnInitAttempted = true;
+      _initVpn();
+    }
+  }
+
+  Future<void> _initVpn() async {
+    try {
+      final container = ProviderScope.containerOf(context);
+      final vpnController = VpnController();
+      await vpnController.initialize(container);
+    } catch (e, stackTrace) {
+      debugPrint('[App] ERROR initializing VPN controller: $e');
+      debugPrint('[App] Stack trace: $stackTrace');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return widget.child;
   }
 }

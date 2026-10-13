@@ -33,8 +33,7 @@ class VibrationService {
     if (!_canVibrate) return;
 
     try {
-      final hasAmplitudeControl =
-          await Vibration.hasAmplitudeControl() ?? false;
+      final hasAmplitudeControl = await Vibration.hasAmplitudeControl();
       if (hasAmplitudeControl) {
         await Vibration.vibrate(duration: 35, amplitude: 40);
       } else {

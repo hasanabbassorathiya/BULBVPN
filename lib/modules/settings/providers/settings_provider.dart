@@ -1,6 +1,6 @@
 import 'dart:convert';
-import 'package:defyx_vpn/core/data/local/secure_storage/secure_storage.dart';
-import 'package:defyx_vpn/core/data/local/secure_storage/secure_storage_interface.dart';
+import 'package:bulbvpn/core/data/local/secure_storage/secure_storage.dart';
+import 'package:bulbvpn/core/data/local/secure_storage/secure_storage_interface.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/settings_item.dart';
 import '../models/settings_group.dart';
@@ -13,23 +13,6 @@ class SettingsNotifier extends StateNotifier<List<SettingsGroup>> {
   SettingsNotifier(this.ref) : super([]) {
     _secureStorage = ref.read(secureStorageProvider);
     _updateSettingsBasedOnFlowLine();
-  }
-
-  Future<void> _loadSettings() async {
-    final settingsJson = await _secureStorage?.read(_settingsKey);
-
-    if (settingsJson != null) {
-      try {
-        final List<dynamic> jsonList = jsonDecode(settingsJson);
-        state = jsonList
-            .map((json) => SettingsGroup.fromJson(json as Map<String, dynamic>))
-            .toList();
-      } catch (e) {
-        state = await _getDefaultSettings();
-      }
-    } else {
-      state = await _getDefaultSettings();
-    }
   }
 
   Future<void> _saveSettings() async {
@@ -164,10 +147,7 @@ class SettingsNotifier extends StateNotifier<List<SettingsGroup>> {
           ..sort((a, b) => (a.sortOrder ?? 0).compareTo(b.sortOrder ?? 0));
 
         if (oldIndex < allItems.length && newIndex < allItems.length) {
-          if (newIndex > oldIndex) {
-            newIndex -= 1;
-          }
-
+          // onReorderItem already hands us the post-removal insert index.
           final item = allItems.removeAt(oldIndex);
           allItems.insert(newIndex, item);
 

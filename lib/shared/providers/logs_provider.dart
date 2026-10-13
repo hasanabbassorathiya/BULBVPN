@@ -1,6 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-enum LoggerStatus { loading, connecting, switching_method }
+enum LoggerStatus { loading, connecting, switchingMethod }
 
 class LoggerState {
   final LoggerStatus status;
@@ -29,6 +29,6 @@ class LoggerStateNotifier extends StateNotifier<LoggerState> {
   }
 
   void setSwitchingMethod() {
-    state = LoggerState(status: LoggerStatus.switching_method);
+    state = LoggerState(status: LoggerStatus.switchingMethod);
   }
 }

@@ -1,5 +1,5 @@
-import 'package:defyx_vpn/core/theme/app_colors.dart';
-import 'package:defyx_vpn/modules/speed_test/models/speed_test_result.dart';
+import 'package:bulbvpn/core/theme/app_colors.dart';
+import 'package:bulbvpn/modules/speed_test/models/speed_test_result.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import '../painters/animated_grid_painter.dart';
@@ -77,7 +77,7 @@ class ProgressArcStack extends StatelessWidget {
               height: 30.h,
               child: CircularProgressIndicator(
                 strokeWidth: 2.w,
-                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                valueColor: AlwaysStoppedAnimation<Color>(AppColors.steel),
               ),
             ),
           ),

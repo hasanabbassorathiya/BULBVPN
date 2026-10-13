@@ -1,5 +1,7 @@
-import 'package:defyx_vpn/shared/providers/connection_state_provider.dart';
-import 'package:defyx_vpn/shared/layout/main_screen_background.dart';
+import 'package:bulbvpn/core/theme/app_colors.dart';
+import 'package:bulbvpn/core/theme/app_text_styles.dart';
+import 'package:bulbvpn/shared/providers/connection_state_provider.dart';
+import 'package:bulbvpn/shared/layout/main_screen_background.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
@@ -25,9 +27,9 @@ class SettingsScreen extends ConsumerWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    SizedBox(height: 45.h),
+                    SizedBox(height: 28.h),
                     _buildHeaderSection(),
-                    SizedBox(height: 60.h),
+                    SizedBox(height: 32.h),
                     _buildSettingsContent(ref),
                   ],
                 ),
@@ -42,45 +44,19 @@ class SettingsScreen extends ConsumerWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Row(
-          children: [
-            Text(
-              'D',
-              style: TextStyle(
-                fontSize: 35.sp,
-                fontFamily: 'Lato',
-                fontWeight: FontWeight.w700,
-                color: const Color(0xFFFFC927),
-              ),
-            ),
-            Text(
-              'efyx ',
-              style: TextStyle(
-                fontSize: 32.sp,
-                fontFamily: 'Lato',
-                fontWeight: FontWeight.w400,
-                color: const Color(0xFFFFC927),
-              ),
-            ),
-            Text(
-              'is',
-              style: TextStyle(
-                fontSize: 32.sp,
-                fontFamily: 'Lato',
-                fontWeight: FontWeight.w400,
-                color: Colors.white,
-              ),
-            ),
-          ],
-        ),
         Text(
-          'yours to shape',
+          'CONFIGURATION',
+          style: AppTextStyles.microLabel(),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Settings',
           style: TextStyle(
             fontSize: 32.sp,
-            fontFamily: 'Lato',
-            fontWeight: FontWeight.w400,
-            color: Colors.white,
-            height: 0,
+            fontFamily: 'Outfit',
+            fontWeight: FontWeight.w600,
+            letterSpacing: -0.6,
+            color: AppColors.ink,
           ),
         ),
       ],

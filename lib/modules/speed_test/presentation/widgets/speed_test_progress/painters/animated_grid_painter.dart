@@ -1,3 +1,4 @@
+import 'package:bulbvpn/core/theme/app_colors.dart';
 import 'package:flutter/material.dart';
 
 class AnimatedGridPainter extends CustomPainter {
@@ -7,7 +8,7 @@ class AnimatedGridPainter extends CustomPainter {
 
   AnimatedGridPainter({
     required this.animation,
-    this.gridColor = Colors.grey,
+    this.gridColor = AppColors.steel,
     this.strokeWidth = 1.0,
   }) : super(repaint: animation);
 
@@ -39,8 +40,8 @@ class AnimatedGridPainter extends CustomPainter {
       begin: Alignment.topCenter,
       end: Alignment.bottomCenter,
       colors: [
-        Colors.grey.withValues(alpha: 0.15),
-        Colors.grey.withValues(alpha: 0.0),
+        AppColors.steel.withValues(alpha: 0.15),
+        AppColors.steel.withValues(alpha: 0.0),
       ],
     );
 
@@ -117,8 +118,8 @@ class AnimatedGridPainter extends CustomPainter {
       begin: Alignment.topCenter,
       end: Alignment.bottomCenter,
       colors: [
-        Colors.grey.withValues(alpha: 0.0),
-        Colors.grey.withValues(alpha: 0.15),
+        AppColors.steel.withValues(alpha: 0.0),
+        AppColors.steel.withValues(alpha: 0.15),
       ],
     );
 

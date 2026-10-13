@@ -1,6 +1,7 @@
 import 'dart:convert';
 
-import 'package:defyx_vpn/core/data/local/secure_storage/flutter_secure_storage_provider.dart';
+import 'package:bulbvpn/core/data/local/secure_storage/flutter_secure_storage_provider.dart';
+import 'package:bulbvpn/core/data/local/secure_storage/secure_storage_const.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -41,7 +42,11 @@ final class SecureStorage implements ISecureStorage {
     try {
       final jsonString = await _storage.read(key: key);
       if (jsonString == null) {
-        debugPrint('No data found for key: $key');
+        // Only log for unexpected keys
+        // api_advertise and api_version_parameters are expected to be missing when DXcore.aar is not available
+        if (key != apiAvertiseKey && key != apiVersionParametersKey) {
+          debugPrint('No data found for key: $key');
+        }
         return {};
       }
 

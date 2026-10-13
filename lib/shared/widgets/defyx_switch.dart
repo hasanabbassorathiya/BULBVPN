@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:bulbvpn/core/theme/app_colors.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
@@ -26,9 +26,9 @@ class DefyxSwitch extends StatelessWidget {
       child: CupertinoSwitch(
         value: value,
         onChanged: enabled ? onChanged : null,
-        activeTrackColor: const Color(0xFF00D4AA),
-        inactiveTrackColor: const Color(0x60767680),
-        thumbColor: Colors.white,
+        activeTrackColor: AppColors.amber,
+        inactiveTrackColor: AppColors.graphite,
+        thumbColor: AppColors.ink,
       ),
     );
   }

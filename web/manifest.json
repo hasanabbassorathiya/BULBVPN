@@ -1,6 +1,6 @@
 {
-    "name": "defyx_vpn",
-    "short_name": "defyx_vpn",
+    "name": "bulbvpn",
+    "short_name": "bulbvpn",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

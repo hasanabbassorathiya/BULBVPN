@@ -1,8 +1,8 @@
-import 'package:defyx_vpn/core/theme/app_colors.dart';
-import 'package:defyx_vpn/shared/services/animation_service.dart';
+import 'package:bulbvpn/core/theme/app_colors.dart';
+import 'package:bulbvpn/shared/services/animation_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
-import 'package:defyx_vpn/shared/providers/connection_state_provider.dart';
+import 'package:bulbvpn/shared/providers/connection_state_provider.dart';
 import '../../../models/speed_test_result.dart';
 import '../speed_test_metrics/speed_test_metrics.dart';
 import 'components/progress_arc_stack.dart';
@@ -37,7 +37,8 @@ class SpeedTestProgressIndicator extends StatefulWidget {
   });
 
   @override
-  State<SpeedTestProgressIndicator> createState() => _SpeedTestProgressIndicatorState();
+  State<SpeedTestProgressIndicator> createState() =>
+      _SpeedTestProgressIndicatorState();
 }
 
 class _SpeedTestProgressIndicatorState extends State<SpeedTestProgressIndicator>
@@ -61,27 +62,29 @@ class _SpeedTestProgressIndicatorState extends State<SpeedTestProgressIndicator>
   void _initializeAnimations() {
     _uploadAnimationController = AnimationController(
       vsync: this,
-      duration: _animationService.adjustDuration(const Duration(milliseconds: 300)),
+      duration: _animationService.adjustDuration(
+        const Duration(milliseconds: 300),
+      ),
     );
-    _uploadProgressAnimation = Tween<double>(
-      begin: 0.0,
-      end: 0.0,
-    ).animate(CurvedAnimation(
-      parent: _uploadAnimationController,
-      curve: Curves.easeInOut,
-    ));
+    _uploadProgressAnimation = Tween<double>(begin: 0.0, end: 0.0).animate(
+      CurvedAnimation(
+        parent: _uploadAnimationController,
+        curve: Curves.easeInOut,
+      ),
+    );
 
     _downloadAnimationController = AnimationController(
       vsync: this,
-      duration: _animationService.adjustDuration(const Duration(milliseconds: 300)),
+      duration: _animationService.adjustDuration(
+        const Duration(milliseconds: 300),
+      ),
     );
-    _downloadProgressAnimation = Tween<double>(
-      begin: 0.0,
-      end: 0.0,
-    ).animate(CurvedAnimation(
-      parent: _downloadAnimationController,
-      curve: Curves.easeInOut,
-    ));
+    _downloadProgressAnimation = Tween<double>(begin: 0.0, end: 0.0).animate(
+      CurvedAnimation(
+        parent: _downloadAnimationController,
+        curve: Curves.easeInOut,
+      ),
+    );
 
     _gridAnimationController = AnimationController(
       vsync: this,
@@ -100,7 +103,8 @@ class _SpeedTestProgressIndicatorState extends State<SpeedTestProgressIndicator>
   @override
   void didUpdateWidget(SpeedTestProgressIndicator oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.progress != widget.progress || oldWidget.currentStep != widget.currentStep) {
+    if (oldWidget.progress != widget.progress ||
+        oldWidget.currentStep != widget.currentStep) {
       _updateStepProgress();
     }
   }
@@ -125,18 +129,21 @@ class _SpeedTestProgressIndicatorState extends State<SpeedTestProgressIndicator>
     final currentValue = _uploadProgressAnimation.value;
     final isDecreasing = _uploadProgress < currentValue;
 
-    final duration =
-        isDecreasing ? const Duration(milliseconds: 1200) : const Duration(milliseconds: 400);
+    final duration = isDecreasing
+        ? const Duration(milliseconds: 1200)
+        : const Duration(milliseconds: 400);
 
-    _uploadAnimationController.duration = _animationService.adjustDuration(duration);
+    _uploadAnimationController.duration = _animationService.adjustDuration(
+      duration,
+    );
 
-    _uploadProgressAnimation = Tween<double>(
-      begin: currentValue,
-      end: _uploadProgress,
-    ).animate(CurvedAnimation(
-      parent: _uploadAnimationController,
-      curve: isDecreasing ? Curves.easeOutCubic : Curves.easeInOut,
-    ));
+    _uploadProgressAnimation =
+        Tween<double>(begin: currentValue, end: _uploadProgress).animate(
+          CurvedAnimation(
+            parent: _uploadAnimationController,
+            curve: isDecreasing ? Curves.easeOutCubic : Curves.easeInOut,
+          ),
+        );
     _animationService.conditionalForward(_uploadAnimationController, from: 0.0);
   }
 
@@ -144,19 +151,25 @@ class _SpeedTestProgressIndicatorState extends State<SpeedTestProgressIndicator>
     final currentValue = _downloadProgressAnimation.value;
     final isDecreasing = _downloadProgress < currentValue;
 
-    final duration =
-        isDecreasing ? const Duration(milliseconds: 1200) : const Duration(milliseconds: 400);
+    final duration = isDecreasing
+        ? const Duration(milliseconds: 1200)
+        : const Duration(milliseconds: 400);
 
-    _downloadAnimationController.duration = _animationService.adjustDuration(duration);
+    _downloadAnimationController.duration = _animationService.adjustDuration(
+      duration,
+    );
 
-    _downloadProgressAnimation = Tween<double>(
-      begin: currentValue,
-      end: _downloadProgress,
-    ).animate(CurvedAnimation(
-      parent: _downloadAnimationController,
-      curve: isDecreasing ? Curves.easeOutCubic : Curves.easeInOut,
-    ));
-    _animationService.conditionalForward(_downloadAnimationController, from: 0.0);
+    _downloadProgressAnimation =
+        Tween<double>(begin: currentValue, end: _downloadProgress).animate(
+          CurvedAnimation(
+            parent: _downloadAnimationController,
+            curve: isDecreasing ? Curves.easeOutCubic : Curves.easeInOut,
+          ),
+        );
+    _animationService.conditionalForward(
+      _downloadAnimationController,
+      from: 0.0,
+    );
   }
 
   @override
@@ -170,7 +183,10 @@ class _SpeedTestProgressIndicatorState extends State<SpeedTestProgressIndicator>
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: Listenable.merge([_uploadProgressAnimation, _downloadProgressAnimation]),
+      animation: Listenable.merge([
+        _uploadProgressAnimation,
+        _downloadProgressAnimation,
+      ]),
       builder: (context, child) {
         return SizedBox(
           width: 350.w,
@@ -198,7 +214,8 @@ class _SpeedTestProgressIndicatorState extends State<SpeedTestProgressIndicator>
                 ),
               ),
               if (widget.result != null &&
-                  (widget.currentStep != SpeedTestStep.ready && widget.result!.ping > 0))
+                  (widget.currentStep != SpeedTestStep.ready &&
+                      widget.result!.ping > 0))
                 Positioned(
                   bottom: 10.h,
                   left: 0.w,

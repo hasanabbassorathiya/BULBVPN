@@ -3,347 +3,258 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'app_colors.dart';
 
 class AppTheme {
-  static const String fontFamily = 'Lato';
+  static const String fontFamily = 'Outfit';
 
-  static ThemeData get lightTheme {
+  /// BULBVPN console theme — dark-first, single accent (see DESIGN.md).
+  /// Both light and dark resolve to the console: the product is a night
+  /// instrument. `themeMode` in app.dart picks dark.
+  static ThemeData get lightTheme => _consoleTheme();
+
+  static ThemeData get darkTheme => _consoleTheme();
+
+  static ThemeData _consoleTheme() {
     return ThemeData(
       useMaterial3: true,
       fontFamily: fontFamily,
-      colorScheme: ColorScheme.light(
-        primary: AppColors.primary,
-        secondary: AppColors.secondary,
-        surface: Colors.white,
-        error: Colors.red,
+      brightness: Brightness.dark,
+      colorScheme: const ColorScheme.dark(
+        primary: AppColors.amber,
+        secondary: AppColors.steel,
+        surface: AppColors.surface,
+        onSurface: AppColors.ink,
+        error: AppColors.red,
+        outline: AppColors.graphite,
       ),
-      scaffoldBackgroundColor: Colors.white,
-      textTheme: _buildTextTheme(Colors.black87),
+      scaffoldBackgroundColor: AppColors.canvas,
+      textTheme: _buildTextTheme(),
       appBarTheme: AppBarTheme(
-        backgroundColor: AppColors.primary,
-        foregroundColor: Colors.white,
+        backgroundColor: AppColors.canvas,
+        foregroundColor: AppColors.ink,
         elevation: 0,
-        centerTitle: true,
+        centerTitle: false,
         titleTextStyle: TextStyle(
           fontFamily: fontFamily,
           fontSize: 20.sp,
           fontWeight: FontWeight.w600,
-          color: Colors.white,
+          letterSpacing: -0.4,
+          color: AppColors.ink,
         ),
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
-          backgroundColor: AppColors.primary,
-          foregroundColor: Colors.white,
+          backgroundColor: AppColors.amber,
+          foregroundColor: AppColors.canvas,
+          disabledBackgroundColor: AppColors.raised,
+          disabledForegroundColor: AppColors.mute,
           textStyle: TextStyle(
             fontFamily: fontFamily,
-            fontSize: 14.sp,
-            fontWeight: FontWeight.w500,
+            fontSize: 15.sp,
+            fontWeight: FontWeight.w600,
             letterSpacing: 0.1,
           ),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8.r),
+            borderRadius: BorderRadius.circular(16.r),
           ),
-          padding: EdgeInsets.symmetric(horizontal: 24.w, vertical: 12.h),
+          padding: EdgeInsets.symmetric(horizontal: 24.w, vertical: 14.h),
+          minimumSize: Size(0, 52.h),
         ),
       ),
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
-          foregroundColor: AppColors.primary,
+          foregroundColor: AppColors.amber,
           textStyle: TextStyle(
             fontFamily: fontFamily,
             fontSize: 14.sp,
             fontWeight: FontWeight.w500,
-            letterSpacing: 0.1,
           ),
         ),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
-          foregroundColor: AppColors.primary,
+          foregroundColor: AppColors.ink,
           textStyle: TextStyle(
             fontFamily: fontFamily,
             fontSize: 14.sp,
             fontWeight: FontWeight.w500,
-            letterSpacing: 0.1,
           ),
-          side: BorderSide(color: AppColors.primary, width: 1.5),
+          side: const BorderSide(color: AppColors.hairline, width: 1),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8.r),
+            borderRadius: BorderRadius.circular(16.r),
           ),
-          padding: EdgeInsets.symmetric(horizontal: 24.w, vertical: 12.h),
+          padding: EdgeInsets.symmetric(horizontal: 24.w, vertical: 14.h),
+          minimumSize: Size(0, 52.h),
         ),
       ),
       inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: AppColors.raised,
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8.r),
+          borderRadius: BorderRadius.circular(12.r),
+          borderSide: BorderSide.none,
         ),
-        contentPadding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 12.h),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12.r),
+          borderSide: BorderSide.none,
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12.r),
+          borderSide: const BorderSide(color: AppColors.amber, width: 1),
+        ),
+        contentPadding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 14.h),
         labelStyle: TextStyle(
           fontFamily: fontFamily,
           fontSize: 14.sp,
-          fontWeight: FontWeight.w400,
-          letterSpacing: 0.25,
+          color: AppColors.steel,
         ),
         hintStyle: TextStyle(
           fontFamily: fontFamily,
           fontSize: 14.sp,
-          fontWeight: FontWeight.w400,
-          letterSpacing: 0.25,
-          color: Colors.grey,
-        ),
-      ),
-      cardTheme: CardThemeData(
-        elevation: 2,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12.r),
+          color: AppColors.mute,
         ),
       ),
       dialogTheme: DialogThemeData(
+        backgroundColor: AppColors.surface,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16.r),
+          borderRadius: BorderRadius.circular(24.r),
+          side: const BorderSide(color: AppColors.hairline),
         ),
-        titleTextStyle: TextStyle(
-          fontFamily: fontFamily,
-          fontSize: 22.sp,
-          fontWeight: FontWeight.w500,
-          color: Colors.black87,
-        ),
-        contentTextStyle: TextStyle(
-          fontFamily: fontFamily,
-          fontSize: 14.sp,
-          fontWeight: FontWeight.w400,
-          letterSpacing: 0.25,
-          color: Colors.black87,
-        ),
-      ),
-      dividerTheme: DividerThemeData(
-        color: Colors.grey.shade300,
-        thickness: 1,
-        space: 1,
-      ),
-    );
-  }
-
-  static ThemeData get darkTheme {
-    return ThemeData(
-      useMaterial3: true,
-      fontFamily: fontFamily,
-      colorScheme: ColorScheme.dark(
-        primary: AppColors.primary,
-        secondary: AppColors.secondary,
-        surface: const Color(0xFF1E1E1E),
-        error: Colors.redAccent,
-      ),
-      scaffoldBackgroundColor: const Color(0xFF121212),
-      textTheme: _buildTextTheme(Colors.white),
-      appBarTheme: AppBarTheme(
-        backgroundColor: AppColors.primary,
-        foregroundColor: Colors.white,
-        elevation: 0,
-        centerTitle: true,
         titleTextStyle: TextStyle(
           fontFamily: fontFamily,
           fontSize: 20.sp,
           fontWeight: FontWeight.w600,
-          color: Colors.white,
-        ),
-      ),
-      elevatedButtonTheme: ElevatedButtonThemeData(
-        style: ElevatedButton.styleFrom(
-          backgroundColor: AppColors.primary,
-          foregroundColor: Colors.white,
-          textStyle: TextStyle(
-            fontFamily: fontFamily,
-            fontSize: 14.sp,
-            fontWeight: FontWeight.w500,
-            letterSpacing: 0.1,
-          ),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8.r),
-          ),
-          padding: EdgeInsets.symmetric(horizontal: 24.w, vertical: 12.h),
-        ),
-      ),
-      textButtonTheme: TextButtonThemeData(
-        style: TextButton.styleFrom(
-          foregroundColor: AppColors.bottomGradientConnected,
-          textStyle: TextStyle(
-            fontFamily: fontFamily,
-            fontSize: 14.sp,
-            fontWeight: FontWeight.w500,
-            letterSpacing: 0.1,
-          ),
-        ),
-      ),
-      outlinedButtonTheme: OutlinedButtonThemeData(
-        style: OutlinedButton.styleFrom(
-          foregroundColor: Colors.white,
-          textStyle: TextStyle(
-            fontFamily: fontFamily,
-            fontSize: 14.sp,
-            fontWeight: FontWeight.w500,
-            letterSpacing: 0.1,
-          ),
-          side: const BorderSide(color: Colors.white70, width: 1.5),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8.r),
-          ),
-          padding: EdgeInsets.symmetric(horizontal: 24.w, vertical: 12.h),
-        ),
-      ),
-      inputDecorationTheme: InputDecorationTheme(
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8.r),
-        ),
-        contentPadding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 12.h),
-        labelStyle: TextStyle(
-          fontFamily: fontFamily,
-          fontSize: 14.sp,
-          fontWeight: FontWeight.w400,
-          letterSpacing: 0.25,
-          color: Colors.white70,
-        ),
-        hintStyle: TextStyle(
-          fontFamily: fontFamily,
-          fontSize: 14.sp,
-          fontWeight: FontWeight.w400,
-          letterSpacing: 0.25,
-          color: Colors.white38,
-        ),
-      ),
-      cardTheme: CardThemeData(
-        elevation: 2,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12.r),
-        ),
-        color: const Color(0xFF1E1E1E),
-      ),
-      dialogTheme: DialogThemeData(
-        backgroundColor: const Color(0xFF1E1E1E),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16.r),
-        ),
-        titleTextStyle: TextStyle(
-          fontFamily: fontFamily,
-          fontSize: 22.sp,
-          fontWeight: FontWeight.w500,
-          color: Colors.white,
+          letterSpacing: -0.3,
+          color: AppColors.ink,
         ),
         contentTextStyle: TextStyle(
           fontFamily: fontFamily,
           fontSize: 14.sp,
           fontWeight: FontWeight.w400,
-          letterSpacing: 0.25,
-          color: Colors.white70,
+          color: AppColors.steel,
         ),
       ),
-      dividerTheme: DividerThemeData(
-        color: Colors.grey.shade800,
+      dividerTheme: const DividerThemeData(
+        color: AppColors.hairline,
         thickness: 1,
         space: 1,
+      ),
+      bottomSheetTheme: BottomSheetThemeData(
+        backgroundColor: AppColors.surface,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28.r)),
+        ),
       ),
     );
   }
 
-  static TextTheme _buildTextTheme(Color defaultColor) {
+  static TextTheme _buildTextTheme() {
     return TextTheme(
       displayLarge: TextStyle(
         fontFamily: fontFamily,
         fontSize: 57.sp,
-        fontWeight: FontWeight.w400,
-        letterSpacing: -0.25,
-        color: defaultColor,
+        fontWeight: FontWeight.w600,
+        letterSpacing: -1.4,
+        height: 1.05,
+        color: AppColors.ink,
       ),
       displayMedium: TextStyle(
         fontFamily: fontFamily,
         fontSize: 45.sp,
-        fontWeight: FontWeight.w400,
-        color: defaultColor,
+        fontWeight: FontWeight.w600,
+        letterSpacing: -1.1,
+        height: 1.05,
+        color: AppColors.ink,
       ),
       displaySmall: TextStyle(
         fontFamily: fontFamily,
         fontSize: 36.sp,
-        fontWeight: FontWeight.w400,
-        color: defaultColor,
+        fontWeight: FontWeight.w600,
+        letterSpacing: -0.9,
+        height: 1.1,
+        color: AppColors.ink,
       ),
       headlineLarge: TextStyle(
         fontFamily: fontFamily,
         fontSize: 32.sp,
-        fontWeight: FontWeight.w400,
-        color: defaultColor,
+        fontWeight: FontWeight.w600,
+        letterSpacing: -0.8,
+        height: 1.1,
+        color: AppColors.ink,
       ),
       headlineMedium: TextStyle(
         fontFamily: fontFamily,
         fontSize: 28.sp,
-        fontWeight: FontWeight.w400,
-        color: defaultColor,
+        fontWeight: FontWeight.w600,
+        letterSpacing: -0.6,
+        height: 1.15,
+        color: AppColors.ink,
       ),
       headlineSmall: TextStyle(
         fontFamily: fontFamily,
         fontSize: 24.sp,
-        fontWeight: FontWeight.w400,
-        color: defaultColor,
+        fontWeight: FontWeight.w600,
+        letterSpacing: -0.5,
+        height: 1.2,
+        color: AppColors.ink,
       ),
       titleLarge: TextStyle(
         fontFamily: fontFamily,
         fontSize: 22.sp,
-        fontWeight: FontWeight.w500,
-        color: defaultColor,
+        fontWeight: FontWeight.w600,
+        letterSpacing: -0.4,
+        color: AppColors.ink,
       ),
       titleMedium: TextStyle(
         fontFamily: fontFamily,
         fontSize: 16.sp,
-        fontWeight: FontWeight.w500,
-        letterSpacing: 0.15,
-        color: defaultColor,
+        fontWeight: FontWeight.w600,
+        letterSpacing: -0.2,
+        color: AppColors.ink,
       ),
       titleSmall: TextStyle(
         fontFamily: fontFamily,
         fontSize: 14.sp,
         fontWeight: FontWeight.w500,
-        letterSpacing: 0.1,
-        color: defaultColor,
+        color: AppColors.ink,
       ),
       bodyLarge: TextStyle(
         fontFamily: fontFamily,
         fontSize: 16.sp,
         fontWeight: FontWeight.w400,
-        letterSpacing: 0.5,
-        color: defaultColor,
+        height: 1.5,
+        color: AppColors.steel,
       ),
       bodyMedium: TextStyle(
         fontFamily: fontFamily,
-        fontSize: 14.sp,
+        fontSize: 15.sp,
         fontWeight: FontWeight.w400,
-        letterSpacing: 0.25,
-        color: defaultColor,
+        height: 1.5,
+        color: AppColors.steel,
       ),
       bodySmall: TextStyle(
         fontFamily: fontFamily,
-        fontSize: 12.sp,
+        fontSize: 13.sp,
         fontWeight: FontWeight.w400,
-        letterSpacing: 0.4,
-        color: defaultColor,
+        height: 1.45,
+        color: AppColors.steel,
       ),
       labelLarge: TextStyle(
         fontFamily: fontFamily,
         fontSize: 14.sp,
         fontWeight: FontWeight.w500,
-        letterSpacing: 0.1,
-        color: defaultColor,
+        color: AppColors.ink,
       ),
       labelMedium: TextStyle(
         fontFamily: fontFamily,
         fontSize: 12.sp,
         fontWeight: FontWeight.w500,
-        letterSpacing: 0.5,
-        color: defaultColor,
+        color: AppColors.steel,
       ),
       labelSmall: TextStyle(
         fontFamily: fontFamily,
         fontSize: 11.sp,
         fontWeight: FontWeight.w500,
-        letterSpacing: 0.5,
-        color: defaultColor,
+        color: AppColors.mute,
       ),
     );
   }
