@@ -1,4 +1,5 @@
 import 'package:firebase_analytics/firebase_analytics.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/foundation.dart';
 
 class FirebaseAnalyticsService {
@@ -65,6 +66,36 @@ class FirebaseAnalyticsService {
     } catch (e) {
       debugPrint('Analytics error: $e');
     }
+  }
+
+  Future<void> logVpnFailed({
+    required String ip,
+    required int ping,
+    required String rawStage,
+    required String serverLabel,
+  }) async {
+    try {
+      await _analytics.logEvent(
+        name: 'vpn_failed',
+        parameters: {
+          'ip': ip,
+          'ping': ping,
+          'raw_stage': rawStage,
+          'server_label': serverLabel,
+        },
+      );
+    } catch (e) {
+      debugPrint('Analytics error: $e');
+    }
+    try {
+      await FirebaseCrashlytics.instance.recordError(
+        'VPN failed $rawStage $ip $ping',
+        StackTrace.current,
+        reason: serverLabel,
+        fatal: false,
+      );
+      FirebaseCrashlytics.instance.log('vpn_failed $rawStage $ip $ping $serverLabel');
+    } catch (_) {}
   }
 
   Future<void> setUserId(String? userId) async {

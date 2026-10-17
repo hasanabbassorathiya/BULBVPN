@@ -43,7 +43,11 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
               // Logo entrance: settle on a spring.
               StaggeredIn(
                 offset: 24,
-                child: AppIcons.logo(width: 116, height: 116),
+                child: AppIcons.logo(
+                  width: 116,
+                  height: 116,
+                  radius: 28,
+                ),
               ),
               const SizedBox(height: 26),
               StaggeredIn(

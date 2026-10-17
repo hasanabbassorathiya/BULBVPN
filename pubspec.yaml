@@ -1,7 +1,7 @@
 name: bulbvpn
 description: "A new Vpn app."
 publish_to: 'none'
-version: 3.2.31+191
+version: 1.0.0+1
 
 environment:
   sdk: ^3.10.0
@@ -19,7 +19,7 @@ dependencies:
   shimmer: ^3.0.0
   shake: ^3.0.0
   vibration: ^3.1.3
-  google_mobile_ads: ^6.0.0
+  google_mobile_ads: ^9.1.0
   url_launcher: ^6.3.1
   flame: ^1.29.0
   webview_flutter: ^4.13.0
@@ -34,7 +34,10 @@ dependencies:
   connectivity_plus: ^7.0.0
 
   # VPN
-  openvpn_flutter: ^1.3.4
+  openvpn_dart:
+    git:
+      url: https://github.com/mysteriumnetwork/openvpn_dart.git
+      ref: 0.1.3
   permission_handler: ^11.3.1
   http: ^1.2.0
 
@@ -49,12 +52,14 @@ dependencies:
   flutter_dotenv: ^6.0.0
   firebase_core: ^4.2.0
   firebase_analytics: ^12.0.3
+  firebase_crashlytics: ^5.0.2
   battery_plus: ^7.0.0
   no_screenshot: ^0.3.1
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  flutter_launcher_icons: ^0.14.1
 
   flutter_lints: ^5.0.0
   build_runner: ^2.4.13
@@ -81,3 +86,15 @@ flutter:
     - family: GeistMono
       fonts:
         - asset: assets/fonts/GeistMono-VF.ttf
+
+flutter_launcher_icons:
+  image_path: assets/images/logo.png
+  ios: true
+  remove_alpha_ios: true
+  android: true
+  adaptive_icon_background: "#0A0D14"
+  adaptive_icon_foreground: assets/images/logo.png
+  adaptive_icon_monochrome: assets/images/logo.png
+  android_adaptive_icon_background: "#0A0D14"
+  android_adaptive_icon_foreground: assets/images/logo.png
+  android_adaptive_icon_monochrome: assets/images/logo.png

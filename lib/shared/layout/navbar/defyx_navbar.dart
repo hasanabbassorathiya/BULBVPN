@@ -1,7 +1,6 @@
 import 'package:bulbvpn/app/router/app_router.dart';
 import 'package:bulbvpn/core/theme/app_colors.dart';
 import 'package:bulbvpn/shared/providers/app_screen_provider.dart';
-import 'package:bulbvpn/shared/layout/navbar/widgets/defyx_nav_item.dart';
 import 'package:bulbvpn/shared/layout/navbar/widgets/quick_menu_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -18,71 +17,62 @@ class DefyxNavBar extends ConsumerWidget {
     final currentScreen = _getCurrentScreenFromLocation(location);
 
     return SafeArea(
-        child: Padding(
-      padding: EdgeInsets.only(bottom: 20.h),
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          Container(
-            width: 210.w,
-            height: 62.h,
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.circular(100.r),
-              border: Border.all(color: AppColors.hairline),
+      child: Padding(
+        padding: EdgeInsets.only(bottom: 18.h, left: 16.w, right: 16.w),
+        child: Row(
+          children: [
+            Expanded(
+              child: Container(
+                height: 64.h,
+                decoration: BoxDecoration(
+                  color: AppColors.surface.withValues(alpha: 0.96),
+                  borderRadius: BorderRadius.circular(100.r),
+                  border: Border.all(color: AppColors.hairline),
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppColors.shadow,
+                      blurRadius: 24,
+                      offset: const Offset(0, 8),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    Expanded(child: _NavPill(screen: AppScreen.speedTest, icon: "speed", label: "Speed", current: currentScreen, onTap: () => _handleSpeedTest(context, ref))),
+                    Expanded(child: _NavPill(screen: AppScreen.home, icon: "chield", label: "Home", current: currentScreen, onTap: () => _navigateToHome(context))),
+                    Expanded(child: _NavPill(screen: AppScreen.settings, icon: "settings", label: "Settings", current: currentScreen, onTap: () => _navigateToSettings(context))),
+                  ],
+                ),
+              ),
             ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                DefyxNavItem(
-                  screen: AppScreen.speedTest,
-                  icon: "speed",
-                  current: currentScreen,
-                  onTap: () => _handleSpeedTest(context, ref),
-                ),
-                DefyxNavItem(
-                  screen: AppScreen.home,
-                  icon: "chield",
-                  current: currentScreen,
-                  onTap: () => _navigateToHome(context),
-                ),
-                DefyxNavItem(
-                  screen: AppScreen.settings,
-                  icon: "settings",
-                  current: currentScreen,
-                  onTap: () => _navigateToSettings(context),
-                ),
-              ],
-            ),
-          ),
-          Positioned(
-            right: 24.w,
-            child: GestureDetector(
+            SizedBox(width: 12.w),
+            GestureDetector(
               onTap: () => _showShareDialog(context, ref),
               child: Container(
                 width: 56.w,
                 height: 56.w,
-                decoration: const BoxDecoration(
+                decoration: BoxDecoration(
                   color: AppColors.surface,
                   shape: BoxShape.circle,
+                  border: Border.all(color: AppColors.hairline),
+                  boxShadow: [
+                    BoxShadow(color: AppColors.shadow, blurRadius: 16, offset: const Offset(0, 4)),
+                  ],
                 ),
                 child: Center(
                   child: SvgPicture.asset(
                     'assets/icons/info.svg',
-                    width: 24.w,
-                    height: 24.w,
-                    colorFilter: const ColorFilter.mode(
-                      AppColors.steel,
-                      BlendMode.srcIn,
-                    ),
+                    width: 22.w,
+                    height: 22.w,
+                    colorFilter: const ColorFilter.mode(AppColors.steel, BlendMode.srcIn),
                   ),
                 ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
-    ));
+    );
   }
 
   void _handleSpeedTest(BuildContext context, WidgetRef ref) {
@@ -127,7 +117,6 @@ class DefyxNavBar extends ConsumerWidget {
           curve: Curves.easeOutCubic,
           reverseCurve: Curves.easeInCubic,
         );
-
         return FadeTransition(
           opacity: curvedAnimation,
           child: ScaleTransition(
@@ -140,5 +129,65 @@ class DefyxNavBar extends ConsumerWidget {
     ).then((_) {
       ref.read(currentScreenProvider.notifier).state = AppScreen.home;
     });
+  }
+}
+
+class _NavPill extends StatelessWidget {
+  final AppScreen screen;
+  final String icon;
+  final String label;
+  final AppScreen current;
+  final VoidCallback onTap;
+
+  const _NavPill({
+    required this.screen,
+    required this.icon,
+    required this.label,
+    required this.current,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isSelected = current == screen;
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeOutCubic,
+        decoration: BoxDecoration(
+          color: isSelected ? AppColors.amberTint : Colors.transparent,
+          borderRadius: BorderRadius.circular(100),
+        ),
+        padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 10.h),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            SvgPicture.asset(
+              'assets/icons/$icon.svg',
+              width: 20.w,
+              height: 20.w,
+              colorFilter: ColorFilter.mode(
+                isSelected ? AppColors.amber : AppColors.steel,
+                BlendMode.srcIn,
+              ),
+            ),
+            if (isSelected) ...[
+              SizedBox(width: 6.w),
+              Text(
+                label,
+                style: TextStyle(
+                  color: AppColors.amber,
+                  fontSize: 11.sp,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.3,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
   }
 }

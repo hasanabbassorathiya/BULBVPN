@@ -1,81 +1,147 @@
-import OpenVPNAdapter
+//
+//  PacketTunnelProvider.swift
+//  PacketTunnel
+//
+//  OpenVPN tunnel provider for BULBVPN (com.bulbvpn.app.VPNExtension).
+//  Mirrors the openvpn_flutter 1.3.4 example extension exactly.
+//
+
 import NetworkExtension
+import OpenVPNAdapter
 import os.log
 
-class PacketTunnelProvider: OpenVPNAdapterPacketTunnelProvider {
+extension NEPacketTunnelFlow: OpenVPNAdapterPacketFlow {}
 
-    override func startTunnel(
-        options: [String: NSObject]?,
-        completionHandler: @escaping (Error?) -> Void
-    ) {
-        os_log("Starting BULBVPN tunnel...")
+class PacketTunnelProvider: NEPacketTunnelProvider {
 
-        guard let providerProtocol = protocolConfiguration as? NETunnelProviderProtocol,
-              let providerConfig = providerProtocol.providerConfiguration,
-              let configData = providerConfig["config"] as? Data,
-              let configString = String(data: configData, encoding: .utf8),
-              !configString.isEmpty else {
-            os_log("❌ Missing or empty OpenVPN config")
-            completionHandler(NSError(domain: "BULBVPN", code: 1, userInfo: [NSLocalizedDescriptionKey: "Missing OpenVPN configuration"]))
+    lazy var vpnAdapter: OpenVPNAdapter = {
+        let adapter = OpenVPNAdapter()
+        adapter.delegate = self
+        return adapter
+    }()
+
+    let vpnReachability = OpenVPNReachability()
+    var groupIdentifier: String?
+
+    var startHandler: ((Error?) -> Void)?
+    var stopHandler: (() -> Void)?
+
+    override func startTunnel(options: [String: NSObject]?, completionHandler: @escaping (Error?) -> Void) {
+        guard
+            let protocolConfiguration = protocolConfiguration as? NETunnelProviderProtocol,
+            let providerConfiguration = protocolConfiguration.providerConfiguration
+        else {
+            completionHandler(nil)
+            return
+        }
+        guard let ovpnFileContent: Data = providerConfiguration["config"] as? Data else {
+            completionHandler(NSError(domain: "com.bulbvpn.app.VPNExtension", code: 1, userInfo: [NSLocalizedDescriptionKey: "Invalid configuration"]))
+            return
+        }
+        guard let groupIdentifierData: Data = providerConfiguration["groupIdentifier"] as? Data else {
+            completionHandler(NSError(domain: "com.bulbvpn.app.VPNExtension", code: 1, userInfo: [NSLocalizedDescriptionKey: "Invalid configuration"]))
+            return
+        }
+        self.groupIdentifier = String(decoding: groupIdentifierData, as: UTF8.self)
+
+        let configuration = OpenVPNConfiguration()
+        configuration.fileContent = ovpnFileContent
+        configuration.tunPersist = false
+
+        let properties: OpenVPNConfigurationEvaluation
+        do {
+            properties = try vpnAdapter.apply(configuration: configuration)
+        } catch {
+            completionHandler(error)
             return
         }
 
-        os_log("✅ OpenVPN config received (%d chars)", configString.count)
-
-        let openVPNAdapter = OpenVPNAdapter()
-        openVPNAdapter.delegate = self
-
-        let properties: [String: Any] = [
-            OpenVPNAdapter.configurationFile: configString,
-            OpenVPNAdapter.disconnectOnSleep: false,
-        ]
-
-        openVPNAdapter.connect(with: properties)
-
-        self.startCompletionHandler = completionHandler
-    }
-
-    override func stopTunnel(
-        with reason: NEProviderStopReason,
-        completionHandler: @escaping () -> Void
-    ) {
-        os_log("Stopping BULBVPN tunnel (reason: %d)", reason.rawValue)
-        
-        if let openVPNAdapter = self.openVPNAdapter {
-            openVPNAdapter.disconnect()
-        }
-        
-        self.stopCompletionHandler = completionHandler
-    }
-
-    override func handleAppMessage(
-        _ messageData: Data,
-        completionHandler: ((Data?) -> Void)?
-    ) {
-        guard let message = String(data: messageData, encoding: .utf8) else {
-            completionHandler?(nil)
-            return
+        if !properties.autologin {
+            guard let username = options?["username"] as? String,
+                  let password = options?["password"] as? String else {
+                completionHandler(NSError(domain: "com.bulbvpn.app.VPNExtension", code: 1, userInfo: [NSLocalizedDescriptionKey: "Invalid configuration"]))
+                return
+            }
+            let credentials = OpenVPNCredentials()
+            credentials.username = username
+            credentials.password = password
+            do {
+                try vpnAdapter.provide(credentials: credentials)
+            } catch {
+                completionHandler(error)
+                return
+            }
         }
 
-        os_log("Received app message: %@", message)
+        vpnReachability.startTracking { [weak self] status in
+            guard status == .reachableViaWiFi else { return }
+            self?.vpnAdapter.reconnect(afterTimeInterval: 5)
+        }
+        startHandler = completionHandler
+        vpnAdapter.connect(using: packetFlow)
+    }
 
-        if message == "OPENVPN_STATS",
-           let openVPNAdapter = self.openVPNAdapter,
-           let stats = openVPNAdapter.vpnStats {
-            let statsString = "byteIn: \(stats.bytesIn), byteOut: \(stats.bytesOut), packetIn: \(stats.packetsIn), packetOut: \(stats.packetsOut)"
-            let responseData = statsString.data(using: .utf8)
-            completionHandler?(responseData)
-        } else {
-            completionHandler?(nil)
+    override func stopTunnel(with reason: NEProviderStopReason, completionHandler: @escaping () -> Void) {
+        stopHandler = completionHandler
+        if vpnReachability.isTracking {
+            vpnReachability.stopTracking()
+        }
+        vpnAdapter.disconnect()
+    }
+
+    override func handleAppMessage(_ messageData: Data, completionHandler: ((Data?) -> Void)? = nil) {
+        if String(data: messageData, encoding: .utf8) == "OPENVPN_STATS" {
+            var toSave = ""
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+            let connectedOn = UserDefaults(suiteName: groupIdentifier)?.string(forKey: "connected_on") ?? ""
+            toSave += connectedOn
+            toSave += "_"
+            toSave += String(vpnAdapter.interfaceStatistics.packetsIn)
+            toSave += "_"
+            toSave += String(vpnAdapter.interfaceStatistics.packetsOut)
+        }
+        completionHandler?(nil)
+    }
+}
+
+extension PacketTunnelProvider: OpenVPNAdapterDelegate {
+    func openVPNAdapter(_ openVPNAdapter: OpenVPNAdapter, configureTunnelWithNetworkSettings networkSettings: NEPacketTunnelNetworkSettings?, completionHandler: @escaping (Error?) -> Void) {
+        // Settings are owned by the adapter. This path only reports that
+        // configuration finished; it does not invent a loopback remote.
+        _ = networkSettings
+        completionHandler(nil)
+    }
+
+    func openVPNAdapter(_ openVPNAdapter: OpenVPNAdapter, handleEvent event: OpenVPNAdapterEvent, message: String?) {
+        switch event {
+        case .connected:
+            UserDefaults(suiteName: groupIdentifier)?.set(Date(), forKey: "connected_on")
+            if let startHandler = startHandler {
+                startHandler(nil)
+                self.startHandler = nil
+            }
+        case .disconnected:
+            if let stopHandler = stopHandler {
+                if vpnReachability.isTracking {
+                    vpnReachability.stopTracking()
+                }
+                stopHandler()
+                self.stopHandler = nil
+            }
+        default:
+            break
         }
     }
 
-    override func sleep(completionHandler: @escaping () -> Void) {
-        os_log("Tunnel going to sleep...")
-        completionHandler()
+    func openVPNAdapter(_ openVPNAdapter: OpenVPNAdapter, handleError error: Error) {
+        if let startHandler = startHandler {
+            startHandler(error)
+            self.startHandler = nil
+        }
     }
 
-    override func wake() {
-        os_log("Tunnel waking up...")
+    func openVPNAdapter(_ openVPNAdapter: OpenVPNAdapter, handleLogMessage logmessage: String) {
+        os_log("%{public}@", log: OSLog(subsystem: "com.bulbvpn.app", category: "OpenVPN"), logmessage)
     }
 }

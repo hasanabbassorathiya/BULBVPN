@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:bulbvpn/core/theme/app_colors.dart';
+import 'package:bulbvpn/modules/main/application/server_ping_provider.dart';
 import 'package:bulbvpn/modules/main/presentation/screens/main_screen.dart';
 import 'package:bulbvpn/shared/widgets/staggered_in.dart';
 
@@ -44,6 +45,7 @@ class _ServerSheetState extends ConsumerState<ServerSheet> {
   Widget build(BuildContext context) {
     final serversAsync = ref.watch(serversProvider);
     final selected = ref.watch(selectedServerProvider);
+    final pingState = ref.watch(serverPingProvider);
 
     return Column(
       children: [
@@ -74,6 +76,37 @@ class _ServerSheetState extends ConsumerState<ServerSheet> {
                 ),
               ),
               const Spacer(),
+              // Ping all — real device latency, not the server-reported ms.
+              TextButton.icon(
+                onPressed: pingState.probing
+                    ? null
+                    : () async {
+                        final serversAsync = ref.read(serversProvider);
+                        final servers = serversAsync.valueOrNull;
+                        if (servers == null || servers.isEmpty) return;
+                        await ref
+                            .read(serverPingProvider.notifier)
+                            .pingAll(servers);
+                      },
+                icon: pingState.probing
+                    ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: AppColors.amber,
+                        ),
+                      )
+                    : const Icon(Icons.speed, size: 18, color: AppColors.amber),
+                label: Text(
+                  pingState.probing ? 'Pinging…' : 'Ping all',
+                  style: const TextStyle(
+                    color: AppColors.amber,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
               IconButton(
                 onPressed: () => Navigator.pop(context),
                 icon: const Icon(Icons.close, color: AppColors.steel, size: 22),
@@ -119,9 +152,11 @@ class _ServerSheetState extends ConsumerState<ServerSheet> {
               ),
             ),
             data: (servers) {
+              final measuredByIp = pingState.byIp;
+              final sorted = sortByMeasuredPing(servers, measuredByIp);
               final filtered = _query.isEmpty
-                  ? servers
-                  : servers
+                  ? sorted
+                  : sorted
                       .where((s) =>
                           s.countryLong.toLowerCase().contains(_query) ||
                           s.countryShort.toLowerCase().contains(_query) ||
@@ -134,10 +169,15 @@ class _ServerSheetState extends ConsumerState<ServerSheet> {
                       style: TextStyle(color: AppColors.mute, fontSize: 13)),
                 );
               }
-              final minPing = filtered
-                  .map((s) => s.ping)
-                  .where((p) => p > 0)
-                  .fold<int>(0, (m, p) => m == 0 || p < m ? p : m);
+              final okPings = filtered
+                  .map((s) => measuredByIp[s.ip])
+                  .whereType<ServerPing>()
+                  .where((p) => p.status == PingStatus.ok)
+                  .map((p) => p.ms)
+                  .toList();
+              final minPing = okPings.isEmpty
+                  ? 0
+                  : okPings.reduce((a, b) => a < b ? a : b);
               return ListView.separated(
                 padding: const EdgeInsets.fromLTRB(20, 0, 20, 32),
                 itemCount: filtered.length,
@@ -148,6 +188,8 @@ class _ServerSheetState extends ConsumerState<ServerSheet> {
                   offset: 8,
                   child: _ServerRow(
                     server: filtered[i],
+                    ping: measuredByIp[filtered[i].ip],
+                    pingProbing: pingState.probing,
                     minPing: minPing,
                     isSelected: selected?.ip == filtered[i].ip,
                     onTap: () {
@@ -175,12 +217,16 @@ class _ServerSheetState extends ConsumerState<ServerSheet> {
 class _ServerRow extends StatelessWidget {
   const _ServerRow({
     required this.server,
+    required this.ping,
+    required this.pingProbing,
     required this.minPing,
     required this.isSelected,
     required this.onTap,
   });
 
   final VpnServer server;
+  final ServerPing? ping;
+  final bool pingProbing;
   final int minPing;
   final bool isSelected;
   final VoidCallback onTap;
@@ -192,15 +238,38 @@ class _ServerRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final pingLabel = server.ping > 0 ? '${server.ping} ms' : '—';
-    final bars = server.ping <= 0
+    final p = ping;
+    final measured = p != null && p.status == PingStatus.ok ? p.ms : null;
+    // Fall back to the server's own reported ms only when we haven't measured
+    // yet — after "Ping all", the measured value takes over (per user: "don't
+    // use server's ms info").
+    final effectivePing = measured ?? (server.ping > 0 && p == null ? server.ping : 0);
+    final pingLabel = p == null
+        ? (effectivePing > 0 ? '$effectivePing ms' : '—')
+        : pingProbing
+            ? '…'
+            : switch (p.status) {
+                PingStatus.ok => '${p.ms} ms',
+                PingStatus.timeout => '—',
+                PingStatus.pending => '…',
+              };
+    final bars = effectivePing <= 0 || (p?.status == PingStatus.timeout)
         ? 0
-        : server.ping < 100
+        : effectivePing < 100
             ? 3
-            : server.ping < 200
+            : effectivePing < 200
                 ? 2
                 : 1;
-    final isBest = minPing > 0 && server.ping == minPing;
+    final isBest = measured != null && minPing > 0 && measured == minPing;
+    final pingColor = switch (p?.status) {
+      PingStatus.ok => p!.ms < 100
+          ? AppColors.amber
+          : p.ms < 250
+              ? AppColors.steel
+              : AppColors.mute,
+      PingStatus.timeout => AppColors.red,
+      _ => AppColors.steel,
+    };
 
     return InkWell(
       onTap: onTap,
@@ -281,11 +350,11 @@ class _ServerRow extends StatelessWidget {
               child: Text(
                 pingLabel,
                 textAlign: TextAlign.right,
-                style: const TextStyle(
-                  color: AppColors.steel,
+                style: TextStyle(
+                  color: pingColor,
                   fontSize: 12,
                   fontFamily: 'GeistMono',
-                  fontFeatures: [FontFeature.tabularFigures()],
+                  fontFeatures: const [FontFeature.tabularFigures()],
                 ),
               ),
             ),

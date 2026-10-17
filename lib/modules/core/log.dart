@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 class Log {
@@ -8,6 +9,7 @@ class Log {
 
   static const int _maxChars = 200000;
   final List<String> _lines = <String>[];
+  final ValueNotifier<int> version = ValueNotifier<int>(0);
 
   List<String> get lines => List<String>.unmodifiable(_lines);
 
@@ -20,6 +22,8 @@ class Log {
 
   void clearLogs() {
     _lines.clear();
+    version.value++;
+    try { FirebaseCrashlytics.instance.log('[Log] cleared'); } catch (_) {}
   }
 
   String addLog(String log) {
@@ -37,7 +41,9 @@ class Log {
       total -= _lines.first.length + 1;
       _lines.removeAt(0);
     }
+    version.value++;
     debugPrint(log);
+    try { FirebaseCrashlytics.instance.log(line); } catch (_) {}
     return line;
   }
 

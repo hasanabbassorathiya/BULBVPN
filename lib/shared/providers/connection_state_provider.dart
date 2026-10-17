@@ -1,8 +1,11 @@
 import 'dart:async';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:openvpn_flutter/openvpn_flutter.dart';
+import 'package:openvpn_dart/vpn_status.dart' as vpn_status;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:bulbvpn/modules/core/log.dart';
+import 'package:bulbvpn/modules/core/softether_vpn.dart';
 import 'package:bulbvpn/modules/core/vpn_service.dart';
 import 'package:bulbvpn/core/utils/screen_security.dart';
 
@@ -23,25 +26,28 @@ extension ConnectionStatusExtension on ConnectionStatus {
 }
 
 class ConnectionState {
+  /// App-level connection status (superset: adds loading/analyzing/error/noInternet).
   final ConnectionStatus status;
-  final VPNStage? vpnStage;
-  final VpnStatus? vpnStatus;
+  /// Engine status from openvpn_dart (connecting/connected/disconnecting/disconnected/unknown).
+  final vpn_status.ConnectionStatus? vpnStatus;
+  /// Cumulative session bytes downloaded (fed to the throughput gauge).
+  final int totalDownload;
 
   const ConnectionState({
     this.status = ConnectionStatus.disconnected,
-    this.vpnStage,
     this.vpnStatus,
+    this.totalDownload = 0,
   });
 
   ConnectionState copyWith({
     ConnectionStatus? status,
-    VPNStage? vpnStage,
-    VpnStatus? vpnStatus,
+    vpn_status.ConnectionStatus? vpnStatus,
+    int? totalDownload,
   }) {
     return ConnectionState(
       status: status ?? this.status,
-      vpnStage: vpnStage ?? this.vpnStage,
       vpnStatus: vpnStatus ?? this.vpnStatus,
+      totalDownload: totalDownload ?? this.totalDownload,
     );
   }
 }
@@ -55,127 +61,101 @@ class ConnectionStateNotifier extends StateNotifier<ConnectionState> {
   static const String _connectionStatusKey = 'connection_status';
   final VpnService _vpnService = VpnService();
 
+  StreamSubscription? _statusSub;
+  Timer? _statsTimer;
+  bool _holdEngineEvents = false;
+
+  /// While a SoftEther tunnel owns the session, ignore OpenVPN status events
+  /// so a stray `disconnected` does not tear the UI back down.
+  void holdEngineEvents(bool hold) {
+    _holdEngineEvents = hold;
+  }
+
   ConnectionStateNotifier() : super(const ConnectionState()) {
     _initVpnListeners();
   }
 
   Future<void> _initVpnListeners() async {
-    // Initialize the VPN service
     try {
       await _vpnService.initialize();
+      Log().addLog('[ConnectionStateNotifier] VPN service initialized');
     } catch (e, stackTrace) {
-      debugPrint('[ConnectionStateNotifier] ERROR initializing VPN service: $e');
+      Log().addLog('[ConnectionStateNotifier] ERROR initializing VPN service: $e');
       debugPrint('[ConnectionStateNotifier] Stack trace: $stackTrace');
+      try {
+        FirebaseCrashlytics.instance.recordError(e, stackTrace, reason: 'ConnectionStateNotifier init', fatal: false);
+        FirebaseCrashlytics.instance.log('vpn init error: $e');
+      } catch (_) {}
       setError();
       return;
     }
 
-    // Listen to VPN stage changes via the VpnService
-    // The VpnService already has internal listeners that update its state
-    // We'll poll the status periodically to keep UI in sync
-    _startStatusPolling();
-  }
+    // Event-driven: openvpn_dart pushes status transitions instead of the
+    // 1s polling the old openvpn_flutter wrapper used.
+    _statusSub = _vpnService.statusStream().listen(_onStatusEvent, onError: (e, s) {
+      debugPrint('[ConnectionStateNotifier] statusStream error: $e');
+      try {
+        FirebaseCrashlytics.instance.recordError(e as Object, s, reason: 'vpn statusStream', fatal: false);
+      } catch (_) {}
+    });
 
-  Timer? _pollingTimer;
-
-  void _startStatusPolling() {
-    _pollingTimer?.cancel();
-    _pollingTimer = Timer.periodic(const Duration(seconds: 1), (_) async {
+    // Poll cumulative traffic for the throughput gauge (engine reports totals only).
+    _statsTimer = Timer.periodic(const Duration(seconds: 1), (_) async {
       if (!mounted) return;
       try {
-        final stage = await _vpnService.getStage();
-        final status = await _vpnService.getStatus();
-        _updateFromVpnStage(stage, status);
+        final total = _holdEngineEvents
+            ? await SoftEtherVpn.bytesReceived()
+            : await _openVpnBytes();
+        if (total != state.totalDownload) {
+          state = state.copyWith(totalDownload: total);
+        }
       } catch (e) {
-        debugPrint('[ConnectionStateNotifier] Error polling VPN status: $e');
+        debugPrint('[ConnectionStateNotifier] Error polling tunnel statistics: $e');
       }
     });
   }
 
-  void _updateFromVpnStage(VPNStage stage, VpnStatus status) {
-    // Surface a failed connection attempt (e.g. auth_failed) as an error state.
-    if (_vpnService.consumeConnectionFailed()) {
-      debugPrint('[ConnectionStateNotifier] Connection failed (auth_failed)');
-      state = state.copyWith(
-        status: ConnectionStatus.error,
-        vpnStage: stage,
-        vpnStatus: status,
-      );
-      ScreenSecurity.disableScreenSecurity();
-      return;
-    }
+  Future<int> _openVpnBytes() async {
+    await _vpnService.refreshTunnelStatistics();
+    return _vpnService.totalDownload;
+  }
 
-    final lastStage = state.vpnStage;
-    final lastByteIn = state.vpnStatus?.byteIn;
-    final bool stageChanged = lastStage != stage;
-    final bool statsChanged = lastByteIn != status.byteIn;
-    if (!stageChanged && !statsChanged) return;
+  void _onStatusEvent(vpn_status.ConnectionStatus status) {
+    if (_holdEngineEvents) return;
+    debugPrint('[ConnectionStateNotifier] VPN status: ${status.name}');
+    try {
+      FirebaseCrashlytics.instance.log('vpn status ${status.name}');
+    } catch (_) {}
 
-    if (stageChanged) {
-      debugPrint('[ConnectionStateNotifier] VPN Stage: ${stage.name}, Status: ${status.toJson()}');
-    }
     ConnectionStatus newStatus;
-    switch (stage) {
-      case VPNStage.connecting:
-      case VPNStage.authenticating:
-      case VPNStage.authentication:
-      case VPNStage.prepare:
-      case VPNStage.wait_connection:
-      case VPNStage.vpn_generate_config:
-      case VPNStage.get_config:
-      case VPNStage.tcp_connect:
-      case VPNStage.udp_connect:
-      case VPNStage.assign_ip:
-      case VPNStage.resolve:
+    switch (status) {
+      case vpn_status.ConnectionStatus.connecting:
         newStatus = ConnectionStatus.connecting;
         break;
-      case VPNStage.connected:
+      case vpn_status.ConnectionStatus.connected:
         newStatus = ConnectionStatus.connected;
         break;
-      case VPNStage.disconnecting:
-      case VPNStage.exiting:
+      case vpn_status.ConnectionStatus.disconnecting:
         newStatus = ConnectionStatus.disconnecting;
         break;
-      case VPNStage.denied:
-      case VPNStage.error:
-        newStatus = ConnectionStatus.error;
+      case vpn_status.ConnectionStatus.disconnected:
+      case vpn_status.ConnectionStatus.unknown:
+        // Surface a disconnected-after-error as an error only if we were erroring.
+        newStatus = state.status == ConnectionStatus.error
+            ? ConnectionStatus.error
+            : ConnectionStatus.disconnected;
         break;
-      case VPNStage.disconnected:
-      case VPNStage.unknown:
-        newStatus = ConnectionStatus.disconnected;
-        break;
     }
 
-    // Keep an error visible until the user starts a new attempt; otherwise the
-    // stage poller would silently downgrade it back to Standby.
-    if (state.status == ConnectionStatus.error &&
-        (newStatus == ConnectionStatus.disconnected ||
-            newStatus == ConnectionStatus.disconnecting)) {
-      state = state.copyWith(vpnStage: stage, vpnStatus: status);
-      return;
-    }
-
-    if (newStatus != state.status) {
-      state = state.copyWith(
-        status: newStatus,
-        vpnStage: stage,
-        vpnStatus: status,
-      );
-      debugPrint('[ConnectionStateNotifier] Updated connection status to: $newStatus');
-    } else {
-      // Update vpnStage and vpnStatus even if connection status didn't change
-      state = state.copyWith(
-        vpnStage: stage,
-        vpnStatus: status,
-      );
-    }
-
-    // Handle screen security based on connection state
     if (newStatus == ConnectionStatus.connected) {
       ScreenSecurity.enableScreenSecurity();
     } else if (newStatus == ConnectionStatus.disconnected ||
         newStatus == ConnectionStatus.error) {
       ScreenSecurity.disableScreenSecurity();
+    }
+
+    if (newStatus != state.status || status != state.vpnStatus) {
+      state = state.copyWith(status: newStatus, vpnStatus: status);
     }
   }
 
@@ -190,6 +170,7 @@ class ConnectionStateNotifier extends StateNotifier<ConnectionState> {
   }
 
   void setLoading() => _setStatus(ConnectionStatus.loading);
+  void setConnecting() => _setStatus(ConnectionStatus.connecting);
   void setConnected() => _setStatus(ConnectionStatus.connected);
   void setDisconnected() => _setStatus(ConnectionStatus.disconnected);
   void setDisconnecting() => _setStatus(ConnectionStatus.disconnecting);
@@ -200,7 +181,7 @@ class ConnectionStateNotifier extends StateNotifier<ConnectionState> {
   void _setStatus(ConnectionStatus status) {
     state = state.copyWith(status: status);
     _saveState();
-    
+
     if (status == ConnectionStatus.connected) {
       ScreenSecurity.enableScreenSecurity();
     } else if (status == ConnectionStatus.disconnected) {
@@ -210,7 +191,8 @@ class ConnectionStateNotifier extends StateNotifier<ConnectionState> {
 
   @override
   void dispose() {
-    _pollingTimer?.cancel();
+    _statusSub?.cancel();
+    _statsTimer?.cancel();
     _vpnService.dispose();
     super.dispose();
   }

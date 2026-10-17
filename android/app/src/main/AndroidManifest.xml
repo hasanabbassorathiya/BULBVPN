@@ -11,9 +11,8 @@
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
 
     
-    <!-- Samsung-specific permissions for better compatibility -->
+    <!-- Battery optimization exemption is required to keep the VPN foreground service alive on Samsung/Chinese OEMs (scoped, user-granted). SYSTEM_ALERT_WINDOW removed — flagged as malware-signal overlay + tapjacking (App Store Compliance Guard). -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <application
@@ -32,6 +31,16 @@
             android:exported="false"
             android:stopWithTask="false"
             android:foregroundServiceType="systemExempted"/>
+
+        <service
+            android:name=".SoftEtherVpnService"
+            android:exported="false"
+            android:permission="android.permission.BIND_VPN_SERVICE"
+            android:foregroundServiceType="systemExempted">
+            <intent-filter>
+                <action android:name="android.net.VpnService" />
+            </intent-filter>
+        </service>
 
         <activity
             android:name=".MainActivity"

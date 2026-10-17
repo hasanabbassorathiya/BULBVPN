@@ -14,11 +14,14 @@ class BulbOrb extends StatefulWidget {
     required this.phase,
     required this.onTap,
     this.size = 210,
+    this.byteDelta = 0,
   });
 
   final BulbPhase phase;
   final VoidCallback onTap;
   final double size;
+  /// Bytes per second since last tick — drives speed needle when connected.
+  final int byteDelta;
 
   @override
   State<BulbOrb> createState() => _BulbOrbState();
@@ -41,6 +44,7 @@ class _BulbOrbState extends State<BulbOrb> with TickerProviderStateMixin {
   double _aPackets = 0;
   double _speed = 1;
   double _lit = 0;
+  double _speedFraction = 0;
   Duration _last = Duration.zero;
 
   @override
@@ -70,6 +74,11 @@ class _BulbOrbState extends State<BulbOrb> with TickerProviderStateMixin {
 
     _speed = smoothTowards(_speed, _speedTarget, dt, 4.0);
     _lit = smoothTowards(_lit, _litTarget, dt, 3.0);
+    // Throughput gauge smoothing: 0 .. 1 mapped from ~0 .. 2 MB/s
+    final targetFrac = widget.phase == BulbPhase.connected
+        ? (widget.byteDelta / (2 * 1024 * 1024)).clamp(0.0, 1.0)
+        : 0.0;
+    _speedFraction = smoothTowards(_speedFraction, targetFrac, dt, 2.5);
 
     // Tunnel rings: outer clockwise, inner counter-clockwise (transform-only).
     _aOuter = (_aOuter + dt * (2 * math.pi / 18) * _speed) % (2 * math.pi);
@@ -130,6 +139,7 @@ class _BulbOrbState extends State<BulbOrb> with TickerProviderStateMixin {
                       (_ticker.lastElapsedDuration ?? Duration.zero).inMicroseconds /
                           1e6,
                   reduceMotion: reduce,
+                  speedFraction: _speedFraction,
                 ),
               ),
             );
@@ -149,6 +159,7 @@ class _BulbPainter extends CustomPainter {
     required this.lit,
     required this.elapsedSec,
     required this.reduceMotion,
+    required this.speedFraction,
   });
 
   final BulbPhase phase;
@@ -158,6 +169,7 @@ class _BulbPainter extends CustomPainter {
   final double lit;
   final double elapsedSec;
   final bool reduceMotion;
+  final double speedFraction;
 
   Color get _ringColor => switch (phase) {
         BulbPhase.idle => AppColors.graphite,
@@ -224,6 +236,55 @@ class _BulbPainter extends CustomPainter {
         final tail = Offset(math.cos(tailAng), math.sin(tailAng)) * 94;
         canvas.drawCircle(tail, 1.6, packetPaint..color = AppColors.emerald.withValues(alpha: 0.35));
       }
+    }
+
+    // --- Throughput gauge (connected only) ------------------------------
+    if (phase == BulbPhase.connected && !dim) {
+      final gaugeCenter = const Offset(0, -6);
+      const gaugeRadius = 18.0;
+      // Background arc -135° to +135° (270°)
+      const startAngle = -3 * math.pi / 4;
+      const sweep = 3 * math.pi / 2;
+      final bgPaint = Paint()
+        ..color = const Color(0x33FFFFFF)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.8
+        ..strokeCap = StrokeCap.round;
+      canvas.drawArc(
+        Rect.fromCircle(center: gaugeCenter, radius: gaugeRadius),
+        startAngle,
+        sweep,
+        false,
+        bgPaint,
+      );
+      // Progress arc
+      final progressPaint = Paint()
+        ..color = AppColors.amber.withValues(alpha: 0.95)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.2
+        ..strokeCap = StrokeCap.round;
+      canvas.drawArc(
+        Rect.fromCircle(center: gaugeCenter, radius: gaugeRadius),
+        startAngle,
+        sweep * speedFraction,
+        false,
+        progressPaint,
+      );
+      // Needle
+      final needleAngle = startAngle + sweep * speedFraction;
+      final needleLen = 14.0;
+      final tip = gaugeCenter + Offset(math.cos(needleAngle), math.sin(needleAngle)) * needleLen;
+      canvas.drawLine(
+        gaugeCenter,
+        tip,
+        Paint()
+          ..color = AppColors.ink
+          ..strokeWidth = 1.6
+          ..strokeCap = StrokeCap.round,
+      );
+      // Center dot
+      canvas.drawCircle(gaugeCenter, 2.4, Paint()..color = AppColors.ink);
+      canvas.drawCircle(gaugeCenter, 1.0, Paint()..color = AppColors.amber);
     }
 
     // --- Bulb glass -----------------------------------------------------

@@ -3,6 +3,10 @@ import 'package:flutter_svg/flutter_svg.dart';
 
 class AppIcons {
   static const String logoPath = 'assets/icons/logo.svg';
+  /// Canonical new BULBVPN icon (amber bulb + shield on navy) — used on
+  /// splash and any in-app logo spot. The old `logo.svg` is a Defyx-era
+  /// placeholder and must not be shown to users.
+  static const String logoPngPath = 'assets/images/logo.png';
   static const String defyxCheckPath = 'assets/icons/defyx_check.svg';
   static const String defyxLoadingPath = 'assets/icons/defyx_loading.svg';
   static const String defyxStandbyPath = 'assets/icons/defyx_standby.svg';
@@ -27,8 +31,20 @@ class AppIcons {
   static const String facebookPath = 'assets/icons/facebook.svg';
   static const String linkedinPath = 'assets/icons/linkedin.svg';
 
-  static SvgPicture logo({double? width, double? height}) {
-    return SvgPicture.asset(logoPath, width: width, height: height);
+  static Widget logo({double? width, double? height, double? radius}) {
+    final image = Image.asset(
+      logoPngPath,
+      width: width,
+      height: height,
+      fit: BoxFit.cover,
+      // Enough resolution for the tile sizes used (116px up to radial).
+      cacheWidth: (width ?? 116) > 200 ? null : (width?.round() ?? 116) * 3,
+    );
+    if (radius == null || radius <= 0) return image;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(radius),
+      child: image,
+    );
   }
 
   static SvgPicture defyxCheck({double? width, double? height}) {

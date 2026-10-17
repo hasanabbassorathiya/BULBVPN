@@ -1,61 +1,56 @@
 import 'dart:async';
 import 'dart:io' show Platform;
-import 'package:openvpn_flutter/openvpn_flutter.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
+import 'package:openvpn_dart/openvpn_dart.dart';
+import 'package:openvpn_dart/vpn_status.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:bulbvpn/modules/core/log.dart';
 
+/// Thin wrapper around the `openvpn_dart` engine (ics-openvpn on Android,
+/// NetworkExtension on iOS/macOS). Exposes the app's connection lifecycle as
+/// [ConnectionStatus] (the only status the engine reports) plus cumulative
+/// session tunnel bytes via [tunnelStatistics].
+///
+/// Credentials are always carried inline in the `.ovpn` config as an
+/// `<auth-user-pass>` block — the engine has no separate username/password.
 class VpnService {
   VpnService._internal();
   static final VpnService _instance = VpnService._internal();
   factory VpnService() => _instance;
 
   final Log _log = Log();
-  late final OpenVPN _openVpn;
+  final OpenVPNDart _openVpn = OpenVPNDart();
   bool _initialized = false;
-  StreamSubscription? _stageSubscription;
-  StreamSubscription? _statusSubscription;
 
-  VPNStage? _currentStage;
-  VpnStatus? _currentStatus;
-  DateTime? _lastConnectedOn;
-  bool _connectionFailed = false;
+  ConnectionStatus? _currentStatus;
+  int _totalDownload = 0;
+  int _totalUpload = 0;
 
-  /// True when OpenVPN reported a failed connection attempt (e.g. auth_failed).
-  bool get connectionFailed => _connectionFailed;
+  ConnectionStatus? get currentStatus => _currentStatus;
+  bool get isConnected => _currentStatus == ConnectionStatus.connected;
+  bool get isConnecting =>
+      _currentStatus == ConnectionStatus.connecting ||
+      _currentStatus == ConnectionStatus.unknown;
+  bool get isDisconnecting => _currentStatus == ConnectionStatus.disconnecting;
 
-  /// Returns the failure flag once and clears it.
-  bool consumeConnectionFailed() {
-    final failed = _connectionFailed;
-    _connectionFailed = false;
-    return failed;
-  }
-
-  VPNStage? get currentStage => _currentStage;
-  VpnStatus? get currentStatus => _currentStatus;
-  bool get isConnected => _currentStage == VPNStage.connected;
-  bool get isConnecting => _currentStage == VPNStage.connecting || _currentStage == VPNStage.authenticating || _currentStage == VPNStage.authentication;
-  bool get isDisconnecting => _currentStage == VPNStage.disconnecting;
+  /// Cumulative session bytes; fed to the UI's throughput gauge.
+  int get totalDownload => _totalDownload;
+  int get totalUpload => _totalUpload;
 
   Future<void> initialize() async {
     if (_initialized) {
       _log.addLog('[VpnService] Already initialized');
       return;
     }
-    // Set initialized flag early to prevent race conditions
     _initialized = true;
-
-    _openVpn = OpenVPN(
-      onVpnStatusChanged: _onVpnStatusChanged,
-      onVpnStageChanged: _onVpnStageChanged,
-    );
 
     final groupIdentifier = 'group.com.bulbvpn.app';
     final localizedDescription = 'BULBVPN Secure Connection';
     final providerBundleIdentifier = Platform.isMacOS
-        ? 'com.bulbvpn.app.macos.VPNExtension'
-        : 'com.bulbvpn.app.VPNExtension';
+        ? 'app.bulbvpn.com.macos.VPNExtension'
+        : 'app.bulbvpn.com.VPNExtension';
 
-    _log.addLog('[VpnService] Initializing OpenVPN with:');
+    _log.addLog('[VpnService] Initializing OpenVPNDart with:');
     _log.addLog('[VpnService]   groupIdentifier: $groupIdentifier');
     _log.addLog('[VpnService]   providerBundleIdentifier: $providerBundleIdentifier');
     _log.addLog('[VpnService]   localizedDescription: $localizedDescription');
@@ -68,45 +63,33 @@ class VpnService {
         localizedDescription: localizedDescription,
         lastStatus: (status) {
           _currentStatus = status;
-          _log.addLog('[VpnService] Initial status: ${status.toJson()}');
-        },
-        lastStage: (stage) {
-          _currentStage = stage;
-          _log.addLog('[VpnService] Initial stage: ${stage.name}');
+          _log.addLog('[VpnService] Initial status: ${status.name}');
         },
       );
-      _log.addLog('[VpnService] OpenVPN initialized successfully');
+      _log.addLog('[VpnService] OpenVPNDart initialized successfully');
     } catch (e, stackTrace) {
-      _initialized = false; // Reset on failure
-      _log.addLog('[VpnService] ERROR initializing OpenVPN: $e');
+      _initialized = false;
+      _log.addLog('[VpnService] ERROR initializing OpenVPNDart: $e');
       _log.addLog('[VpnService] Stack trace: $stackTrace');
       rethrow;
     }
   }
 
-  void _onVpnStatusChanged(VpnStatus? status) {
-    _currentStatus = status;
-    // Log only on session transitions; byte counters update every second.
-    final connectedOn = status?.connectedOn;
-    if (connectedOn == _lastConnectedOn) return;
-    _lastConnectedOn = connectedOn;
-    _log.addLog('[VpnService] Status changed: ${status?.toJson() ?? 'null'}');
-  }
-
-  void _onVpnStageChanged(VPNStage stage, String rawStage) {
-    _currentStage = stage;
-    if (rawStage == 'auth_failed') {
-      _connectionFailed = true;
-    }
-    _log.addLog('[VpnService] Stage changed: ${stage.name} (raw: $rawStage)');
+  /// Real-time engine status events (connecting/connected/disconnected/...).
+  Stream<ConnectionStatus> statusStream() {
+    return _openVpn.statusStream().map((status) {
+      _currentStatus = status;
+      _log.addLog('[VpnService] Status changed: ${status.name}');
+      try {
+        FirebaseCrashlytics.instance.log('vpn status ${status.name}');
+      } catch (_) {}
+      return status;
+    });
   }
 
   Future<void> connect({
     required String config,
     required String name,
-    String? username,
-    String? password,
-    bool? certIsRequired,
   }) async {
     if (!_initialized) {
       throw StateError('VpnService not initialized. Call initialize() first.');
@@ -114,26 +97,12 @@ class VpnService {
 
     _log.addLog('[VpnService] Connecting to VPN...');
     _log.addLog('[VpnService] Config name: $name');
-    _log.addLog('[VpnService] Has username: ${username != null}');
-    _log.addLog('[VpnService] Has password: ${password != null}');
     _log.addLog('[VpnService] Config length: ${config.length}');
-    _connectionFailed = false;
+    _log.addLog('[VpnService] Has inline auth-user-pass: ${config.contains('<auth-user-pass>')}');
 
     try {
-      // Android: VPN Gate uses username/password auth, not client certificates
-      // iOS/macOS: certIsRequired: true is required to avoid "stuck on connecting"
-      // If explicitly provided, use it; otherwise default to platform behavior
-      final effectiveCertIsRequired = certIsRequired ?? !Platform.isAndroid;
-      
-      await _openVpn.connect(
-        config,
-        name,
-        username: username,
-        password: password,
-        bypassPackages: [],
-        certIsRequired: effectiveCertIsRequired,
-      );
-      _log.addLog('[VpnService] Connect call completed (certIsRequired: $effectiveCertIsRequired)');
+      await _openVpn.connect(config);
+      _log.addLog('[VpnService] Connect requested (status follows via statusStream)');
     } catch (e, stackTrace) {
       _log.addLog('[VpnService] ERROR connecting: $e');
       _log.addLog('[VpnService] Stack trace: $stackTrace');
@@ -146,7 +115,6 @@ class VpnService {
       _log.addLog('[VpnService] Disconnect called but not initialized');
       return;
     }
-
     _log.addLog('[VpnService] Disconnecting VPN...');
     _openVpn.disconnect();
     _log.addLog('[VpnService] Disconnect call completed');
@@ -187,38 +155,48 @@ class VpnService {
     }
   }
 
-  Future<void> checkAndRequestPermissions() async {
+  Future<bool> checkAndRequestPermissions() async {
     _log.addLog('[VpnService] Checking and requesting permissions...');
-    await requestNotificationPermission();
+    final notifOk = await requestNotificationPermission();
+    _log.addLog('[VpnService] notification permission: $notifOk');
     if (Platform.isAndroid) {
-      await requestAndroidPermission();
+      final vpnOk = await requestAndroidPermission();
+      _log.addLog('[VpnService] vpn permission: $vpnOk');
+      return notifOk && vpnOk;
     }
+    return notifOk;
   }
 
-  Future<VpnStatus> getStatus() async {
-    if (!_initialized) {
-      return VpnStatus.empty();
-    }
-    return await _openVpn.status();
-  }
-
-  Future<VPNStage> getStage() async {
-    if (!_initialized) {
-      return VPNStage.disconnected;
-    }
-    return await _openVpn.stage();
+  Future<ConnectionStatus> getStatus() async {
+    if (!_initialized) return ConnectionStatus.disconnected;
+    final status = await _openVpn.getVPNStatus();
+    _currentStatus = status;
+    return status;
   }
 
   Future<bool> isTunnelRunning() async {
     return await _openVpn.isConnected();
   }
 
+  /// Reads cumulative session traffic and caches it for the UI gauge.
+  Future<void> refreshTunnelStatistics() async {
+    try {
+      final stats = await _openVpn.tunnelStatistics();
+      if (stats != null) {
+        _totalDownload = stats.totalDownload;
+        _totalUpload = stats.totalUpload;
+      }
+    } catch (e) {
+      _log.addLog('[VpnService] tunnelStatistics error: $e');
+    }
+  }
+
   void dispose() {
     _log.addLog('[VpnService] Disposing...');
-    _stageSubscription?.cancel();
-    _statusSubscription?.cancel();
     if (_initialized) {
-      _openVpn.disconnect();
+      try {
+        _openVpn.disconnect();
+      } catch (_) {}
     }
     _initialized = false;
     _log.addLog('[VpnService] Disposed');

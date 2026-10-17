@@ -5,15 +5,17 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:http/http.dart' as http;
-import 'package:openvpn_flutter/openvpn_flutter.dart';
+import 'package:openvpn_dart/vpn_status.dart' as vpn_status;
 import 'package:bulbvpn/core/theme/app_colors.dart';
 import 'package:bulbvpn/core/theme/app_text_styles.dart';
 import 'package:bulbvpn/modules/core/log.dart';
+import 'package:bulbvpn/modules/core/softether_vpn.dart';
 import 'package:bulbvpn/modules/core/vpn_controller.dart';
 import 'package:bulbvpn/modules/main/presentation/widgets/bulb_orb.dart';
 import 'package:bulbvpn/modules/main/presentation/widgets/server_sheet.dart';
 import 'package:bulbvpn/shared/layout/main_screen_background.dart';
 import 'package:bulbvpn/shared/providers/connection_state_provider.dart';
+import 'package:bulbvpn/shared/providers/ip_info_provider.dart';
 import 'package:bulbvpn/shared/providers/exit_ip_provider.dart';
 import 'package:bulbvpn/shared/widgets/staggered_in.dart';
 
@@ -63,23 +65,83 @@ class VpnServer {
 }
 
 final serversProvider = FutureProvider<List<VpnServer>>((ref) async {
-  const url =
-      'https://raw.githubusercontent.com/alihusains/apigate/main/response.json';
-  log.addLog('[MainScreen] Fetching servers from: $url');
-  final response = await http.get(Uri.parse(url));
-  log.addLog(
-    '[MainScreen] Response status: ${response.statusCode}, bytes: ${response.bodyBytes.length}',
-  );
-  if (response.statusCode == 200) {
-    final List<dynamic> data = json.decode(response.body);
-    final servers = data.map((json) => VpnServer.fromJson(json)).toList();
-    log.addLog('[MainScreen] Parsed ${servers.length} servers');
-    return servers;
+  String _sanitizeB64(String b) {
+    var s = b.trim().replaceAll('\n','').replaceAll('\r','').replaceAll(' ','');
+    final mod = s.length % 4;
+    if (mod != 0) s += '=' * (4-mod);
+    return s;
   }
-  log.addLog(
-    '[MainScreen] ERROR: Failed to load servers - status ${response.statusCode}',
-  );
-  throw Exception('Failed to load servers: ${response.statusCode}');
+  VpnServer? _serverFromCsvLine(String line) {
+    final l = line.trim();
+    if (l.isEmpty || l.startsWith('*') || l.startsWith('#')) return null;
+    final parts = l.split(',');
+    if (parts.length < 15) return null;
+    final b64 = parts.last.trim();
+    if (b64.isEmpty) return null;
+    // validate decodable
+    try { final _ = base64.decode(_sanitizeB64(b64)); } catch (_) { return null; }
+    return VpnServer(
+      hostName: parts[0].trim(),
+      ip: parts[1].trim(),
+      countryLong: parts[5].trim(),
+      countryShort: parts[6].trim(),
+      score: int.tryParse(parts[2].trim()) ?? 0,
+      ping: int.tryParse(parts[3].trim()) ?? 0,
+      speed: int.tryParse(parts[4].trim()) ?? 0,
+      numVpnSessions: int.tryParse(parts[7].trim()) ?? 0,
+      uptime: int.tryParse(parts[8].trim()) ?? 0,
+      openVpnConfigBase64: b64,
+    );
+  }
+  Future<List<VpnServer>?> _fetchOfficialCsv() async {
+    const url = 'http://www.vpngate.net/api/iphone/';
+    log.addLog('[MainScreen] Fetching servers from official CSV: $url');
+    for (var attempt=1; attempt<=2; attempt++) {
+      try {
+        final resp = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 12));
+        log.addLog('[MainScreen] Official CSV status: ${resp.statusCode}, bytes: ${resp.bodyBytes.length}');
+        if (resp.statusCode != 200 || !resp.body.contains('OpenVPN_ConfigData_Base64')) continue;
+        final lines = resp.body.split('\n');
+        final servers = <VpnServer>[];
+        for (final line in lines) {
+          final s = _serverFromCsvLine(line);
+          if (s != null) servers.add(s);
+        }
+        if (servers.isEmpty) { log.addLog('[MainScreen] Official CSV: no valid configs (attempt $attempt)'); continue; }
+        servers.sort((a,b){ final pa=a.ping<=0?9999:a.ping; final pb=b.ping<=0?9999:b.ping; return pa.compareTo(pb); });
+        log.addLog('[MainScreen] Parsed ${servers.length} servers from official CSV (sorted by ping asc)');
+        return servers;
+      } catch (e) { log.addLog('[MainScreen] Official CSV error attempt $attempt: $e'); }
+    }
+    return null;
+  }
+  Future<List<VpnServer>> _fetchJsonMirror() async {
+    const url = 'https://raw.githubusercontent.com/alihusains/apigate/main/response.json';
+    log.addLog('[MainScreen] Fallback JSON mirror: $url');
+    final response = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 12));
+    log.addLog('[MainScreen] Mirror status: ${response.statusCode}, bytes: ${response.bodyBytes.length}');
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      var servers = data.map((json) => VpnServer.fromJson(json)).toList();
+      servers = servers.where((s) => s.openVpnConfigBase64.isNotEmpty).toList();
+      servers.sort((a, b) { final pa=a.ping<=0?9999:a.ping; final pb=b.ping<=0?9999:b.ping; return pa.compareTo(pb); });
+      log.addLog('[MainScreen] Parsed ${servers.length} servers from mirror (sorted by ping asc)');
+      return servers;
+    }
+    throw Exception('Failed to load servers: ${response.statusCode}');
+  }
+  List<VpnServer> servers;
+  final official = await _fetchOfficialCsv();
+  if (official != null) {
+    servers = official;
+  } else {
+    log.addLog('[MainScreen] Official CSV failed, using JSON mirror');
+    servers = await _fetchJsonMirror();
+  }
+  // Do not pin servers.first into the controller. CSV ping is measured by
+  // VPN Gate, not from this device, and locking connect to that one host
+  // skips candidate rotation when the endpoint is dead or DPI-stalled.
+  return servers;
 });
 
 class MainScreen extends ConsumerStatefulWidget {
@@ -146,7 +208,11 @@ class _MainScreenState extends ConsumerState<MainScreen> {
     if (ctrl == null) return;
     try {
       final config = utf8.decode(base64.decode(server.openVpnConfigBase64));
-      ctrl.selectServerConfig(config, '${server.countryLong} · ${server.ip}');
+      ctrl.selectServerConfig(
+        config,
+        '${server.countryLong} · ${server.ip}',
+        hostName: server.hostName,
+      );
     } catch (e) {
       log.addLog('[MainScreen] ERROR decoding server config: $e');
       ref.read(selectedServerProvider.notifier).state = null;
@@ -168,7 +234,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
     if (cs.status == ConnectionStatus.connected) {
       _connectedAt ??= DateTime.now();
       final session = formatDuration(DateTime.now().difference(_connectedAt!));
-      final byteIn = int.tryParse(cs.vpnStatus?.byteIn ?? '') ?? 0;
+      final byteIn = cs.totalDownload;
       String rate = _rateLabel;
       if (_prevByteIn != null && byteIn >= _prevByteIn!) {
         rate = formatRate(byteIn - _prevByteIn!);
@@ -207,107 +273,201 @@ class _MainScreenState extends ConsumerState<MainScreen> {
     }
   }
 
-  Future<void> _copyExitIp() async {
-    final info = ref.read(exitIpProvider);
-    if (info == null) return;
-    await Clipboard.setData(ClipboardData(text: info.ip));
-    if (!mounted) return;
-    ScaffoldMessenger.maybeOf(context)
-      ?..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: Text(
-            'Exit IP ${info.ip} copied',
-            style: const TextStyle(
-              color: AppColors.ink,
-              fontSize: 13,
-              fontFamily: 'GeistMono',
+  String _ipLocationLabel(PublicIpInfo info) {
+    final parts = [info.city, info.region, info.country].where((s) => s.trim().isNotEmpty);
+    if (parts.isEmpty) return info.isp;
+    return info.isp.trim().isEmpty
+        ? parts.join(', ')
+        : '${parts.join(', ')} · ${info.isp}';
+  }
+
+  Widget _buildIpRow({
+    required String label,
+    required String? ip,
+    required String location,
+    bool copyable = false,
+  }) {
+    return Semantics(
+      button: copyable && ip != null,
+      label: copyable && ip != null ? 'Exit IP $ip, double tap to copy' : null,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: (copyable && ip != null) ? _copyIp(ip) : null,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              style: AppTextStyles.microLabel(
+                color: ip == null ? AppColors.mute : AppColors.steel,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    ip ?? '—',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTextStyles.monoValue(
+                      size: 15,
+                      color: ip == null ? AppColors.mute : AppColors.ink,
+                    ),
+                  ),
+                  if (location.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Text(
+                        location,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: AppColors.mute,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            if (copyable && ip != null) ...[
+              const SizedBox(width: 6),
+              const Icon(Icons.copy_rounded, size: 12, color: AppColors.mute),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  VoidCallback? _copyIp(String ip) {
+    if (ip.isEmpty) return null;
+    return () async {
+      await Clipboard.setData(ClipboardData(text: ip));
+      if (!mounted) return;
+      // Both can yield the same ip (before == after when idle); show one toast.
+      ScaffoldMessenger.maybeOf(context)
+        ?..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(
+              'IP $ip copied',
+              style: const TextStyle(
+                color: AppColors.ink,
+                fontSize: 13,
+                fontFamily: 'GeistMono',
+              ),
+            ),
+            backgroundColor: AppColors.raised,
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 2),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
             ),
           ),
-          backgroundColor: AppColors.raised,
-          behavior: SnackBarBehavior.floating,
-          duration: const Duration(seconds: 2),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-        ),
-      );
+        );
+    };
   }
 
   void _showLogs() {
-    final lines = Log().recent(200);
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: AppColors.surface,
       isScrollControlled: true,
+      useSafeArea: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder: (_) => SizedBox(
-        height: MediaQuery.sizeOf(context).height * 0.72,
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.only(top: 12, bottom: 4),
-              child: Container(
-                width: 36,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: AppColors.mute,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 10, 8, 8),
-              child: Row(
+      builder: (sheetContext) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(sheetContext).viewInsets.bottom),
+        child: DraggableScrollableSheet(
+          initialChildSize: 0.72,
+          minChildSize: 0.4,
+          maxChildSize: 0.92,
+          expand: false,
+          builder: (context, scrollController) => ValueListenableBuilder<int>(
+            valueListenable: Log().version,
+            builder: (_, __, ___) {
+              final lines = Log().recent(200);
+              return Column(
                 children: [
-                  const Text(
-                    'Logs',
-                    style: TextStyle(
-                      color: AppColors.ink,
-                      fontSize: 18,
-                      fontWeight: FontWeight.w600,
-                      letterSpacing: -0.3,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Text('${lines.length}', style: AppTextStyles.microLabel()),
-                  const Spacer(),
-                  TextButton(
-                    onPressed: () {
-                      Log().clearLogs();
-                      Navigator.pop(context);
-                    },
-                    child: const Text(
-                      'Clear',
-                      style: TextStyle(
-                        color: AppColors.amber,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12, bottom: 4),
+                    child: Container(
+                      width: 36,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: AppColors.mute,
+                        borderRadius: BorderRadius.circular(2),
                       ),
                     ),
                   ),
-                ],
-              ),
-            ),
-            Expanded(
-              child: ListView.builder(
-                padding: const EdgeInsets.fromLTRB(20, 4, 20, 32),
-                itemCount: lines.length,
-                itemBuilder: (_, i) {
-                  final line = lines[i];
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 2),
-                    child: Text(
-                      line,
-                      style: AppTextStyles.logLine(color: _logColor(line)),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 10, 8, 8),
+                    child: Row(
+                      children: [
+                        const Text(
+                          'Logs',
+                          style: TextStyle(
+                            color: AppColors.ink,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: -0.3,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Text('${lines.length}', style: AppTextStyles.microLabel()),
+                        const Spacer(),
+                        TextButton(
+                          onPressed: () => Log().clearLogs(),
+                          child: const Text(
+                            'Clear',
+                            style: TextStyle(
+                              color: AppColors.amber,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: () => Navigator.pop(sheetContext),
+                          icon: const Icon(Icons.close, color: AppColors.steel, size: 20),
+                        ),
+                      ],
                     ),
-                  );
-                },
-              ),
-            ),
-          ],
+                  ),
+                  Expanded(
+                    child: lines.isEmpty
+                        ? const Center(
+                            child: Text(
+                              'No logs yet — tap the bulb to connect.',
+                              style: TextStyle(color: AppColors.mute, fontSize: 13),
+                            ),
+                          )
+                        : ListView.builder(
+                            controller: scrollController,
+                            padding: const EdgeInsets.fromLTRB(20, 4, 20, 96),
+                            itemCount: lines.length,
+                            itemBuilder: (_, i) {
+                              final line = lines[i];
+                              return Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 2),
+                                child: Text(
+                                  line,
+                                  style: AppTextStyles.logLine(color: _logColor(line)),
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                  const SizedBox(height: 8),
+                  const SafeArea(child: SizedBox(height: 8)),
+                ],
+              );
+            },
+          ),
         ),
       ),
     );
@@ -360,56 +520,40 @@ class _MainScreenState extends ConsumerState<MainScreen> {
     }
   }
 
-  String _stageLabel(VPNStage? stage, ConnectionStatus status) {
+  String _stageLabel(vpn_status.ConnectionStatus? engine, ConnectionStatus status) {
     if (status == ConnectionStatus.disconnected ||
         status == ConnectionStatus.error ||
         status == ConnectionStatus.noInternet) {
       return status == ConnectionStatus.disconnected ? 'idle' : 'tunnel closed';
     }
-    switch (stage) {
-      case VPNStage.connected:
+    switch (engine) {
+      case vpn_status.ConnectionStatus.connected:
         return 'secure tunnel';
-      case VPNStage.tcp_connect:
-      case VPNStage.udp_connect:
+      case vpn_status.ConnectionStatus.connecting:
         return 'opening tunnel';
-      case VPNStage.wait_connection:
-        return 'waiting for tunnel';
-      case VPNStage.authenticating:
-      case VPNStage.authentication:
-        return 'authenticating';
-      case VPNStage.vpn_generate_config:
-        return 'generating config';
-      case VPNStage.get_config:
-        return 'loading config';
-      case VPNStage.assign_ip:
-        return 'assigning ip';
-      case VPNStage.resolve:
-        return 'resolving host';
-      case VPNStage.prepare:
-        return 'preparing';
-      case VPNStage.connecting:
-        return 'connecting';
-      case VPNStage.disconnecting:
-      case VPNStage.exiting:
+      case vpn_status.ConnectionStatus.disconnecting:
         return 'closing tunnel';
-      case VPNStage.denied:
-      case VPNStage.error:
-        return 'rejected';
-      case VPNStage.disconnected:
-      case VPNStage.unknown:
+      case vpn_status.ConnectionStatus.disconnected:
+      case vpn_status.ConnectionStatus.unknown:
       case null:
-        return 'idle';
+        // Fall through to app-level states while the engine settles.
+        return switch (status) {
+          ConnectionStatus.connecting => 'opening tunnel',
+          ConnectionStatus.analyzing => 'testing tunnel',
+          ConnectionStatus.disconnecting => 'closing tunnel',
+          _ => 'connecting',
+        };
     }
   }
 
-  String _orbLabel(ConnectionStatus status, VPNStage? stage) {
+  String _orbLabel(ConnectionStatus status, vpn_status.ConnectionStatus? engine) {
     switch (status) {
       case ConnectionStatus.connected:
         return 'Tap to disconnect';
       case ConnectionStatus.loading:
       case ConnectionStatus.connecting:
       case ConnectionStatus.analyzing:
-        return _stageLabel(stage, status);
+        return _stageLabel(engine, status);
       case ConnectionStatus.disconnecting:
         return 'closing tunnel';
       case ConnectionStatus.error:
@@ -425,7 +569,13 @@ class _MainScreenState extends ConsumerState<MainScreen> {
     final cs = ref.watch(connectionStateProvider);
     final selected = ref.watch(selectedServerProvider);
     final exitIp = ref.watch(exitIpProvider);
+    final ipWho = ref.watch(ipWhoProvider);
+    final sslHost = ref.watch(softEtherHostProvider);
     final status = cs.status;
+    final afterInfo = ipWho.after;
+    final afterMatches =
+        exitIp != null && afterInfo != null && afterInfo.ip == exitIp.ip;
+    final endpointLabel = sslHost ?? selected?.ip ?? 'auto';
 
     // Push server picks into the controller.
     ref.listen(selectedServerProvider, (prev, next) {
@@ -433,6 +583,12 @@ class _MainScreenState extends ConsumerState<MainScreen> {
         _vpnController?.clearServerConfig();
       } else {
         _applyServerConfig(next);
+      }
+      final live = ref.read(connectionStateProvider).status;
+      if (prev?.ip != next?.ip &&
+          (live == ConnectionStatus.connected ||
+              live == ConnectionStatus.connecting)) {
+        _vpnController?.reconnect(ref);
       }
     });
     // Track session start/stop precisely on transitions.
@@ -463,14 +619,17 @@ class _MainScreenState extends ConsumerState<MainScreen> {
             constraints: const BoxConstraints(maxWidth: 480),
             child: Padding(
               padding: const EdgeInsets.fromLTRB(20, 6, 20, 0),
-              child: Column(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final tight = constraints.maxHeight < 740;
+                  return Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   // ---- Top bar: brand + logs -------------------------
                   StaggeredIn(
                     child: Row(
                       children: [
-                        _brandWordmark(),
+                        Flexible(child: _brandWordmark()),
                         const Spacer(),
                         IconButton(
                           onPressed: _showLogs,
@@ -527,7 +686,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
                         ),
                         const SizedBox(height: 5),
                         Text(
-                          '${_stageLabel(cs.vpnStage, status)} · ${selected?.ip ?? 'auto'}',
+                          '${_stageLabel(cs.vpnStatus, status)} · $endpointLabel',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: AppTextStyles.monoValue(
@@ -546,17 +705,22 @@ class _MainScreenState extends ConsumerState<MainScreen> {
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          BulbOrb(
-                            phase: phase,
-                            onTap: _onConnectPressed,
-                            size: 210,
-                          ),
+                          Builder(builder: (context) {
+                            final total = ref.watch(connectionStateProvider.select((s) => s.totalDownload));
+                            final delta = total - (_prevByteIn ?? total);
+                            return BulbOrb(
+                              phase: phase,
+                              onTap: _onConnectPressed,
+                              size: tight ? 156 : 210,
+                              byteDelta: delta.clamp(0, 1 << 30),
+                            );
+                          }),
                           const SizedBox(height: 20),
                           StaggeredIn(
                             delayMs: 100,
                             offset: 8,
                             child: Text(
-                              _orbLabel(status, cs.vpnStage),
+                              _orbLabel(status, cs.vpnStatus),
                               style: AppTextStyles.microLabel(
                                 color: phase == BulbPhase.idle
                                     ? AppColors.steel
@@ -628,11 +792,15 @@ class _MainScreenState extends ConsumerState<MainScreen> {
                                               color: AppColors.emerald,
                                             ),
                                             const SizedBox(width: 5),
-                                            Text(
-                                              _rateLabel,
-                                              style: AppTextStyles.metric(
-                                                size: 20,
-                                                color: AppColors.emerald,
+                                            Flexible(
+                                              child: Text(
+                                                _rateLabel,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: AppTextStyles.metric(
+                                                  size: 20,
+                                                  color: AppColors.emerald,
+                                                ),
                                               ),
                                             ),
                                           ],
@@ -647,49 +815,24 @@ class _MainScreenState extends ConsumerState<MainScreen> {
                           const SizedBox(height: 12),
                           Container(height: 1, color: AppColors.hairline),
                           const SizedBox(height: 12),
-                          Semantics(
-                            button: exitIp != null,
-                            label: exitIp == null
-                                ? 'Exit IP unavailable'
-                                : 'Exit IP ${exitIp.ip}, double tap to copy',
-                            child: GestureDetector(
-                              behavior: HitTestBehavior.opaque,
-                              onTap: exitIp == null ? null : _copyExitIp,
-                              child: Row(
-                                children: [
-                                  Text(
-                                    exitIp == null || exitIp.loc.isEmpty
-                                        ? 'EXIT IP'
-                                        : 'EXIT IP · ${exitIp.loc.toUpperCase()}',
-                                    style: AppTextStyles.microLabel(
-                                      color: exitIp == null
-                                          ? AppColors.mute
-                                          : AppColors.steel,
-                                    ),
-                                  ),
-                                  const Spacer(),
-                                  Text(
-                                    exitIp?.ip ?? '—',
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: AppTextStyles.monoValue(
-                                      size: 15,
-                                      color: exitIp == null
-                                          ? AppColors.mute
-                                          : AppColors.ink,
-                                    ),
-                                  ),
-                                  if (exitIp != null) ...[
-                                    const SizedBox(width: 6),
-                                    const Icon(
-                                      Icons.copy_rounded,
-                                      size: 12,
-                                      color: AppColors.mute,
-                                    ),
-                                  ],
-                                ],
-                              ),
-                            ),
+                          // BEFORE / AFTER IP with ipwho.is enrichment.
+                          _buildIpRow(
+                            label: 'BEFORE',
+                            ip: ipWho.before?.ip,
+                            location: ipWho.before == null
+                                ? ''
+                                : _ipLocationLabel(ipWho.before!),
+                          ),
+                          const SizedBox(height: 10),
+                          Container(height: 1, color: AppColors.hairline),
+                          const SizedBox(height: 10),
+                          _buildIpRow(
+                            label: exitIp == null ? 'EXIT IP' : 'AFTER',
+                            ip: exitIp?.ip,
+                            location: afterMatches
+                                ? _ipLocationLabel(afterInfo)
+                                : (exitIp?.loc ?? ''),
+                            copyable: true,
                           ),
                         ],
                       ),
@@ -698,11 +841,16 @@ class _MainScreenState extends ConsumerState<MainScreen> {
                   const SizedBox(height: 12),
 
                   // ---- Server pill ------------------------------------
-                  StaggeredIn(delayMs: 200, child: _serverPill(selected)),
+                  StaggeredIn(
+                    delayMs: 200,
+                    child: _serverPill(selected, sslHost: sslHost),
+                  ),
 
                   // ---- Nav clearance ----------------------------------
-                  const SizedBox(height: 96),
+                  SizedBox(height: tight ? 72 : 96),
                 ],
+              );
+                },
               ),
             ),
           ),
@@ -713,9 +861,6 @@ class _MainScreenState extends ConsumerState<MainScreen> {
 
   Widget _brandWordmark() {
     return Row(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.baseline,
-      textBaseline: TextBaseline.alphabetic,
       children: [
         const Text(
           'BULB',
@@ -736,15 +881,19 @@ class _MainScreenState extends ConsumerState<MainScreen> {
           ),
         ),
         const SizedBox(width: 10),
-        Transform.translate(
-          offset: const Offset(0, -1),
-          child: Text('SECURE TUNNEL', style: AppTextStyles.microLabel()),
+        Flexible(
+          child: Text(
+            'SECURE TUNNEL',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppTextStyles.microLabel(),
+          ),
         ),
       ],
     );
   }
 
-  Widget _serverPill(VpnServer? selected) {
+  Widget _serverPill(VpnServer? selected, {String? sslHost}) {
     final flagCode = selected == null
         ? null
         : (selected.countryShort.toLowerCase().length == 2
@@ -784,7 +933,9 @@ class _MainScreenState extends ConsumerState<MainScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    selected?.countryLong ?? 'Auto select',
+                    sslHost != null
+                        ? 'SoftEther SSL'
+                        : (selected?.countryLong ?? 'Auto select'),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
@@ -795,7 +946,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    selected?.ip ?? 'fastest available',
+                    sslHost ?? selected?.ip ?? 'fastest available',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: AppTextStyles.monoValue(
