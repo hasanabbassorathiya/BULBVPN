@@ -10,6 +10,7 @@ import 'package:bulbvpn/core/theme/app_colors.dart';
 import 'package:bulbvpn/core/theme/app_text_styles.dart';
 import 'package:bulbvpn/modules/core/log.dart';
 import 'package:bulbvpn/modules/core/softether_vpn.dart';
+import 'package:bulbvpn/modules/core/vpngate_source.dart';
 import 'package:bulbvpn/modules/core/vpn_controller.dart';
 import 'package:bulbvpn/modules/main/presentation/widgets/bulb_orb.dart';
 import 'package:bulbvpn/modules/main/presentation/widgets/server_sheet.dart';
@@ -93,6 +94,28 @@ final serversProvider = FutureProvider<List<VpnServer>>((ref) async {
       openVpnConfigBase64: b64,
     );
   }
+  Future<List<VpnServer>?> _fetchPublishedList() async {
+    for (final url in vpnGatePublishedLists) {
+      try {
+        log.addLog('[MainScreen] Fetching published VPN Gate list: $url');
+        final response = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 12));
+        if (response.statusCode != 200 || response.body.isEmpty) continue;
+        final decoded = json.decode(response.body);
+        if (decoded is! List) continue;
+        final servers = decoded
+            .whereType<Map>()
+            .map((row) => VpnServer.fromJson(Map<String, dynamic>.from(row)))
+            .where((server) => server.ip.isNotEmpty && server.hostName.isNotEmpty)
+            .toList();
+        if (servers.isEmpty) continue;
+        log.addLog('[MainScreen] Parsed ${servers.length} servers from published list');
+        return servers;
+      } catch (e) {
+        log.addLog('[MainScreen] Published list failed: $e');
+      }
+    }
+    return null;
+  }
   Future<List<VpnServer>?> _fetchOfficialCsv() async {
     const url = 'http://www.vpngate.net/api/iphone/';
     log.addLog('[MainScreen] Fetching servers from official CSV: $url');
@@ -129,6 +152,10 @@ final serversProvider = FutureProvider<List<VpnServer>>((ref) async {
       return servers;
     }
     throw Exception('Failed to load servers: ${response.statusCode}');
+  }
+  final published = await _fetchPublishedList();
+  if (published != null) {
+    return published;
   }
   List<VpnServer> servers;
   final official = await _fetchOfficialCsv();
@@ -212,6 +239,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
         config,
         '${server.countryLong} · ${server.ip}',
         hostName: server.hostName,
+        ip: server.ip,
       );
     } catch (e) {
       log.addLog('[MainScreen] ERROR decoding server config: $e');
@@ -575,7 +603,9 @@ class _MainScreenState extends ConsumerState<MainScreen> {
     final afterInfo = ipWho.after;
     final afterMatches =
         exitIp != null && afterInfo != null && afterInfo.ip == exitIp.ip;
-    final endpointLabel = sslHost ?? selected?.ip ?? 'auto';
+    final endpointLabel = selected != null
+        ? '${selected.countryLong} · ${selected.ip}'
+        : (sslHost ?? 'auto');
 
     // Push server picks into the controller.
     ref.listen(selectedServerProvider, (prev, next) {

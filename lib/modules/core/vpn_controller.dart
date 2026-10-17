@@ -35,19 +35,29 @@ class VpnController {
   String? _serverConfig;
   String _serverLabel = '';
   String? _serverHost;
+  String? _serverIp;
   String get selectedServerLabel => _serverLabel;
 
-  void selectServerConfig(String config, String label, {String? hostName}) {
+  void selectServerConfig(
+    String config,
+    String label, {
+    String? hostName,
+    String? ip,
+  }) {
     _serverConfig = config;
     _serverLabel = label;
     _serverHost = (hostName != null && hostName.isNotEmpty) ? hostName : null;
-    _log.addLog('[VpnController] Selected server: $label host=${_serverHost ?? '-'} (${config.length} chars)');
+    _serverIp = (ip != null && ip.isNotEmpty) ? ip : null;
+    _log.addLog(
+      '[VpnController] Selected server: $label host=${_serverHost ?? '-'} ip=${_serverIp ?? '-'}',
+    );
   }
 
   void clearServerConfig() {
     _serverConfig = null;
     _serverLabel = '';
     _serverHost = null;
+    _serverIp = null;
     _log.addLog('[VpnController] Server selection cleared (auto)');
   }
 
@@ -326,33 +336,50 @@ class VpnController {
       final sslGen = ++_rotationGeneration;
       connectionNotifier.holdEngineEvents(true);
       final selectedHost = _serverHost;
-      final hosts = (selectedHost != null)
-          ? <String>[selectedHost]
-          : await SoftEtherVpn.hosts();
-      if (selectedHost != null) {
-        _log.addLog('[VpnController] SoftEther will use the selected relay $selectedHost');
+      final selectedIp = _serverIp;
+      final List<({String dial, String sni})> targets;
+      if (selectedIp != null || selectedHost != null) {
+        final sni = SoftEtherVpn.fqdn(selectedHost ?? '');
+        final dial = (selectedIp != null && selectedIp.isNotEmpty)
+            ? selectedIp
+            : sni;
+        targets = [(dial: dial, sni: sni.isEmpty ? dial : sni)];
+        _log.addLog('[VpnController] SoftEther selected relay $dial sni=${targets.first.sni}');
+      } else {
+        final hosts = await SoftEtherVpn.hosts();
+        targets = [for (final host in hosts) (dial: host, sni: host)];
       }
       var sslUp = false;
       if (sslGen == _rotationGeneration) {
-        for (final host in hosts) {
+        for (final target in targets) {
           if (sslGen != _rotationGeneration) break;
           connectionNotifier.setConnecting();
-          _log.addLog('[VpnController] SoftEther SSL $host:443');
-          final result = await SoftEtherVpn.connect(host);
+          _log.addLog('[VpnController] SoftEther SSL ${target.dial} sni=${target.sni}');
+          final result = await SoftEtherVpn.connect(
+            dial: target.dial,
+            sni: target.sni,
+          );
           if (sslGen != _rotationGeneration) break;
           if (result.ok) {
-            _log.addLog('[VpnController] CONNECTED via SoftEther SSL $host (${result.detail})');
-            ref.read(softEtherHostProvider.notifier).state = host;
+            _log.addLog('[VpnController] CONNECTED via SoftEther SSL ${target.sni} (${result.detail})');
+            ref.read(softEtherHostProvider.notifier).state =
+                '${target.sni} · ${target.dial}';
             connectionNotifier.setConnected();
             sslUp = true;
             break;
           }
-          _log.addLog('[VpnController] SoftEther failed $host: ${result.detail}');
+          _log.addLog('[VpnController] SoftEther failed ${target.dial}: ${result.detail}');
         }
       }
       if (sslUp) return;
       connectionNotifier.holdEngineEvents(false);
       if (sslGen != _rotationGeneration) return;
+      if (selectedIp != null || selectedHost != null) {
+        _log.addLog('[VpnController] Selected relay failed; not switching to another server');
+        connectionNotifier.setError();
+        _vibrationService.vibrateError();
+        return;
+      }
     }
 
     // A picked server is tried first. It does not replace the rest of the

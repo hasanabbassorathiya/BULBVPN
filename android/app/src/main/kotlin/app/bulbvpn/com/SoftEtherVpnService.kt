@@ -75,11 +75,15 @@ class SoftEtherVpnService : VpnService() {
     }
 
     private fun connectBlocking(host: String, sni: String) {
-        val address = InetAddress.getAllByName(host)
-            .firstOrNull { it is Inet4Address }
-            ?.hostAddress
-            ?: host
-        Log.i(TAG, "resolved $host -> $address")
+        val address = if (host.matches(Regex("""^\d+\.\d+\.\d+\.\d+$"""))) {
+            host
+        } else {
+            InetAddress.getAllByName(host)
+                .firstOrNull { it is Inet4Address }
+                ?.hostAddress
+                ?: host
+        }
+        Log.i(TAG, "dial $host -> $address sni=$sni")
         System.loadLibrary("softether_jni")
         nativeSetProtect()
         val created = nativeCreate(address, 443, "VPNGATE", "vpn", "vpn")

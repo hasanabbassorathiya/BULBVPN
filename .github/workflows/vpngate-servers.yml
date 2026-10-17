@@ -1,0 +1,31 @@
+name: Refresh VPN Gate servers
+
+on:
+  schedule:
+    # GitHub only runs this cron from the default branch.
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download the public VPN Gate server list
+        run: python3 scripts/fetch_vpngate.py
+
+      - name: Commit the list when it changed
+        run: |
+          git add data/vpngate.json
+          if git diff --cached --quiet; then
+            echo "Server list is unchanged."
+            exit 0
+          fi
+          git -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit -m "Refresh VPN Gate server list"
+          git push
