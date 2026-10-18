@@ -110,7 +110,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         // Quiet mbed TLS. Debug level 3 is what we used to trace the
         // SoftEther stall; the TLS 1.0 pin does not need it, and the
         // extra buffers blow the memory budget of older Apple OSes.
-        configuration.sslDebugLevel = 0
+        configuration.sslDebugLevel = 1
         if let tls10 = OpenVPNMinTLSVersion(rawValue: 1) {
             configuration.minTLSVersion = tls10
         }
@@ -164,7 +164,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         scheduleStartTimeout()
         vpnAdapter.connect(using: packetFlow)
         os_log("OpenVPNAdapter connect started", log: Self.vpnLog, type: .info)
-        fileLog("OpenVPNAdapter connect started key-direction=1 disableClientCert sslDebug=0")
+        fileLog("OpenVPNAdapter connect started key-direction=1 disableClientCert sslDebug=1")
     }
 
     override func stopTunnel(

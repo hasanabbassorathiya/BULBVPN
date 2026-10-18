@@ -70,7 +70,7 @@ class VpnController {
   // Rotation tuning
   // ---------------------------------------------------------------------------
   /// Time we allow one candidate to reach `connected` before moving on.
-  static const _androidAttemptWatchdog = Duration(seconds: 10);
+    static const _androidAttemptWatchdog = Duration(seconds: 18);
   static const _appleAttemptWatchdog = Duration(seconds: 25);
 
   /// OpenVPN on iOS does not report connected until the extension applies
@@ -82,11 +82,17 @@ class VpnController {
   /// Per-candidate TCP reachability probe budget.
   static const _probeTimeout = Duration(milliseconds: 800);
 
-  /// How many candidates we actually try (probe-ranked) per connect press.
-  static const _maxAttempts = 3;
+  /// How many OpenVPN relays we dial per connect press.
+  static const _maxAttempts = 8;
 
-  /// How many candidates we probe at most (ranked by measured ping first).
-  static const _maxProbe = 6;
+  /// TCP 443 hosts probed before the first dial. The proven subnet is
+  /// included whole; the rest of the budget is other subnets.
+  static const _maxProbe = 16;
+
+  /// Relays in this /24 are the ones that have reached CONNECTED on the
+  /// Apple OpenVPN 3 stack (TLS 1.0, TCP 443). Other VPN Gate hosts often
+  /// accept the socket, print VERIFY OK, and never PUSH.
+  static const _provenSubnet = '219.100.37';
   static const _lastGoodKey = 'bulbvpn_last_good_server_v1';
   static const _lastSslKey = 'bulbvpn_last_ssl_v1';
 
@@ -322,14 +328,34 @@ class VpnController {
     return '${parts[0]}.${parts[1]}.${parts[2]}';
   }
 
+  bool _isProven(Candidate c) => _subnet(c.ip) == _provenSubnet;
+
   int _endpointRank(Candidate c) {
     final ping = c.csvPing <= 0 ? 9999 : c.csvPing;
     final tcp = c.protocol == 'tcp' ? 0 : 100000;
-    // On this network, non-443 TCP ports complete the socket and then
-    // never finish the OpenVPN handshake. The relays that actually
-    // reach CONNECTED are TCP 443 (219.100.37.0/24).
+    // Non-443 ports accept TCP and then never finish. The relays that
+    // reach CONNECTED are TCP 443 inside [_provenSubnet].
+    final provenBias = _isProven(c) ? 0 : 50000;
     final portBias = c.port == 443 ? 0 : 800;
-    return tcp + portBias + ping;
+    return tcp + provenBias + portBias + ping;
+  }
+
+  /// One TCP 443 profile per relay. SoftEther listens there even when the
+  /// published `.ovpn` uses a random port that stalls after VERIFY OK.
+  List<Candidate> _tcp443DialList(List<Candidate> input) {
+    final byIp = <String, Candidate>{};
+    for (final candidate in input) {
+      final on443 = candidate.protocol == 'tcp' && candidate.port == 443
+          ? candidate
+          : Candidate.withPort(candidate, 443);
+      if (on443 == null) continue;
+      byIp.putIfAbsent(on443.ip, () => on443);
+    }
+    final ordered = byIp.values.toList()
+      ..sort((a, b) => _endpointRank(a).compareTo(_endpointRank(b)));
+    final proven = ordered.where(_isProven).take(6);
+    final others = ordered.where((c) => !_isProven(c)).take(10);
+    return [...proven, ...others];
   }
 
   /// One endpoint per /24 per pass, best endpoint first inside each subnet.
@@ -385,8 +411,14 @@ class VpnController {
       }
     }
 
-    final orderedReachable = _spreadSubnets(results, results.length);
-    final orderedDead = _spreadSubnets(dead, dead.length);
+    List<Candidate> provenFirst(List<Candidate> list) {
+      final proven = list.where(_isProven);
+      final rest = list.where((c) => !_isProven(c));
+      return [...proven, ...rest];
+    }
+
+    final orderedReachable = provenFirst(results);
+    final orderedDead = provenFirst(dead);
     _log.addLog(
       '[VpnController] Probe results: ${orderedReachable.length} reachable, ${orderedDead.length} dead',
     );
@@ -402,12 +434,7 @@ class VpnController {
         );
       }
     }
-    // A closed probe on 443 must not hide it behind ports that accept TCP
-    // and then stall the handshake.
-    final merged = [...orderedReachable, ...orderedDead];
-    final tls443 = merged.where((c) => c.protocol == 'tcp' && c.port == 443);
-    final rest = merged.where((c) => c.protocol != 'tcp' || c.port != 443);
-    return [...tls443, ...rest];
+    return [...orderedReachable, ...orderedDead];
   }
 
   // ---------------------------------------------------------------------------
@@ -525,18 +552,10 @@ class VpnController {
       return;
     }
 
-    final ranked = await _rankByReachability(candidates);
-    // Keep the selected host first, on TCP 443 when that listener exists.
-    if (preferred.isNotEmpty) {
-      final host = preferred.first.ip;
-      final sameHost = ranked.where((c) => c.ip == host).toList();
-      final on443 = sameHost.where((c) => c.port == 443).toList();
-      final first = on443.isNotEmpty
-          ? on443.first
-          : (sameHost.isNotEmpty ? sameHost.first : preferred.first);
-      ranked.removeWhere((c) => c.ip == first.ip && c.port == first.port);
-      ranked.insert(0, first);
-    }
+    final dialable = _tcp443DialList(candidates);
+    final ranked = await _rankByReachability(
+      dialable.isEmpty ? candidates : dialable,
+    );
     if (ranked.isEmpty) {
       _log.addLog('[VpnController] ERROR: no candidates after ranking');
       connectionNotifier.setError();
@@ -628,27 +647,34 @@ class VpnController {
     final sslGen = _rotationGeneration;
     final targets = await _fastestSoftEtherTargets(container);
     if (targets.isEmpty || sslGen != _rotationGeneration) return false;
-    final target = targets.first;
-    connectionNotifier.setConnecting();
-    _log.addLog('[VpnController] SoftEther fallback ${target.dial}');
-    container.read(softEtherHostProvider.notifier).state =
-        '${target.sni} · ${target.dial}';
-    final result = await SoftEtherVpn.connect(
-      dial: target.dial,
-      sni: target.sni,
-    );
-    if (sslGen != _rotationGeneration) return false;
-    if (result.ok || result.detail == 'already running') {
-      _log.addLog('[VpnController] CONNECTED via SoftEther ${target.dial}');
-      final label = '${target.sni} · ${target.dial}';
-      container.read(softEtherHostProvider.notifier).state = label;
-      await VpnSessionStore.save(label: label, host: target.dial);
-      await _saveLastSsl(target.dial, target.sni);
-      connectionNotifier.holdEngineEvents(true);
-      connectionNotifier.setConnected();
-      return true;
+    for (final target in targets.take(3)) {
+      if (sslGen != _rotationGeneration) return false;
+      connectionNotifier.setConnecting();
+      _log.addLog('[VpnController] SoftEther fallback ${target.dial}');
+      container.read(softEtherHostProvider.notifier).state =
+          '${target.sni} · ${target.dial}';
+      final result = await SoftEtherVpn.connect(
+        dial: target.dial,
+        sni: target.sni,
+      );
+      if (sslGen != _rotationGeneration) return false;
+      if (result.ok || result.detail == 'already running') {
+        _log.addLog('[VpnController] CONNECTED via SoftEther ${target.dial}');
+        final label = '${target.sni} · ${target.dial}';
+        container.read(softEtherHostProvider.notifier).state = label;
+        await VpnSessionStore.save(label: label, host: target.dial);
+        await _saveLastSsl(target.dial, target.sni);
+        connectionNotifier.holdEngineEvents(true);
+        connectionNotifier.setConnected();
+        return true;
+      }
+      _log.addLog(
+        '[VpnController] SoftEther fallback failed: ${result.detail}',
+      );
+      try {
+        await SoftEtherVpn.disconnect();
+      } catch (_) {}
     }
-    _log.addLog('[VpnController] SoftEther fallback failed: ${result.detail}');
     connectionNotifier.holdEngineEvents(false);
     return false;
   }

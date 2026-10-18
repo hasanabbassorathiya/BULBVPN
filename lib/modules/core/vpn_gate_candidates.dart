@@ -168,10 +168,18 @@ String stripIcsOpenVpnCompat(String config) {
       .replaceAll(RegExp(r'\n{3,}'), '\n\n');
 }
 
-/// Android needs the ics-openvpn compatibility lines. Apple OpenVPN3 does not.
+/// OpenVPN 2.6 (Android ics-openvpn and the Windows `openvpn.exe` bundled
+/// by openvpn_dart) ignores `cipher AES-128-CBC` unless the profile is in
+/// 2.4 compatibility mode, then sits in AUTH. OpenVPN 3 / mbed TLS on
+/// iOS, iPad, and macOS rejects those directives, so they must be stripped.
+/// That Apple build finishes SoftEther only when TLS 1.0 is both the
+/// minimum and the maximum (`patches/openvpn_adapter`). `sslDebug` does
+/// not change the handshake; it only prints it.
 String configForCurrentEngine(String config) {
   final withAuth = ensureAuthUserPass(config);
-  if (Platform.isAndroid) return ensureIcsOpenVpnCompat(withAuth);
+  if (Platform.isAndroid || Platform.isWindows) {
+    return ensureIcsOpenVpnCompat(withAuth);
+  }
   return stripIcsOpenVpnCompat(withAuth);
 }
 

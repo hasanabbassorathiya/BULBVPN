@@ -115,10 +115,10 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         // VPN Gate ships a dummy client cert. Sending it leaves SoftEther
         // waiting after VERIFY OK. Username/password is the real auth.
         configuration.disableClientCert = true
-        // Keep mbed TLS quiet. Level 3 plus verb 4 filled the iOS 16
-        // extension memory limit on iPad and the process was jetsam'd
-        // before CONNECTED. The TLS 1.0 pin does not need the debug log.
-        configuration.sslDebugLevel = 0
+        // Level 1 records handshake errors. Level 3 filled the iOS 16
+        // iPad extension and got it jetsam'd. The TLS 1.0 pin is what
+        // finishes SoftEther, not this debug level.
+        configuration.sslDebugLevel = 1
         if let tls10 = OpenVPNMinTLSVersion(rawValue: 1) {
             configuration.minTLSVersion = tls10
         }
@@ -174,7 +174,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         scheduleStartTimeout()
         vpnAdapter.connect(using: packetFlow)
         os_log("OpenVPNAdapter connect started", log: Self.vpnLog, type: .info)
-        fileLog("OpenVPNAdapter connect started key-direction=1 disableClientCert sslDebug=0")
+        fileLog("OpenVPNAdapter connect started key-direction=1 disableClientCert sslDebug=1")
     }
 
     override func stopTunnel(

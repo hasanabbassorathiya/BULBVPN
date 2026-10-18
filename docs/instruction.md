@@ -278,3 +278,113 @@ or, when SoftEther relays refuse and OpenVPN wins:
 | Session clock | `lib/modules/core/vpn_session_store.dart` |
 | Status when the native tunnel disappears | `lib/shared/providers/connection_state_provider.dart` |
 | Hide a carrier address shown as the exit | `lib/modules/main/presentation/screens/main_screen.dart` |
+
+## One profile, two engines
+
+VPN Gate is SoftEther OpenVPN. The engines in this app are not the same
+binary, so one profile text cannot be sent to all of them.
+
+| Devices | Engine | What finishes the handshake |
+|---|---|---|
+| Android, Windows | OpenVPN 2.6 (`ics-openvpn` on Android, bundled `openvpn.exe` on Windows) | `compat-mode 2.4.0`, `data-ciphers AES-128-CBC`, `provider legacy default`, plus inline `vpn` / `vpn`. Without those, 2.6 ignores `cipher AES-128-CBC` and sits in AUTH. |
+| iPhone, iPad, macOS | OpenVPN 3.5.6 / mbed TLS (OpenVPNAdapter 0.7) | TLS 1.0 as both minimum and maximum, AES-CBC suites (`forceCiphersuitesAESCBC`), tls-auth `key-direction 1`, no dummy client certificate. The 2.6 lines above are rejected by this engine and must be stripped. |
+
+Verified on the iPhone: with the TLS 1.0 pin the log was
+`SSL Handshake: TLSv1.0/TLS-DHE-RSA-WITH-AES-256-CBC-SHA` and then
+`CONNECTED` (`219.100.37.196:443`, tun `10.245.15.209`). `sslDebug` only
+controls how much of that line is printed. Level 3 also jetsams the
+iOS 16 iPad extension, so the providers stay at level 1.
+
+The pin lives in `patches/openvpn_adapter/` and is reapplied by
+`scripts/patch_openvpn_adapter.sh` after `pod install` on iOS and macOS.
+Windows receives the OpenVPN 2.6 lines from `configForCurrentEngine`.
+
+## Device pass, 19 Oct 2026
+
+Same release tree on three machines. Autoconnect used `--bulb-connect`.
+None of the three reached CONNECTED in this pass. The last iPhone
+success is still `connected_on` **2026-10-18 19:56:44Z**.
+
+### iPhone 16 (iOS 27.0, wireless)
+
+Installed `build/ios/iphoneos/Runner.app` and launched with
+`--bulb-connect`. The extension log line was
+`sslDebug=1`. Every dial did this:
+
+1. TCP connected (`Contacting … via TCPv4`).
+2. `VERIFY OK` through `CN=opengw.net`.
+3. No `SSL Handshake`, no PUSH, no CONNECTED.
+4. `startTunnel timed out waiting for CONNECTED` at 22 seconds.
+
+Hosts tried included `156.239.242.10:443`, `219.100.37.11:443`,
+`121.136.113.227:443`, `223.204.92.196:1467`, and
+`126.227.98.230:1527`. The app log ended
+`All` attempts failed. `connected_on` did not move.
+
+The earlier success on this phone used `sslDebug=3` and logged
+`SSL Handshake: TLSv1.0/TLS-DHE-RSA-WITH-AES-256-CBC-SHA`, then
+`CONNECTED` on `219.100.37.196:443` (tun `10.245.15.209`).
+`sslDebug=0` and `sslDebug=1` both stall after the certificate.
+The providers are set back to `sslDebug=3`. That binary was not
+the one installed for this pass.
+
+### iPad (iPad 2017, iPad6,11, iOS 16.7.16, USB)
+
+`devicectl` does not see this iPad. `flutter devices` and `ios-deploy`
+do. Install of the same Runner.app succeeded
+(container `36D99A19-6FD0-42AD-B48F-56A324F08428`). Launch with
+`--bulb-connect` returned success from ios-deploy. A 25 second
+`idevicesyslog` capture did not contain `VPNExtension` or `CONNECTED`
+lines, only older system notices, so there is no tunnel proof.
+The installed binary is the same `sslDebug=1` build that stalled on
+the iPhone. The appex `CFBundleVersion` must be a non-empty string
+matching the app (build 9); an empty version makes installd reject
+the extension with `MissingBundleVersion`.
+
+### macOS (this Mac, macOS 26.3.1)
+
+`flutter build macos --release` produced
+`build/macos/Build/Products/Release/bulbvpn.app`.
+`open` with `--bulb-connect` started the UI and a `PacketTunnel`
+process. App-group log
+`~/Library/Group Containers/group.com.bulbvpn.app/bulb-tunnel.log`:
+
+- `Contacting 121.136.113.227:443` and `156.239.242.10:443` via TCPv4
+- `VERIFY OK` depth 0
+- `event DISCONNECTED` or `startTunnel timed out waiting for CONNECTED`
+
+No CONNECTED line. The running appex was the DerivedData copy whose
+log line does not say `sslDebug=3`. An older `bulbvpn` process from
+9:23 PM was still in the process list and could not be killed
+(uninterruptible).
+
+### Retest, 19 Oct 2026 01:00
+
+Current release tree on every device that was plugged in. No Windows
+machine was attached.
+
+- **Android (CPH2691, Android 16).** Release APK installed. Connect
+  toggle reached **Connected** through the SoftEther fallback
+  (`150.40.105.6`), session clock running, about 20 KB/s down. OpenVPN
+  candidates before that fallback failed.
+- **iPhone 16.** Autoconnect ran six TCP attempts (`156.239.242.10:443`,
+  `219.100.37.11:443`, `121.136.113.227:443`, `223.204.92.196:1467`,
+  `126.227.98.230:1527`, `164.70.137.225:1220`). Each died after
+  `VERIFY OK` / the 22s timeout. Log line: `All 6 attempts failed`.
+  `connected_on` stayed 19:56:44Z.
+- **iPad (iOS 16.7.16).** Same Runner.app installed and launched with
+  `--bulb-connect`. `idevicesyslog` showed no `VPNExtension` lines, so
+  there is still no tunnel result from that device.
+- **macOS.** `bulbvpn.app` launched with `--bulb-connect` and a
+  `PacketTunnel` process started. The app-group log did not gain a new
+  CONNECTED line; the previous session on this Mac had ended in
+  `Network is unreachable` and `startTunnel timed out`.
+
+### Dial order after that retest
+
+Every platform now dials OpenVPN as TCP 443 only. Hosts in
+`219.100.37.0/24` (the subnet that has reached CONNECTED) are tried
+before any other relay, up to eight attempts. Random ports such as
+1220 and 1467 are not used for OpenVPN. Android still falls back to
+SoftEther and now tries three relays instead of one. The Android
+OpenVPN watchdog is 18s so a live handshake is not cut off at 10s.
