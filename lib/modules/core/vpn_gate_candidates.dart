@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'dart:io' show Platform;
+
 import 'package:http/http.dart' as http;
 
 /// One connectable VPN Gate endpoint parsed out of a `.ovpn` config.
@@ -152,6 +154,27 @@ String ensureIcsOpenVpnCompat(String config) {
   return '${config.trimRight()}\n$extra';
 }
 
+/// Drops ics-openvpn-only lines. OpenVPN Adapter 0.7 (iOS/macOS) does not
+/// implement them, and a rejected profile fails every connect the same way.
+String stripIcsOpenVpnCompat(String config) {
+  return config
+      .replaceAll(
+        RegExp(
+          r'^\s*(compat-mode|data-ciphers|provider)\b.*$',
+          multiLine: true,
+        ),
+        '',
+      )
+      .replaceAll(RegExp(r'\n{3,}'), '\n\n');
+}
+
+/// Android needs the ics-openvpn compatibility lines. Apple OpenVPN3 does not.
+String configForCurrentEngine(String config) {
+  final withAuth = ensureAuthUserPass(config);
+  if (Platform.isAndroid) return ensureIcsOpenVpnCompat(withAuth);
+  return stripIcsOpenVpnCompat(withAuth);
+}
+
 /// Fetches VPN Gate server configs — official CSV first (http + https), then
 /// community JSON mirrors — and returns them TCP-first, lowest CSV ping first.
 class VpnGateCandidates {
@@ -235,7 +258,7 @@ class VpnGateCandidates {
       final csvPing = pingIdx >= 0 && pingIdx < parts.length ? (int.tryParse(parts[pingIdx].trim()) ?? 0) : 0;
       final decoded = decodeOvpn(b64);
       if (decoded == null || !decoded.contains('<ca>')) continue;
-      final c = Candidate.fromConfig(ensureIcsOpenVpnCompat(ensureAuthUserPass(decoded)), fallbackIp: parts[1].trim(), csvPing: csvPing);
+      final c = Candidate.fromConfig(configForCurrentEngine(decoded), fallbackIp: parts[1].trim(), csvPing: csvPing);
       if (c != null) {
         candidates.add(Candidate(
           ip: c.ip,
@@ -262,7 +285,7 @@ class VpnGateCandidates {
         final csvPing = int.tryParse(raw['Ping']?.toString() ?? '') ?? 0;
         final decoded = decodeOvpn(b64);
         if (decoded == null || !decoded.contains('<ca>')) continue;
-        final c = Candidate.fromConfig(ensureIcsOpenVpnCompat(ensureAuthUserPass(decoded)), fallbackIp: raw['IP']?.toString(), csvPing: csvPing);
+        final c = Candidate.fromConfig(configForCurrentEngine(decoded), fallbackIp: raw['IP']?.toString(), csvPing: csvPing);
         if (c != null) {
           candidates.add(Candidate(
             ip: c.ip,

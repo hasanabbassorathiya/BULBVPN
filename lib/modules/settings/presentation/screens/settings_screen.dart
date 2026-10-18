@@ -9,6 +9,7 @@ import 'package:bulbvpn/modules/main/presentation/widgets/server_sheet.dart';
 import 'package:bulbvpn/modules/monetization/private_app.dart';
 import 'package:bulbvpn/shared/layout/main_screen_background.dart';
 import 'package:bulbvpn/shared/providers/connection_state_provider.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -63,46 +64,56 @@ class SettingsScreen extends ConsumerWidget {
                 ],
               ),
             ),
-            const SizedBox(height: 18),
-            Text('LOGS', style: AppTextStyles.microLabel()),
-            const SizedBox(height: 8),
-            _Card(
-              child: ValueListenableBuilder<int>(
-                valueListenable: Log().version,
-                builder: (_, __, ___) {
-                  final lines = Log().recent(40);
-                  if (lines.isEmpty) {
-                    return const Padding(
-                      padding: EdgeInsets.all(16),
-                      child: Text(
-                        'No tunnel logs yet.',
-                        style: TextStyle(color: AppColors.mute, fontSize: 13),
-                      ),
-                    );
-                  }
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      for (final line in lines.take(12))
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-                          child: Text(
-                            redactRelayDetail(line),
-                            style: AppTextStyles.logLine(color: AppColors.steel),
+            if (kDebugMode) ...[
+              const SizedBox(height: 18),
+              Text('LOGS', style: AppTextStyles.microLabel()),
+              const SizedBox(height: 8),
+              _Card(
+                child: ValueListenableBuilder<int>(
+                  valueListenable: Log().version,
+                  builder: (_, __, ___) {
+                    final lines = Log().recent(40);
+                    if (lines.isEmpty) {
+                      return const Padding(
+                        padding: EdgeInsets.all(16),
+                        child: Text(
+                          'No tunnel logs yet.',
+                          style: TextStyle(color: AppColors.mute, fontSize: 13),
+                        ),
+                      );
+                    }
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        for (final line in lines.take(12))
+                          Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 4,
+                            ),
+                            child: Text(
+                              redactRelayDetail(line),
+                              style: AppTextStyles.logLine(
+                                color: AppColors.steel,
+                              ),
+                            ),
+                          ),
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: TextButton(
+                            onPressed: Log().clearLogs,
+                            child: const Text(
+                              'Clear',
+                              style: TextStyle(color: AppColors.amber),
+                            ),
                           ),
                         ),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: TextButton(
-                          onPressed: Log().clearLogs,
-                          child: const Text('Clear', style: TextStyle(color: AppColors.amber)),
-                        ),
-                      ),
-                    ],
-                  );
-                },
+                      ],
+                    );
+                  },
+                ),
               ),
-            ),
+            ],
             const SizedBox(height: 18),
             Text('ABOUT', style: AppTextStyles.microLabel()),
             const SizedBox(height: 8),

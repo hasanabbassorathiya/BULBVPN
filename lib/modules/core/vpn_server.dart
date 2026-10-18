@@ -74,9 +74,10 @@ String publicRelayLabel(String? stored, Iterable<VpnServer> catalog) {
   return stored;
 }
 
-/// Hides catalog hostnames from the on-screen log.
+/// Hides catalog hostnames and fetch URLs from any on-screen log view.
 String redactRelayDetail(String line) {
   return line
+      .replaceAll(RegExp(r'https?://\S+'), '[url]')
       .replaceAll(RegExp(r'[\w.-]*opengw\.net'), 'relay')
       .replaceAll(RegExp(r'public-vpn-\d+'), 'relay')
       .replaceAll(RegExp(r'\bvpn\d+\b'), 'relay')

@@ -1,28 +1,28 @@
-BULB VPN is a free, unlimited VPN and WiFi security app with nothing hidden. No account. No subscription. No ads. No activity logs.
+BULBVPN is a private OpenVPN client built for everyday Wi-Fi and mobile data, including networks in Iran where ordinary tunnels stall. No account. No subscription. No ads. No activity log uploaded from your phone.
 
-ONE SCREEN, EVERYTHING VISIBLE
-Your real exit IP sits on the home screen — tap to copy. Live session time and transfer rates update as you browse. A session log is stored on your device only, so you always know what happened while you were connected.
+OPEN VPN FIRST
+The app prefers OpenVPN and tries a working profile before it gives up. On networks that complete a handshake and then drop the payload, it moves on to the next reachable endpoint instead of sitting on one dead server.
 
-WHY BULB VPN
-• Free forever — every feature and every server, no paywall
-• No account required — install and connect in one tap
-• Exit IP on screen — see the IP you are browsing with, always
-• On-device session log — connection events stay on your phone, never uploaded
-• Community servers worldwide — hundreds of free community VPN endpoints, ranked by ping
-• Speed test — measure download, upload, ping, packet loss and jitter through the VPN tunnel
-• OpenVPN protocol — the audited, industry-standard tunnel
-• Dark modern interface — live status, country flags and latency per server
+ONE SCREEN
+Your exit IP is on the home screen — tap to copy it. Session time and transfer rates update while you are connected. A session log stays on the device so you can see what the tunnel did.
 
-PRIVATE & SECURE WIFI
-Connect on public hotspots to encrypt your traffic and keep your browsing private on untrusted networks. BULB VPN works as a WiFi shield wherever you are.
+WHAT YOU GET
+• Private tunnel on Wi-Fi and mobile data
+• OpenVPN, the audited protocol the app connects with first
+• No account — install and tap connect
+• Exit IP on screen, with country, so you can check it yourself
+• On-device session log — connection events are not uploaded
+• Server list you can pick from, or let the app try the next reachable one
+• Built-in speed test: download, upload, ping, packet loss, and jitter through the tunnel
+• Dark interface with live status
 
 HOW IT WORKS
-1. Open the app — your current public IP is shown
-2. Tap to connect — auto-select the fastest server, or pick a country
-3. Watch your exit IP change the moment the tunnel is up
-4. Run the built-in speed test any time for real numbers
+1. Open the app. Your current public IP is shown.
+2. Tap connect. BULBVPN sets up the VPN profile, then brings up OpenVPN.
+3. Watch the exit IP change when the tunnel is up.
+4. Run the speed test when you want a measurement from this session.
 
-PRIVACY BY DESIGN
-No account, no connection logs. Server lists come from a public mirror; only core reliability events are measured anonymously.
+PRIVACY
+BULBVPN does not require an account and does not keep a browsing history. Server lists come from a public mirror. Read the in-app privacy policy before you connect.
 
-Questions or feedback: hasanabbassorathiya12@gmail.com
+Questions: hasanabbassorathiya12@gmail.com

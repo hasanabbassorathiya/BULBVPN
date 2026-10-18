@@ -118,6 +118,31 @@ class VpnService {
     _log.addLog('[VpnService] Disconnect call completed');
   }
 
+  /// Creates the iOS/macOS VPN configuration. The first call shows the system
+  /// prompt and does not finish until the user allows or denies it. Without
+  /// this, connect fails and Settings never lists a VPN profile.
+  Future<bool> ensureAppleVpnProfile() async {
+    if (!Platform.isIOS && !Platform.isMacOS) return true;
+    if (!_initialized) {
+      await initialize();
+    }
+    _log.addLog('[VpnService] Checking Apple VPN profile...');
+    try {
+      final exists = await _openVpn.checkTunnelConfiguration();
+      _log.addLog('[VpnService] VPN profile exists: $exists');
+      if (exists) return true;
+      _log.addLog('[VpnService] Installing VPN profile (system prompt)...');
+      await _openVpn.setupTunnel();
+      final ready = await _openVpn.checkTunnelConfiguration();
+      _log.addLog('[VpnService] VPN profile after prompt: $ready');
+      return ready;
+    } catch (e, stackTrace) {
+      _log.addLog('[VpnService] ERROR installing VPN profile: $e');
+      _log.addLog('[VpnService] Stack trace: $stackTrace');
+      return false;
+    }
+  }
+
   Future<bool> requestAndroidPermission() async {
     if (!Platform.isAndroid) return true;
 

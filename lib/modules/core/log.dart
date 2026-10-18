@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -27,7 +29,8 @@ class Log {
   }
 
   String addLog(String log) {
-    final line = '[${DateTime.now().toIso8601String()}] $log';
+    final safe = _sanitizeForStorage(log);
+    final line = '[${DateTime.now().toIso8601String()}] $safe';
     _lines.add(line);
     if (_lines.length > 2000) {
       _lines.removeRange(0, _lines.length - 2000);
@@ -42,9 +45,32 @@ class Log {
       _lines.removeAt(0);
     }
     version.value++;
-    debugPrint(log);
+    debugPrint(safe);
     try { FirebaseCrashlytics.instance.log(line); } catch (_) {}
+    _appendFile(line);
     return line;
+  }
+
+  /// Strip fetch URLs and catalog hostnames from anything that could surface
+  /// in a debug sheet or Crashlytics breadcrumb.
+  static String _sanitizeForStorage(String log) {
+    return log
+        .replaceAll(RegExp(r'https?://\S+'), '[url]')
+        .replaceAll(RegExp(r'[\w.-]*opengw\.net'), 'relay')
+        .replaceAll(RegExp(r'vpngate\.net', caseSensitive: false), 'catalog')
+        .replaceAll(RegExp(r'vpngate', caseSensitive: false), 'catalog')
+        .replaceAll(RegExp(r'public-vpn-\d+'), 'relay');
+  }
+
+  /// App temp bulb.log. Pull with:
+  /// `devicectl device copy from --domain-type appDataContainer
+  /// --domain-identifier app.bulbvpn.com --source tmp/bulb.log`
+  void _appendFile(String line) {
+    try {
+      // HOME is empty inside iOS/macOS sandboxes; tmp always works.
+      final file = File('${Directory.systemTemp.path}/bulb.log');
+      file.writeAsStringSync('$line\n', mode: FileMode.append, flush: true);
+    } catch (_) {}
   }
 
   String addError(String log, [Object? error, StackTrace? stackTrace]) {

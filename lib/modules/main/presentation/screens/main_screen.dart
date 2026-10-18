@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
-import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -40,9 +41,6 @@ class _MainScreenState extends ConsumerState<MainScreen> with WidgetsBindingObse
   VpnController? _vpnController;
   bool _vpnInitialized = false;
   Timer? _ticker;
-  StreamSubscription<List<ConnectivityResult>>? _networkSub;
-  List<ConnectivityResult> _lastNetworks = const [];
-  bool _handoffInFlight = false;
 
   DateTime? _connectedAt;
   int? _prevByteIn;
@@ -56,57 +54,12 @@ class _MainScreenState extends ConsumerState<MainScreen> with WidgetsBindingObse
     log.addLog('[MainScreen] initState');
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) => _tick());
     Future.microtask(_warmServers);
-    _networkSub = Connectivity().onConnectivityChanged.listen(_onNetworkChanged);
   }
 
   Future<void> _warmServers() async {
     final servers = await ref.read(serversProvider.future).catchError((_) => <VpnServer>[]);
     if (!mounted || servers.isEmpty) return;
     await ref.read(serverPingProvider.notifier).pingAll(servers);
-  }
-
-  Future<void> _onNetworkChanged(List<ConnectivityResult> results) async {
-    final previous = _lastNetworks;
-    _lastNetworks = results;
-    if (previous.isEmpty || _handoffInFlight) return;
-    final online = results.any(
-      (result) =>
-          result == ConnectivityResult.mobile || result == ConnectivityResult.wifi,
-    );
-    if (!online) {
-      log.addLog('[MainScreen] Network blip ignored');
-      return;
-    }
-    final changed = previous.toSet().difference(results.toSet()).isNotEmpty ||
-        results.toSet().difference(previous.toSet()).isNotEmpty;
-    if (!changed) return;
-    final status = ref.read(connectionStateProvider).status;
-    if (status != ConnectionStatus.connected) return;
-    log.addLog('[MainScreen] Network changed to $results');
-    _handoffInFlight = true;
-    try {
-      // OpenVPN retries on its own. A short sample often lands in the
-      // gap between CONNECTED and CONNECTRETRY and used to start a
-      // second session on top of a live tunnel.
-      for (var attempt = 0; attempt < 3; attempt++) {
-        await Future<void>.delayed(const Duration(seconds: 4));
-        if (!mounted) return;
-        final tunnel = await SoftEtherVpn.status();
-        final engine = await VpnService().getStatus();
-        final stillUp = tunnel.running ||
-            engine == vpn_status.ConnectionStatus.connected ||
-            engine == vpn_status.ConnectionStatus.connecting ||
-            engine == vpn_status.ConnectionStatus.unknown;
-        if (stillUp) {
-          log.addLog('[MainScreen] Tunnel stayed up across the network change');
-          return;
-        }
-      }
-      log.addLog('[MainScreen] Tunnel dropped with the old network, reconnecting');
-      await _vpnController?.reconnect();
-    } finally {
-      _handoffInFlight = false;
-    }
   }
 
   @override
@@ -128,7 +81,6 @@ class _MainScreenState extends ConsumerState<MainScreen> with WidgetsBindingObse
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _networkSub?.cancel();
     _ticker?.cancel();
     super.dispose();
   }
@@ -143,6 +95,7 @@ class _MainScreenState extends ConsumerState<MainScreen> with WidgetsBindingObse
       final picked = ref.read(selectedServerProvider);
       if (picked != null) _applyServerConfig(picked);
       await _restoreLiveTunnel();
+      await _connectIfLaunchRequested();
     } catch (e, stackTrace) {
       log.addLog('[MainScreen] VPN Controller init error: $e');
       log.addLog('[MainScreen] Stack trace: $stackTrace');
@@ -223,6 +176,16 @@ class _MainScreenState extends ConsumerState<MainScreen> with WidgetsBindingObse
         _rateLabel = '—';
       });
     }
+  }
+
+  /// Set only when the process is launched with `--bulb-connect`.
+  Future<void> _connectIfLaunchRequested() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getBool('bulb_autoconnect') != true) return;
+    await prefs.setBool('bulb_autoconnect', false);
+    log.addLog('[MainScreen] Launch requested connect');
+    if (!mounted) return;
+    await _onConnectPressed();
   }
 
   Future<void> _onConnectPressed() async {
@@ -607,25 +570,26 @@ class _MainScreenState extends ConsumerState<MainScreen> with WidgetsBindingObse
                   return Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // ---- Top bar: brand + logs -------------------------
+                  // ---- Top bar: brand (+ debug logs only) ------------
                   StaggeredIn(
                     child: Row(
                       children: [
                         Flexible(child: _brandWordmark()),
                         const Spacer(),
-                        IconButton(
-                          onPressed: _showLogs,
-                          tooltip: 'Logs',
-                          icon: const Icon(
-                            Icons.terminal,
-                            color: AppColors.steel,
-                            size: 22,
+                        if (kDebugMode)
+                          IconButton(
+                            onPressed: _showLogs,
+                            tooltip: 'Logs',
+                            icon: const Icon(
+                              Icons.terminal,
+                              color: AppColors.steel,
+                              size: 22,
+                            ),
+                            constraints: const BoxConstraints(
+                              minWidth: 44,
+                              minHeight: 44,
+                            ),
                           ),
-                          constraints: const BoxConstraints(
-                            minWidth: 44,
-                            minHeight: 44,
-                          ),
-                        ),
                       ],
                     ),
                   ),

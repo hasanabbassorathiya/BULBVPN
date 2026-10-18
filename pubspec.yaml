@@ -1,7 +1,7 @@
 name: bulbvpn
 description: "A new Vpn app."
 publish_to: 'none'
-version: 1.0.0+4
+version: 1.0.0+5
 
 environment:
   sdk: ^3.10.0
@@ -31,7 +31,7 @@ dependencies:
   package_info_plus: ^8.3.0
   version: ^3.0.2
   flutter_timezone: ^4.1.1
-  connectivity_plus: ^7.0.0
+  # connectivity_plus removed: native register SIGSEGVs on iOS 27 beta
 
   # VPN
   openvpn_dart:

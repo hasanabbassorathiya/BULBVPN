@@ -1,8 +1,11 @@
-name: Refresh VPN Gate servers
+name: Refresh server catalog
+
+# Hourly catalog for BULBVPN clients. Devices never call VPN Gate directly;
+# they load data/vpngate.json from this repo (raw / jsDelivr).
 
 on:
   schedule:
-    # GitHub only runs this cron from the default branch.
+    # GitHub only runs cron from the default branch.
     - cron: "17 * * * *"
   workflow_dispatch:
 
@@ -15,10 +18,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download the public VPN Gate server list
+      - name: Fetch and write data/vpngate.json
         run: python3 scripts/fetch_vpngate.py
 
-      - name: Commit the list when it changed
+      - name: Commit when the list changed
         run: |
           git add data/vpngate.json
           if git diff --cached --quiet; then
@@ -27,5 +30,5 @@ jobs:
           fi
           git -c user.name="github-actions[bot]" \
               -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
-              commit -m "Refresh VPN Gate server list"
+              commit -m "chore: refresh server catalog"
           git push

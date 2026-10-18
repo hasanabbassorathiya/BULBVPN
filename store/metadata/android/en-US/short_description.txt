@@ -1,1 +1,1 @@
-Free OpenVPN client. Private, fast and secure WiFi with no account required.
+OpenVPN-first private VPN for Wi-Fi and mobile data. No account.

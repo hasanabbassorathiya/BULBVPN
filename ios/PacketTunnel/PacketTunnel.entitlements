@@ -10,5 +10,9 @@
 	<array>
 		<string>group.com.bulbvpn.app</string>
 	</array>
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)app.bulbvpn.com</string>
+	</array>
 </dict>
 </plist>

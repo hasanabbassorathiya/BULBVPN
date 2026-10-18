@@ -16,6 +16,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:bulbvpn/modules/core/network.dart';
 import 'package:bulbvpn/modules/core/log.dart';
 import 'package:bulbvpn/modules/core/softether_vpn.dart';
+import 'package:bulbvpn/modules/core/doh_resolver.dart';
 import 'package:bulbvpn/modules/core/vpn_gate_candidates.dart';
 import 'package:bulbvpn/modules/core/vpn_session_store.dart';
 import 'package:bulbvpn/modules/main/application/server_ping_provider.dart';
@@ -63,14 +64,20 @@ class VpnController {
     _log.addLog('[VpnController] Server selection cleared (auto)');
   }
 
-  static const bool _useTestConfig = true;
   VpnService get vpnService => _vpnService;
 
   // ---------------------------------------------------------------------------
   // Rotation tuning
   // ---------------------------------------------------------------------------
   /// Time we allow one candidate to reach `connected` before moving on.
-  static const _attemptWatchdog = Duration(seconds: 10);
+  static const _androidAttemptWatchdog = Duration(seconds: 10);
+  static const _appleAttemptWatchdog = Duration(seconds: 25);
+
+  /// OpenVPN on iOS does not report connected until the extension applies
+  /// tunnel settings. 10s expired while that handshake was still running.
+  Duration get _attemptWatchdog => Platform.isIOS || Platform.isMacOS
+      ? _appleAttemptWatchdog
+      : _androidAttemptWatchdog;
   /// Per-candidate TCP reachability probe budget.
   static const _probeTimeout = Duration(milliseconds: 800);
   /// How many candidates we actually try (probe-ranked) per connect press.
@@ -94,9 +101,6 @@ class VpnController {
       await _vpnService.initialize();
       _initialized = true;
       _log.addLog('[VpnController] VpnController initialized successfully');
-      if (_useTestConfig) {
-        _log.addLog('[VpnController] Catalog refresh is on');
-      }
     } catch (e, stackTrace) {
       _log.addLog('[VpnController] ERROR initializing: $e');
       try { FirebaseCrashlytics.instance.recordError(e, stackTrace, reason: 'VpnController initialize', fatal: false); } catch (_) {}
@@ -140,7 +144,7 @@ class VpnController {
   Candidate? _candidateFromB64(String b64, {String? fallbackIp, int? csvPing}) {
     final decoded = decodeOvpn(b64);
     if (decoded == null || !decoded.contains('<ca>')) return null;
-    final withAuth = ensureIcsOpenVpnCompat(ensureAuthUserPass(decoded));
+    final withAuth = configForCurrentEngine(decoded);
     return Candidate.fromConfig(withAuth, fallbackIp: fallbackIp, csvPing: csvPing);
   }
 
@@ -267,14 +271,6 @@ class VpnController {
       _log.addLog('[VpnController] Cached server list unavailable: $e');
     }
 
-    // 3) Network refresh only when nothing local is connectable.
-    if (_useTestConfig && candidates.isEmpty) {
-      final fresh = await VpnGateCandidates.fetchAll(
-        onLog: (m) => _log.addLog('[VpnController] $m'),
-      ).timeout(const Duration(seconds: 6), onTimeout: () => const []);
-      addAll(fresh);
-    }
-
     return candidates;
   }
 
@@ -388,6 +384,18 @@ class VpnController {
       return;
     }
 
+    // Profile install shows the system Allow dialog and must finish before any
+    // candidate watchdog starts — otherwise a 10s timer cancels the prompt.
+    if (Platform.isIOS || Platform.isMacOS) {
+      final profile = await _vpnService.ensureAppleVpnProfile();
+      _log.addLog('[VpnController] Apple VPN profile ready: $profile');
+      if (!profile) {
+        connectionNotifier.setError();
+        _vibrationService.vibrateError();
+        return;
+      }
+    }
+
     if (Platform.isAndroid) {
       final ok = await _vpnService.checkAndRequestPermissions();
       _log.addLog('[VpnController] Permissions result: $ok');
@@ -417,8 +425,14 @@ class VpnController {
       final c = _candidateFromB64(base64Encode(utf8.encode(_serverConfig!)));
       if (c != null) {
         preferred.add(c);
-        final alt = Candidate.withPort(c, 443);
-        if (alt != null) preferred.add(alt);
+        // Prefer the relay's own TCP port. Port 443 often accepts TCP and
+        // never finishes OpenVPN auth on SoftEther / VPN Gate.
+        final tcp = Candidate.asTcp(c);
+        if (tcp != null) preferred.add(tcp);
+        if (c.port != 443) {
+          final alt = Candidate.withPort(c, 443);
+          if (alt != null) preferred.add(alt);
+        }
       }
     }
 
@@ -448,9 +462,13 @@ class VpnController {
     }
 
     final ranked = await _rankByReachability(candidates);
+    // Keep the selected host first, but use its best-ranked endpoint
+    // (native TCP / non-443) instead of blindly forcing the profile port.
     if (preferred.isNotEmpty) {
-      final first = preferred.first;
-      ranked.removeWhere((candidate) => candidate.ip == first.ip && candidate.port == first.port);
+      final host = preferred.first.ip;
+      final sameHost = ranked.where((c) => c.ip == host).toList();
+      final first = sameHost.isNotEmpty ? sameHost.first : preferred.first;
+      ranked.removeWhere((c) => c.ip == first.ip && c.port == first.port);
       ranked.insert(0, first);
     }
     if (ranked.isEmpty) {
@@ -543,10 +561,26 @@ class VpnController {
 
   /// Connects to one candidate and waits up to [_attemptWatchdog] for the
   /// engine to report `connected`. Returns false on timeout / engine failure.
+  ///
+  /// Important: [VpnService.connect] must not gate the watchdog. On iOS,
+  /// `configureVPN` → `saveToPreferences` can sit pending while NEVPN is
+  /// already `.connecting`; awaiting it alone left the UI on "opening tunnel"
+  /// forever even after the timer fired.
   Future<bool> _attemptCandidate(Candidate candidate) async {
+    // Tear down any stuck prior dial before we listen — otherwise a
+    // disconnect event from cleanup would finish(false) immediately.
+    try {
+      await _vpnService.disconnect();
+    } catch (_) {}
+    await _waitUntilNotConnecting();
+
+    final dial = await _withDohResolved(candidate);
+
     final completer = Completer<bool>();
     late final StreamSubscription<engine.ConnectionStatus> sub;
     late final Timer watchdog;
+    // Ignore disconnect until connect has been requested (NE may replay idle).
+    var armed = false;
 
     void finish(bool result) {
       if (!completer.isCompleted) {
@@ -563,8 +597,14 @@ class VpnController {
           finish(true);
           break;
         case engine.ConnectionStatus.disconnected:
-          _log.addLog('[VpnController] Engine reported DISCONNECTED during attempt');
+          if (!armed) return;
+          _log.addLog(
+            '[VpnController] Engine reported DISCONNECTED during attempt',
+          );
           finish(false);
+          break;
+        case engine.ConnectionStatus.connecting:
+          armed = true;
           break;
         default:
           break;
@@ -575,31 +615,86 @@ class VpnController {
     });
 
     watchdog = Timer(_attemptWatchdog, () {
-      _log.addLog('[VpnController] Watchdog fired for ${candidate.ip}:${candidate.port} (no tunnel in ${_attemptWatchdog.inSeconds}s)');
+      _log.addLog(
+        '[VpnController] Watchdog fired for ${dial.ip}:${dial.port} '
+        '(no tunnel in ${_attemptWatchdog.inSeconds}s)',
+      );
       finish(false);
     });
 
-    try {
-      await _vpnService.connect(
-        config: candidate.config,
-        name: 'BULBVPN',
-      );
-    } catch (e, stackTrace) {
-      _log.addLog('[VpnController] connect() threw: $e');
-      try { FirebaseCrashlytics.instance.recordError(e, stackTrace, reason: 'VpnService.connect ${candidate.ip}', fatal: false); } catch (_) {}
-      finish(false);
-      return await completer.future;
-    }
+    // Race connect against the status/watchdog completer. A hung
+    // saveToPreferences must not freeze candidate rotation.
+    unawaited(() async {
+      try {
+        if (completer.isCompleted) return;
+        armed = true;
+        await _vpnService.connect(
+          config: dial.config,
+          name: 'BULBVPN',
+        );
+        _log.addLog(
+          '[VpnController] connect() returned for ${dial.ip}:${dial.port}',
+        );
+      } catch (e, stackTrace) {
+        _log.addLog('[VpnController] connect() threw: $e');
+        try {
+          await FirebaseCrashlytics.instance.recordError(
+            e,
+            stackTrace,
+            reason: 'VpnService.connect ${dial.ip}',
+            fatal: false,
+          );
+        } catch (_) {}
+        finish(false);
+      }
+    }());
 
     final result = await completer.future;
     if (!result) {
-      // Tear down this attempt before the next one starts.
       try {
         await _vpnService.disconnect();
       } catch (_) {}
-      await Future<void>.delayed(const Duration(milliseconds: 250));
+      await _waitUntilNotConnecting();
     }
     return result;
+  }
+
+  /// Prefer IP literals in the OpenVPN `remote` line via DoH when the profile
+  /// still names a hostname (blocked or poisoned system DNS).
+  Future<Candidate> _withDohResolved(Candidate candidate) async {
+    final host = DohResolver.remoteHost(candidate.config) ?? candidate.ip;
+    if (DohResolver.isIpv4(host)) return candidate;
+    final ip = await DohResolver.resolve(host);
+    if (ip == null) {
+      _log.addLog('[VpnController] DoH miss for relay host');
+      return candidate;
+    }
+    _log.addLog('[VpnController] DoH resolved relay → $ip');
+    return Candidate(
+      ip: ip,
+      port: candidate.port,
+      protocol: candidate.protocol,
+      csvPing: candidate.csvPing,
+      b64: candidate.b64,
+      config: DohResolver.rewriteRemoteHost(candidate.config, ip),
+    );
+  }
+
+  /// Polls until the engine leaves connecting, or a short budget expires.
+  Future<void> _waitUntilNotConnecting() async {
+    final deadline = DateTime.now().add(const Duration(seconds: 4));
+    while (DateTime.now().isBefore(deadline)) {
+      try {
+        final status = await _vpnService.getStatus();
+        if (status != engine.ConnectionStatus.connecting &&
+            status != engine.ConnectionStatus.disconnecting) {
+          return;
+        }
+      } catch (_) {
+        return;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    }
   }
 
   /// Drops the current tunnel and opens the relay that is selected now.

@@ -11,7 +11,8 @@ import 'package:bulbvpn/modules/core/vpngate_source.dart';
 /// Servers the home screen and the connect path share.
 ///
 /// The bundled catalog is returned first so the list is on screen before any
-/// network call. A refresh then merges newer rows without clearing the list.
+/// network call. A refresh then merges newer rows from our GitHub Actions
+/// published JSON — never from www.vpngate.net on-device.
 final serversProvider =
     AsyncNotifierProvider<ServerCatalog, List<VpnServer>>(ServerCatalog.new);
 
@@ -55,35 +56,30 @@ class ServerCatalogLoader {
       Log().addLog('[Catalog] Bundled ${servers.length} servers');
       return servers;
     } catch (e) {
-      Log().addLog('[Catalog] Bundled catalog failed: $e');
+      Log().addLog('[Catalog] Bundled catalog failed');
       return const [];
     }
   }
 
+  /// Loads only our Actions-published lists (see [vpnGatePublishedLists]).
   static Future<List<VpnServer>> remote() async {
     final collected = <VpnServer>[];
     for (final url in vpnGatePublishedLists) {
       collected.addAll(await _getJson(url));
+      if (collected.isNotEmpty) break;
     }
-    collected.addAll(await _officialCsv());
-    collected.addAll(
-      await _getJson(
-        'https://raw.githubusercontent.com/alihusains/apigate/main/response.json',
-      ),
-    );
     if (collected.isEmpty) return const [];
+    Log().addLog('[Catalog] Refreshed ${collected.length} servers');
     return _merge(const [], collected);
   }
 
   static Future<List<VpnServer>> _getJson(String url) async {
     try {
-      final response = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 8));
+      final response =
+          await http.get(Uri.parse(url)).timeout(const Duration(seconds: 8));
       if (response.statusCode != 200 || response.body.isEmpty) return const [];
-      final servers = _fromJsonList(response.body);
-      Log().addLog('[Catalog] ${servers.length} servers from $url');
-      return servers;
-    } catch (e) {
-      Log().addLog('[Catalog] $url failed: $e');
+      return _fromJsonList(response.body);
+    } catch (_) {
       return const [];
     }
   }
@@ -96,55 +92,5 @@ class ServerCatalogLoader {
         .map((row) => VpnServer.fromJson(Map<String, dynamic>.from(row)))
         .where((server) => server.ip.isNotEmpty && server.hostName.isNotEmpty)
         .toList();
-  }
-
-  static Future<List<VpnServer>> _officialCsv() async {
-    const urls = <String>[
-      'https://www.vpngate.net/api/iphone/',
-      'http://www.vpngate.net/api/iphone/',
-    ];
-    for (final url in urls) {
-      try {
-        final response = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 8));
-        if (response.statusCode != 200 || !response.body.contains('OpenVPN_ConfigData_Base64')) {
-          continue;
-        }
-        final servers = <VpnServer>[];
-        for (final line in response.body.split('\n')) {
-          final server = _fromCsvLine(line);
-          if (server != null) servers.add(server);
-        }
-        if (servers.isNotEmpty) {
-          Log().addLog('[Catalog] ${servers.length} servers from official CSV');
-          return servers;
-        }
-      } catch (e) {
-        Log().addLog('[Catalog] Official CSV failed: $e');
-      }
-    }
-    return const [];
-  }
-
-  static VpnServer? _fromCsvLine(String line) {
-    final trimmed = line.trim();
-    if (trimmed.isEmpty || trimmed.startsWith('*') || trimmed.startsWith('#')) {
-      return null;
-    }
-    final parts = trimmed.split(',');
-    if (parts.length < 15) return null;
-    final b64 = parts.last.trim();
-    if (b64.isEmpty) return null;
-    return VpnServer(
-      hostName: parts[0].trim(),
-      ip: parts[1].trim(),
-      countryLong: parts[5].trim(),
-      countryShort: parts[6].trim(),
-      score: int.tryParse(parts[2].trim()) ?? 0,
-      ping: int.tryParse(parts[3].trim()) ?? 0,
-      speed: int.tryParse(parts[4].trim()) ?? 0,
-      numVpnSessions: int.tryParse(parts[7].trim()) ?? 0,
-      uptime: int.tryParse(parts[8].trim()) ?? 0,
-      openVpnConfigBase64: b64,
-    );
   }
 }

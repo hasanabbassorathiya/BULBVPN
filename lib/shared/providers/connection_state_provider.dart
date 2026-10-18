@@ -147,6 +147,12 @@ class ConnectionStateNotifier extends StateNotifier<ConnectionState> {
             status == vpn_status.ConnectionStatus.unknown)) {
       return;
     }
+    // After rotation fails, keep the error screen. A stale NEVPN
+    // `.connecting` must not flip the orb back to "opening tunnel".
+    if (state.status == ConnectionStatus.error &&
+        status == vpn_status.ConnectionStatus.connecting) {
+      return;
+    }
     debugPrint('[ConnectionStateNotifier] VPN status: ${status.name}');
     try {
       FirebaseCrashlytics.instance.log('vpn status ${status.name}');
