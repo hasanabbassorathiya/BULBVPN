@@ -1,87 +1,82 @@
-# Defyx VPN
+# BULBVPN
 
-A modern, relatively smart, secure, and open-source VPN application built with Flutter, providing free internet access and privacy protection with a fresh user experience.
-
-![Cover](.github/images/cover.jpg)
+Private VPN client for Android, iOS, macOS, and Windows. Built with Flutter.
+It dials OpenVPN first on Iranian Wi‑Fi and mobile data, keeps a live tunnel
+across network changes, and falls back to SoftEther on Android when needed.
 
 ## Features
 
-- Simple, with a beautiful and user-friendly interface
-- One-tap connect/disconnect functionality
-- Powered by [DXcore](https://github.com/UnboundTechCo/DXcore), which unifies Warp, Psiphon, Warp-in-Warp, Xray, Outline, and exclusive proprietary protocols
-- Relatively smart, requiring no manual configuration
-- Ability to test internet speed and quality
+- One-tap connect and disconnect
+- Device-side server ping with the fastest relay on top
+- OpenVPN-first connect that prefers the relay’s own port
+- Session restore when you reopen the app while the tunnel is still up
+- Built-in Cloudflare speed test
+- Private UI: country labels only, no public relay hostnames in the home screen
+- SoftEther SSL-VPN path on Android as a short fallback
 
-## Download it
+## Platforms
 
-<a href="https://apps.apple.com/us/app/defyx/id6746811872?platform=iphone" target="_blank">
-    <img height="60" src=".github/images/download/apple-store.png" alt="download" />
-</a>
-<a href="https://play.google.com/store/apps/details?id=de.unboundtech.defyxvpn" target="_blank">
-    <img height="60" src=".github/images/download/google-play.png" alt="download" />
-</a>
-<a href="https://github.com/UnboundTechCo/defyxVPN/releases">
-    <img height="60" src=".github/images/download/github.png" alt="download" />
-</a>
+| Platform | Status |
+| --- | --- |
+| Android | Production path verified on Iranian Wi‑Fi and mobile data |
+| iOS | Packet tunnel + App Store upload |
+| macOS | Packet tunnel provider (OpenVPNAdapter) |
+| Windows | Bundled OpenVPN + TAP; run the release script on Windows |
 
-## Installation
+## Requirements
 
-### Prerequisites
+- Flutter SDK ≥ 3.44 (see `.fvmrc`)
+- Xcode 16+ for iOS / macOS
+- Android Studio / JDK 17 for Android
+- Apple Developer team for iOS signing
+- Play Console upload key for Android release
 
-- Flutter SDK ≥ 3.7.0
-- Dart SDK ≥ 3.0.0
-- Xcode for iOS/macOS development
-
-### 🧑‍💻 How to Set Up
-
-1. Install dependencies:
+## Setup
 
 ```bash
 flutter pub get
-```
-
-2. Run the application:
-
-```bash
 flutter run
 ```
 
-3. Build for iOS:
+iOS needs CocoaPods:
 
 ```bash
-make build-ios
+cd ios && pod install && cd ..
 ```
 
-This will:
+## Release
 
-- Clean the Flutter build
-- Clean pub cache
-- Build the IPA file
+Build every platform this machine can sign, then optionally publish a GitHub
+release:
 
-## Usage
+```bash
+./scripts/release_all.sh          # build only
+./scripts/release_all.sh --github # build + gh release create
+```
 
-1. Launch the app
-2. Tap the connect button to secure your connection
-3. Use the speed test feature to check your connection performance
-4. Share the app with friends to spread internet freedom
+Artifacts land in `dist/v<version>-<build>/`:
 
-## Technical Architecture
+- `bulbvpn-android.aab` / `bulbvpn-android.apk`
+- `bulbvpn-ios.ipa`
+- `bulbvpn-macos.zip` when macOS signing is configured
+- `bulbvpn-windows.zip` when the script runs on Windows
 
-The app is built using:
+## App identity
 
-- Flutter framework with Dart
-- Riverpod for state management
-- Native platform channels for VPN functionality
-- Custom UI with Material Design components
+- Bundle / application ID: `app.bulbvpn.com`
+- iOS / macOS VPN extension: `app.bulbvpn.com.VPNExtension`
+- App group: `group.com.bulbvpn.app`
 
-## License
+## Privacy
 
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+This is a private build. Ads and paywall seams exist in code but stay off.
+You are responsible for how you use the tunnel. BULBVPN is not responsible
+for traffic sent through third-party relays.
 
 ## Support
 
-For support or inquiries, please [create an issue](https://github.com/UnboundTechCo/defyxVPN/issues) or contact us at info@UnboundTechCo.de.
+Contact: hasanabbassorathiya12@gmail.com
 
----
+## License
 
-Made with ❤️ by the UnboundTechCo Team
+MIT. See [LICENSE](LICENSE).

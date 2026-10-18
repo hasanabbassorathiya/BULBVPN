@@ -129,7 +129,19 @@ ls -lh "$OUT"
 
 if [[ "$PUBLISH" -eq 1 ]]; then
   echo "== GitHub release ${TAG} =="
-  gh release create "$TAG" "$OUT"/* \
-    --title "BULBVPN ${VERSION}" \
-    --notes "OpenVPN-first connect for Iranian Wi-Fi and mobile data on Android, iOS, and macOS. Windows archive is included when this script is run on Windows."
+  local_notes="$(cat <<EOF
+BULBVPN ${VERSION}
+
+OpenVPN-first connect for Iranian Wi-Fi and mobile data.
+Android AAB/APK, iOS IPA, and desktop archives when this host can build them.
+EOF
+)"
+  if gh release view "$TAG" >/dev/null 2>&1; then
+    gh release upload "$TAG" "$OUT"/* --clobber
+  else
+    gh release create "$TAG" "$OUT"/* \
+      --title "BULBVPN ${VERSION}" \
+      --notes "$local_notes"
+  fi
+  gh release view "$TAG" --json url,assets --jq '{url:.url,assets:[.assets[].name]}'
 fi
