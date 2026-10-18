@@ -109,7 +109,10 @@ class _SpeedTestScreenState extends ConsumerState<SpeedTestScreen> {
                   Column(
                     children: [
                       SizedBox(height: 45.h),
-                      SpeedTestHeader(step: speedTestState.step),
+                      SpeedTestHeader(
+                        step: speedTestState.step,
+                        hasResult: speedTestState.testCompleted,
+                      ),
                     ],
                   ),
                   Positioned(

@@ -66,14 +66,28 @@ class _ServerSheetState extends ConsumerState<ServerSheet> {
           padding: const EdgeInsets.fromLTRB(20, 12, 12, 8),
           child: Row(
             children: [
-              Text(
-                'Servers',
-                style: TextStyle(
-                  color: AppColors.ink,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: -0.3,
-                ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Servers',
+                    style: TextStyle(
+                      color: AppColors.ink,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: -0.3,
+                    ),
+                  ),
+                  Text(
+                    serversAsync.maybeWhen(
+                      data: (servers) => servers.isEmpty
+                          ? 'Loading catalog'
+                          : '${servers.length} relays · lowest ping first',
+                      orElse: () => 'Loading catalog',
+                    ),
+                    style: const TextStyle(color: AppColors.mute, fontSize: 12),
+                  ),
+                ],
               ),
               const Spacer(),
               // Ping all — real device latency, not the server-reported ms.
@@ -160,9 +174,16 @@ class _ServerSheetState extends ConsumerState<ServerSheet> {
                       .where((s) =>
                           s.countryLong.toLowerCase().contains(_query) ||
                           s.countryShort.toLowerCase().contains(_query) ||
-                          s.hostName.toLowerCase().contains(_query) ||
-                          s.ip.contains(_query))
+                          s.displayCountry.toLowerCase().contains(_query))
                       .toList();
+              if (servers.isEmpty) {
+                return const Center(
+                  child: Text(
+                    'Server list is still loading.',
+                    style: TextStyle(color: AppColors.mute, fontSize: 13),
+                  ),
+                );
+              }
               if (filtered.isEmpty) {
                 return const Center(
                   child: Text('No servers match.',
@@ -302,7 +323,7 @@ class _ServerRow extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    server.countryLong.isEmpty ? server.ip : server.countryLong,
+                    server.publicLabel,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
@@ -312,15 +333,13 @@ class _ServerRow extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 2),
-                  Text(
-                    server.ip,
+                  const Text(
+                    'Private relay',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
+                    style: TextStyle(
                       color: AppColors.mute,
                       fontSize: 11,
-                      fontFamily: 'GeistMono',
-                      fontFeatures: [FontFeature.tabularFigures()],
                     ),
                   ),
                 ],

@@ -40,7 +40,7 @@ class DefyxNavBar extends ConsumerWidget {
                   children: [
                     Expanded(child: _NavPill(screen: AppScreen.speedTest, icon: "speed", label: "Speed", current: currentScreen, onTap: () => _handleSpeedTest(context, ref))),
                     Expanded(child: _NavPill(screen: AppScreen.home, icon: "chield", label: "Home", current: currentScreen, onTap: () => _navigateToHome(context))),
-                    Expanded(child: _NavPill(screen: AppScreen.settings, icon: "settings", label: "Settings", current: currentScreen, onTap: () => _navigateToSettings(context))),
+                    Expanded(child: _NavPill(screen: AppScreen.settings, icon: "settings", label: "Info", current: currentScreen, onTap: () => _navigateToSettings(context))),
                   ],
                 ),
               ),

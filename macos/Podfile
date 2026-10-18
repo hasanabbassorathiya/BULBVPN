@@ -40,7 +40,7 @@ target 'PacketTunnel' do
   use_modular_headers!
 
   # OpenVPN adapter dependency
-  pod 'OpenVPNAdapter', :git => 'https://github.com/ss-abramchuk/OpenVPNAdapter.git', :tag => '0.8.0'
+  pod 'OpenVPNAdapter', :git => 'https://github.com/ss-abramchuk/OpenVPNAdapter.git', :tag => '0.7.0'
 end
 
 post_install do |installer|

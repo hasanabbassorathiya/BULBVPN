@@ -104,11 +104,11 @@ Java_app_bulbvpn_com_SoftEtherVpnService_nativeConfigure(
     softether_set_verify_certificate(c, false);
     softether_set_hostname(c, s);
     softether_set_default_route(c, false);
-    softether_set_reconnect(c, false, 0);
+    softether_set_reconnect(c, true, 3);
     softether_set_max_connections(c, 1);
     softether_set_udp_acceleration(c, false);
     softether_set_ip_version(c, 4);
-    softether_set_connect_timeout(c, 20000);
+    softether_set_connect_timeout(c, 12000);
     if (plain) softether_set_plain_password(c);
     (*env)->ReleaseStringUTFChars(env, sni, s);
 }
@@ -127,6 +127,14 @@ Java_app_bulbvpn_com_SoftEtherVpnService_nativeConnect(
     (void)env;
     (void)thiz;
     return softether_connect((softether_client_t)client);
+}
+
+JNIEXPORT void JNICALL
+Java_app_bulbvpn_com_SoftEtherVpnService_nativeRequestStop(
+    JNIEnv *env, jobject thiz, jlong client) {
+    (void)env;
+    (void)thiz;
+    softether_request_stop((softether_client_t)client);
 }
 
 JNIEXPORT jint JNICALL

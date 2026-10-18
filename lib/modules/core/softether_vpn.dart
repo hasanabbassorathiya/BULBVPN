@@ -73,6 +73,20 @@ class SoftEtherVpn {
     } catch (_) {}
   }
 
+  /// Whether the Android service still owns a tunnel after the UI restarts.
+  static Future<({bool running, String host})> status() async {
+    try {
+      final raw = await _channel.invokeMethod<dynamic>('status');
+      if (raw is Map) {
+        return (
+          running: raw['running'] == true,
+          host: raw['host']?.toString() ?? '',
+        );
+      }
+    } catch (_) {}
+    return (running: false, host: '');
+  }
+
   static Future<int> bytesReceived() async {
     try {
       final value = await _channel.invokeMethod<dynamic>('bytesDown');

@@ -3,7 +3,7 @@ import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:bulbvpn/modules/core/log.dart';
-import 'package:bulbvpn/modules/main/presentation/screens/main_screen.dart';
+import 'package:bulbvpn/modules/core/vpn_server.dart';
 
 /// Outcome of a live latency probe for one server. Unlike the `ms` column
 /// broadcast by the server list, this is measured by the device itself.

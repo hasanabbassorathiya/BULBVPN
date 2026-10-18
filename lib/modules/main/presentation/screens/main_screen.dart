@@ -1,17 +1,21 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
-import 'package:http/http.dart' as http;
 import 'package:openvpn_dart/vpn_status.dart' as vpn_status;
 import 'package:bulbvpn/core/theme/app_colors.dart';
 import 'package:bulbvpn/core/theme/app_text_styles.dart';
 import 'package:bulbvpn/modules/core/log.dart';
+import 'package:bulbvpn/modules/core/server_catalog.dart';
 import 'package:bulbvpn/modules/core/softether_vpn.dart';
-import 'package:bulbvpn/modules/core/vpngate_source.dart';
 import 'package:bulbvpn/modules/core/vpn_controller.dart';
+import 'package:bulbvpn/modules/core/vpn_server.dart';
+import 'package:bulbvpn/modules/core/vpn_service.dart';
+import 'package:bulbvpn/modules/core/vpn_session_store.dart';
+import 'package:bulbvpn/modules/main/application/server_ping_provider.dart';
 import 'package:bulbvpn/modules/main/presentation/widgets/bulb_orb.dart';
 import 'package:bulbvpn/modules/main/presentation/widgets/server_sheet.dart';
 import 'package:bulbvpn/shared/layout/main_screen_background.dart';
@@ -20,156 +24,10 @@ import 'package:bulbvpn/shared/providers/ip_info_provider.dart';
 import 'package:bulbvpn/shared/providers/exit_ip_provider.dart';
 import 'package:bulbvpn/shared/widgets/staggered_in.dart';
 
+export 'package:bulbvpn/modules/core/server_catalog.dart' show serversProvider;
+export 'package:bulbvpn/modules/core/vpn_server.dart' show VpnServer;
+
 final log = Log();
-
-class VpnServer {
-  final String hostName;
-  final String ip;
-  final String countryLong;
-  final String countryShort;
-  final int score;
-  final int ping;
-  final int speed;
-  final int numVpnSessions;
-  final int uptime;
-  final String openVpnConfigBase64;
-
-  VpnServer({
-    required this.hostName,
-    required this.ip,
-    required this.countryLong,
-    required this.countryShort,
-    required this.score,
-    required this.ping,
-    required this.speed,
-    required this.numVpnSessions,
-    required this.uptime,
-    required this.openVpnConfigBase64,
-  });
-
-  factory VpnServer.fromJson(Map<String, dynamic> json) {
-    return VpnServer(
-      hostName: json['#HostName'] ?? '',
-      ip: json['IP'] ?? '',
-      countryLong: json['CountryLong'] ?? '',
-      countryShort: json['CountryShort'] ?? '',
-      score: int.tryParse(json['Score'] ?? '0') ?? 0,
-      ping: int.tryParse(json['Ping'] ?? '0') ?? 0,
-      speed: int.tryParse(json['Speed'] ?? '0') ?? 0,
-      numVpnSessions: int.tryParse(json['NumVpnSessions'] ?? '0') ?? 0,
-      uptime: int.tryParse(json['Uptime'] ?? '0') ?? 0,
-      openVpnConfigBase64: json['OpenVPN_ConfigData_Base64'] ?? '',
-    );
-  }
-
-  String get speedMbps => (speed / 1024 / 1024).toStringAsFixed(1);
-}
-
-final serversProvider = FutureProvider<List<VpnServer>>((ref) async {
-  String _sanitizeB64(String b) {
-    var s = b.trim().replaceAll('\n','').replaceAll('\r','').replaceAll(' ','');
-    final mod = s.length % 4;
-    if (mod != 0) s += '=' * (4-mod);
-    return s;
-  }
-  VpnServer? _serverFromCsvLine(String line) {
-    final l = line.trim();
-    if (l.isEmpty || l.startsWith('*') || l.startsWith('#')) return null;
-    final parts = l.split(',');
-    if (parts.length < 15) return null;
-    final b64 = parts.last.trim();
-    if (b64.isEmpty) return null;
-    // validate decodable
-    try { final _ = base64.decode(_sanitizeB64(b64)); } catch (_) { return null; }
-    return VpnServer(
-      hostName: parts[0].trim(),
-      ip: parts[1].trim(),
-      countryLong: parts[5].trim(),
-      countryShort: parts[6].trim(),
-      score: int.tryParse(parts[2].trim()) ?? 0,
-      ping: int.tryParse(parts[3].trim()) ?? 0,
-      speed: int.tryParse(parts[4].trim()) ?? 0,
-      numVpnSessions: int.tryParse(parts[7].trim()) ?? 0,
-      uptime: int.tryParse(parts[8].trim()) ?? 0,
-      openVpnConfigBase64: b64,
-    );
-  }
-  Future<List<VpnServer>?> _fetchPublishedList() async {
-    for (final url in vpnGatePublishedLists) {
-      try {
-        log.addLog('[MainScreen] Fetching published VPN Gate list: $url');
-        final response = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 12));
-        if (response.statusCode != 200 || response.body.isEmpty) continue;
-        final decoded = json.decode(response.body);
-        if (decoded is! List) continue;
-        final servers = decoded
-            .whereType<Map>()
-            .map((row) => VpnServer.fromJson(Map<String, dynamic>.from(row)))
-            .where((server) => server.ip.isNotEmpty && server.hostName.isNotEmpty)
-            .toList();
-        if (servers.isEmpty) continue;
-        log.addLog('[MainScreen] Parsed ${servers.length} servers from published list');
-        return servers;
-      } catch (e) {
-        log.addLog('[MainScreen] Published list failed: $e');
-      }
-    }
-    return null;
-  }
-  Future<List<VpnServer>?> _fetchOfficialCsv() async {
-    const url = 'http://www.vpngate.net/api/iphone/';
-    log.addLog('[MainScreen] Fetching servers from official CSV: $url');
-    for (var attempt=1; attempt<=2; attempt++) {
-      try {
-        final resp = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 12));
-        log.addLog('[MainScreen] Official CSV status: ${resp.statusCode}, bytes: ${resp.bodyBytes.length}');
-        if (resp.statusCode != 200 || !resp.body.contains('OpenVPN_ConfigData_Base64')) continue;
-        final lines = resp.body.split('\n');
-        final servers = <VpnServer>[];
-        for (final line in lines) {
-          final s = _serverFromCsvLine(line);
-          if (s != null) servers.add(s);
-        }
-        if (servers.isEmpty) { log.addLog('[MainScreen] Official CSV: no valid configs (attempt $attempt)'); continue; }
-        servers.sort((a,b){ final pa=a.ping<=0?9999:a.ping; final pb=b.ping<=0?9999:b.ping; return pa.compareTo(pb); });
-        log.addLog('[MainScreen] Parsed ${servers.length} servers from official CSV (sorted by ping asc)');
-        return servers;
-      } catch (e) { log.addLog('[MainScreen] Official CSV error attempt $attempt: $e'); }
-    }
-    return null;
-  }
-  Future<List<VpnServer>> _fetchJsonMirror() async {
-    const url = 'https://raw.githubusercontent.com/alihusains/apigate/main/response.json';
-    log.addLog('[MainScreen] Fallback JSON mirror: $url');
-    final response = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 12));
-    log.addLog('[MainScreen] Mirror status: ${response.statusCode}, bytes: ${response.bodyBytes.length}');
-    if (response.statusCode == 200) {
-      final List<dynamic> data = json.decode(response.body);
-      var servers = data.map((json) => VpnServer.fromJson(json)).toList();
-      servers = servers.where((s) => s.openVpnConfigBase64.isNotEmpty).toList();
-      servers.sort((a, b) { final pa=a.ping<=0?9999:a.ping; final pb=b.ping<=0?9999:b.ping; return pa.compareTo(pb); });
-      log.addLog('[MainScreen] Parsed ${servers.length} servers from mirror (sorted by ping asc)');
-      return servers;
-    }
-    throw Exception('Failed to load servers: ${response.statusCode}');
-  }
-  final published = await _fetchPublishedList();
-  if (published != null) {
-    return published;
-  }
-  List<VpnServer> servers;
-  final official = await _fetchOfficialCsv();
-  if (official != null) {
-    servers = official;
-  } else {
-    log.addLog('[MainScreen] Official CSV failed, using JSON mirror');
-    servers = await _fetchJsonMirror();
-  }
-  // Do not pin servers.first into the controller. CSV ping is measured by
-  // VPN Gate, not from this device, and locking connect to that one host
-  // skips candidate rotation when the endpoint is dead or DPI-stalled.
-  return servers;
-});
 
 class MainScreen extends ConsumerStatefulWidget {
   const MainScreen({super.key});
@@ -178,10 +36,13 @@ class MainScreen extends ConsumerStatefulWidget {
   ConsumerState<MainScreen> createState() => _MainScreenState();
 }
 
-class _MainScreenState extends ConsumerState<MainScreen> {
+class _MainScreenState extends ConsumerState<MainScreen> with WidgetsBindingObserver {
   VpnController? _vpnController;
   bool _vpnInitialized = false;
   Timer? _ticker;
+  StreamSubscription<List<ConnectivityResult>>? _networkSub;
+  List<ConnectivityResult> _lastNetworks = const [];
+  bool _handoffInFlight = false;
 
   DateTime? _connectedAt;
   int? _prevByteIn;
@@ -191,12 +52,61 @@ class _MainScreenState extends ConsumerState<MainScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     log.addLog('[MainScreen] initState');
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) => _tick());
-    // Warm the server list so the sheet opens instantly.
-    Future.microtask(
-      () => ref.read(serversProvider.future).catchError((_) => <VpnServer>[]),
+    Future.microtask(_warmServers);
+    _networkSub = Connectivity().onConnectivityChanged.listen(_onNetworkChanged);
+  }
+
+  Future<void> _warmServers() async {
+    final servers = await ref.read(serversProvider.future).catchError((_) => <VpnServer>[]);
+    if (!mounted || servers.isEmpty) return;
+    await ref.read(serverPingProvider.notifier).pingAll(servers);
+  }
+
+  Future<void> _onNetworkChanged(List<ConnectivityResult> results) async {
+    final previous = _lastNetworks;
+    _lastNetworks = results;
+    if (previous.isEmpty || _handoffInFlight) return;
+    final online = results.any(
+      (result) =>
+          result == ConnectivityResult.mobile || result == ConnectivityResult.wifi,
     );
+    if (!online) {
+      log.addLog('[MainScreen] Network blip ignored');
+      return;
+    }
+    final changed = previous.toSet().difference(results.toSet()).isNotEmpty ||
+        results.toSet().difference(previous.toSet()).isNotEmpty;
+    if (!changed) return;
+    final status = ref.read(connectionStateProvider).status;
+    if (status != ConnectionStatus.connected) return;
+    log.addLog('[MainScreen] Network changed to $results');
+    _handoffInFlight = true;
+    try {
+      // OpenVPN retries on its own. A short sample often lands in the
+      // gap between CONNECTED and CONNECTRETRY and used to start a
+      // second session on top of a live tunnel.
+      for (var attempt = 0; attempt < 3; attempt++) {
+        await Future<void>.delayed(const Duration(seconds: 4));
+        if (!mounted) return;
+        final tunnel = await SoftEtherVpn.status();
+        final engine = await VpnService().getStatus();
+        final stillUp = tunnel.running ||
+            engine == vpn_status.ConnectionStatus.connected ||
+            engine == vpn_status.ConnectionStatus.connecting ||
+            engine == vpn_status.ConnectionStatus.unknown;
+        if (stillUp) {
+          log.addLog('[MainScreen] Tunnel stayed up across the network change');
+          return;
+        }
+      }
+      log.addLog('[MainScreen] Tunnel dropped with the old network, reconnecting');
+      await _vpnController?.reconnect();
+    } finally {
+      _handoffInFlight = false;
+    }
   }
 
   @override
@@ -209,7 +119,16 @@ class _MainScreenState extends ConsumerState<MainScreen> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _restoreLiveTunnel();
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _networkSub?.cancel();
     _ticker?.cancel();
     super.dispose();
   }
@@ -221,13 +140,35 @@ class _MainScreenState extends ConsumerState<MainScreen> {
     try {
       await _vpnController!.initialize(container);
       log.addLog('[MainScreen] VPN controller initialized successfully');
-      // Apply a server picked before the controller was ready.
       final picked = ref.read(selectedServerProvider);
       if (picked != null) _applyServerConfig(picked);
+      await _restoreLiveTunnel();
     } catch (e, stackTrace) {
       log.addLog('[MainScreen] VPN Controller init error: $e');
       log.addLog('[MainScreen] Stack trace: $stackTrace');
     }
+  }
+
+  Future<void> _restoreLiveTunnel() async {
+    final tunnel = await SoftEtherVpn.status();
+    final engine = await VpnService().getStatus();
+    final live = tunnel.running || engine == vpn_status.ConnectionStatus.connected;
+    if (!live) return;
+    final session = await VpnSessionStore.read();
+    if (!mounted) return;
+    final notifier = ref.read(connectionStateProvider.notifier);
+    notifier.adoptLiveTunnel(holdEngine: tunnel.running);
+    final label = session?.label.isNotEmpty == true
+        ? session!.label
+        : (tunnel.host.isNotEmpty ? tunnel.host : null);
+    if (label != null) {
+      ref.read(softEtherHostProvider.notifier).state = label;
+    }
+    if (session != null) {
+      _connectedAt = DateTime.fromMillisecondsSinceEpoch(session.startedMs);
+      _updateSession();
+    }
+    log.addLog('[MainScreen] Restored live tunnel ${label ?? tunnel.host}');
   }
 
   void _applyServerConfig(VpnServer server) {
@@ -237,7 +178,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
       final config = utf8.decode(base64.decode(server.openVpnConfigBase64));
       ctrl.selectServerConfig(
         config,
-        '${server.countryLong} · ${server.ip}',
+        '${server.displayCountry} · ${server.ip}',
         hostName: server.hostName,
         ip: server.ip,
       );
@@ -294,7 +235,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
       return;
     }
     try {
-      await _vpnController!.handleConnectionButton(ref);
+      await _vpnController!.handleConnectionButton();
     } catch (e, stackTrace) {
       log.addLog('[MainScreen] ERROR in handleConnectionButton: $e');
       log.addLog('[MainScreen] Stack trace: $stackTrace');
@@ -479,7 +420,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
                             padding: const EdgeInsets.fromLTRB(20, 4, 20, 96),
                             itemCount: lines.length,
                             itemBuilder: (_, i) {
-                              final line = lines[i];
+                              final line = redactRelayDetail(lines[i]);
                               return Padding(
                                 padding: const EdgeInsets.symmetric(vertical: 2),
                                 child: Text(
@@ -549,6 +490,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
   }
 
   String _stageLabel(vpn_status.ConnectionStatus? engine, ConnectionStatus status) {
+    if (status == ConnectionStatus.connected) return 'secure tunnel';
     if (status == ConnectionStatus.disconnected ||
         status == ConnectionStatus.error ||
         status == ConnectionStatus.noInternet) {
@@ -596,16 +538,26 @@ class _MainScreenState extends ConsumerState<MainScreen> {
   Widget build(BuildContext context) {
     final cs = ref.watch(connectionStateProvider);
     final selected = ref.watch(selectedServerProvider);
+    final pingState = ref.watch(serverPingProvider);
+    final catalog = ref.watch(serversProvider).valueOrNull ?? const <VpnServer>[];
+    final fastest = _fastestServer(catalog, pingState.byIp);
     final exitIp = ref.watch(exitIpProvider);
+    final beforeIp = ref.watch(ipWhoProvider.select((state) => state.before?.ip));
+    final visibleExit =
+        exitIp != null && exitIp.ip.isNotEmpty && exitIp.ip != beforeIp
+            ? exitIp
+            : null;
     final ipWho = ref.watch(ipWhoProvider);
     final sslHost = ref.watch(softEtherHostProvider);
     final status = cs.status;
     final afterInfo = ipWho.after;
     final afterMatches =
-        exitIp != null && afterInfo != null && afterInfo.ip == exitIp.ip;
-    final endpointLabel = selected != null
-        ? '${selected.countryLong} · ${selected.ip}'
-        : (sslHost ?? 'auto');
+        visibleExit != null && afterInfo != null && afterInfo.ip == visibleExit.ip;
+    final endpointLabel = sslHost != null
+        ? publicRelayLabel(sslHost, catalog)
+        : (selected?.publicLabel ??
+            fastest?.publicLabel ??
+            'finding fastest');
 
     // Push server picks into the controller.
     ref.listen(selectedServerProvider, (prev, next) {
@@ -618,7 +570,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
       if (prev?.ip != next?.ip &&
           (live == ConnectionStatus.connected ||
               live == ConnectionStatus.connecting)) {
-        _vpnController?.reconnect(ref);
+        _vpnController?.reconnect();
       }
     });
     // Track session start/stop precisely on transitions.
@@ -857,11 +809,11 @@ class _MainScreenState extends ConsumerState<MainScreen> {
                           Container(height: 1, color: AppColors.hairline),
                           const SizedBox(height: 10),
                           _buildIpRow(
-                            label: exitIp == null ? 'EXIT IP' : 'AFTER',
-                            ip: exitIp?.ip,
+                            label: visibleExit == null ? 'EXIT IP' : 'AFTER',
+                            ip: visibleExit?.ip,
                             location: afterMatches
                                 ? _ipLocationLabel(afterInfo)
-                                : (exitIp?.loc ?? ''),
+                                : (visibleExit?.loc ?? ''),
                             copyable: true,
                           ),
                         ],
@@ -873,7 +825,14 @@ class _MainScreenState extends ConsumerState<MainScreen> {
                   // ---- Server pill ------------------------------------
                   StaggeredIn(
                     delayMs: 200,
-                    child: _serverPill(selected, sslHost: sslHost),
+                    child: _serverPill(
+                      selected,
+                      catalog: catalog,
+                      sslHost: sslHost,
+                      fastest: fastest,
+                      ping: fastest == null ? null : pingState.byIp[fastest.ip],
+                      probing: pingState.probing && selected == null,
+                    ),
                   ),
 
                   // ---- Nav clearance ----------------------------------
@@ -911,24 +870,53 @@ class _MainScreenState extends ConsumerState<MainScreen> {
           ),
         ),
         const SizedBox(width: 10),
-        Flexible(
-          child: Text(
-            'SECURE TUNNEL',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: AppTextStyles.microLabel(),
+        if (MediaQuery.sizeOf(context).width >= 390)
+          Flexible(
+            child: Text(
+              'SECURE TUNNEL',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppTextStyles.microLabel(),
+            ),
           ),
-        ),
       ],
     );
   }
 
-  Widget _serverPill(VpnServer? selected, {String? sslHost}) {
-    final flagCode = selected == null
+  VpnServer? _fastestServer(List<VpnServer> servers, Map<String, ServerPing> byIp) {
+    final ranked = sortByMeasuredPing(servers, byIp);
+    for (final server in ranked) {
+      final ping = byIp[server.ip];
+      if (ping != null && ping.status == PingStatus.ok) return server;
+    }
+    return ranked.isEmpty ? null : ranked.first;
+  }
+
+  Widget _serverPill(
+    VpnServer? selected, {
+    required List<VpnServer> catalog,
+    String? sslHost,
+    VpnServer? fastest,
+    ServerPing? ping,
+    bool probing = false,
+  }) {
+    final shown = selected ?? fastest;
+    final flagCode = shown == null
         ? null
-        : (selected.countryShort.toLowerCase().length == 2
-              ? selected.countryShort.toLowerCase()
+        : (shown.countryShort.toLowerCase().length == 2
+              ? shown.countryShort.toLowerCase()
               : 'xx');
+    final title = sslHost != null
+        ? publicRelayLabel(sslHost, catalog)
+        : (selected?.publicLabel ?? shown?.publicLabel ?? 'Finding a server');
+    final subtitle = sslHost != null
+        ? 'Private tunnel'
+        : (selected != null
+            ? 'Selected'
+            : (probing && ping == null
+                ? 'Measuring from this device'
+                : 'Fastest'));
+    final liveMs = sslHost == null && selected == null ? ping : null;
     return GestureDetector(
       onTap: () => showServerSheet(context),
       behavior: HitTestBehavior.opaque,
@@ -963,9 +951,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    sslHost != null
-                        ? 'SoftEther SSL'
-                        : (selected?.countryLong ?? 'Auto select'),
+                    title,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
@@ -976,7 +962,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    sslHost ?? selected?.ip ?? 'fastest available',
+                    subtitle,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: AppTextStyles.monoValue(
@@ -988,13 +974,19 @@ class _MainScreenState extends ConsumerState<MainScreen> {
               ),
             ),
             const SizedBox(width: 10),
-            if (selected != null && selected.ping > 0)
+            if (liveMs != null && liveMs.status == PingStatus.ok)
               Text(
-                '${selected.ping} ms',
+                '${liveMs.ms} ms',
                 style: AppTextStyles.monoValue(
                   size: 12,
-                  color: AppColors.steel,
+                  color: AppColors.emerald,
                 ),
+              )
+            else if (probing)
+              const SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.amber),
               )
             else
               Container(
@@ -1004,7 +996,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Text(
-                  'AUTO',
+                  selected == null ? 'FASTEST' : 'PICKED',
                   style: AppTextStyles.microLabel(color: AppColors.amber),
                 ),
               ),

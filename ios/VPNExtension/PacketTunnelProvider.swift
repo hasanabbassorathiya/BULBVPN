@@ -1,68 +1,62 @@
-//
-//  PacketTunnelProvider.swift
-//  VPNExtension
-//
-//  OpenVPN tunnel provider for BULBVPN.
-//  Matches the openvpn_flutter 1.3.4 example extension exactly.
-//
-
 import NetworkExtension
 import OpenVPNAdapter
 import os.log
 
 extension NEPacketTunnelFlow: OpenVPNAdapterPacketFlow {}
 
+/// OpenVPN packet tunnel. A live session stays up on both Wi-Fi and cellular.
+/// Reachability only nudges a tunnel that has already dropped, which is the
+/// failure we saw when an Iranian network change tore down a working session.
 class PacketTunnelProvider: NEPacketTunnelProvider {
+    private static let vpnLog = OSLog(subsystem: "app.bulbvpn.com", category: "VPN")
 
-    lazy var vpnAdapter: OpenVPNAdapter = {
+    private lazy var vpnAdapter: OpenVPNAdapter = {
         let adapter = OpenVPNAdapter()
         adapter.delegate = self
         return adapter
     }()
 
-    let vpnReachability = OpenVPNReachability()
-    var providerManager: NETunnelProviderManager!
+    private let vpnReachability = OpenVPNReachability()
+    private var startHandler: ((Error?) -> Void)?
+    private var stopHandler: (() -> Void)?
+    private var groupIdentifier: String?
+    private var tunnelUp = false
+    private var sawReachability = false
 
-    var startHandler: ((Error?) -> Void)?
-    var stopHandler: (() -> Void)?
-    var groupIdentifier: String?
-
-    static var connectionIndex = 0
-    static var timeOutEnabled = true
-
-    override func startTunnel(options: [String: NSObject]?, completionHandler: @escaping (Error?) -> Void) {
+    override func startTunnel(
+        options: [String: NSObject]?,
+        completionHandler: @escaping (Error?) -> Void
+    ) {
         guard
             let protocolConfiguration = protocolConfiguration as? NETunnelProviderProtocol,
-            let providerConfiguration = protocolConfiguration.providerConfiguration
+            let providerConfiguration = protocolConfiguration.providerConfiguration,
+            let ovpnFileContent = providerConfiguration["config"] as? Data
         else {
-            completionHandler(NEPacketTunnelProviderError(.configurationInvalid, userInfo: [:]))
+            completionHandler(OpenVPNAdapterError.configurationFailure)
             return
         }
-        guard let ovpnFileContent: Data = providerConfiguration["config"] as? Data else {
-            completionHandler(NEPacketTunnelProviderError(.configurationInvalid, userInfo: [:]))
-            return
+        if let groupData = providerConfiguration["groupIdentifier"] as? Data {
+            groupIdentifier = String(decoding: groupData, as: UTF8.self)
         }
-        guard let groupIdentifierData: Data = providerConfiguration["groupIdentifier"] as? Data else {
-            completionHandler(NEPacketTunnelProviderError(.configurationInvalid, userInfo: [:]))
-            return
-        }
-        self.groupIdentifier = String(decoding: groupIdentifierData, as: UTF8.self)
 
         let configuration = OpenVPNConfiguration()
         configuration.fileContent = ovpnFileContent
-        configuration.tunPersist = false
+        configuration.tunPersist = true
 
-        let properties: OpenVPNConfigurationEvaluation
+        let evaluation: OpenVPNConfigurationEvaluation
         do {
-            properties = try vpnAdapter.apply(configuration: configuration)
+            evaluation = try vpnAdapter.apply(configuration: configuration)
         } catch {
             completionHandler(error)
             return
         }
 
-        if !properties.autologin {
-            guard let username = options?["username"] as? String, let password = options?["password"] as? String else {
-                completionHandler(NEPacketTunnelProviderError(.configurationInvalid, userInfo: [:]))
+        if !evaluation.autologin {
+            guard
+                let username = options?["username"] as? String,
+                let password = options?["password"] as? String
+            else {
+                completionHandler(OpenVPNAdapterError.configurationFailure)
                 return
             }
             let credentials = OpenVPNCredentials()
@@ -77,75 +71,103 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         }
 
         vpnReachability.startTracking { [weak self] status in
-            guard status == .reachableViaWiFi else { return }
-            // Bounded: only reconnect on reachability change, never loop.
-            self?.vpnAdapter.reconnect(afterTimeInterval: 5)
+            self?.networkBecameReachable(status)
         }
         startHandler = completionHandler
         vpnAdapter.connect(using: packetFlow)
     }
 
-    override func stopTunnel(with reason: NEProviderStopReason, completionHandler: @escaping () -> Void) {
+    override func stopTunnel(
+        with reason: NEProviderStopReason,
+        completionHandler: @escaping () -> Void
+    ) {
         stopHandler = completionHandler
+        tunnelUp = false
         if vpnReachability.isTracking {
             vpnReachability.stopTracking()
         }
         vpnAdapter.disconnect()
     }
 
-    override func handleAppMessage(_ messageData: Data, completionHandler: ((Data?) -> Void)? = nil) {
-        if String(data: messageData, encoding: .utf8) == "OPENVPN_STATS" {
-            var toSave = ""
-            let formatter = DateFormatter()
-            formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
-            let connectedOn = UserDefaults(suiteName: groupIdentifier)?.string(forKey: "connected_on") ?? ""
-            toSave += connectedOn
-            toSave += "_"
-            toSave += String(vpnAdapter.interfaceStatistics.packetsIn)
-            toSave += "_"
-            toSave += String(vpnAdapter.interfaceStatistics.packetsOut)
+    override func handleAppMessage(
+        _ messageData: Data,
+        completionHandler: ((Data?) -> Void)? = nil
+    ) {
+        guard let completionHandler else { return }
+        guard String(data: messageData, encoding: .utf8) == "OPENVPN_STATS" else {
+            completionHandler(nil)
+            return
         }
-        completionHandler?(nil)
+        let stats = vpnAdapter.interfaceStatistics
+        let json = "{\"totalDownload\":\(stats.bytesIn),\"totalUpload\":\(stats.bytesOut),\"latestHandshake\":0}"
+        completionHandler(json.data(using: .utf8))
+    }
+
+    /// First callback is the path we are already dialing. Later callbacks
+    /// cover Wi-Fi and cellular. A tunnel that is still up is left alone.
+    private func networkBecameReachable(_ status: OpenVPNReachabilityStatus) {
+        let online = status == .reachableViaWiFi || status == .reachableViaWWAN
+        let first = !sawReachability
+        sawReachability = true
+        guard !first, online, !tunnelUp else { return }
+        os_log("Network is back and the tunnel is down; reconnecting", log: Self.vpnLog, type: .info)
+        vpnAdapter.reconnect(afterTimeInterval: 2)
     }
 }
 
 extension PacketTunnelProvider: OpenVPNAdapterDelegate {
-    func openVPNAdapter(_ openVPNAdapter: OpenVPNAdapter, configureTunnelWithNetworkSettings networkSettings: NEPacketTunnelNetworkSettings?, completionHandler: @escaping (Error?) -> Void) {
-        // Settings are owned by the adapter. This path only reports that
-        // configuration finished; it does not invent a loopback remote.
-        _ = networkSettings
-        completionHandler(nil)
+    func openVPNAdapter(
+        _ openVPNAdapter: OpenVPNAdapter,
+        configureTunnelWithNetworkSettings networkSettings: NEPacketTunnelNetworkSettings?,
+        completionHandler: @escaping (Error?) -> Void
+    ) {
+        networkSettings?.dnsSettings?.matchDomains = [""]
+        setTunnelNetworkSettings(networkSettings, completionHandler: completionHandler)
     }
 
-    func openVPNAdapter(_ openVPNAdapter: OpenVPNAdapter, handleEvent event: OpenVPNAdapterEvent, message: String?) {
+    func openVPNAdapter(
+        _ openVPNAdapter: OpenVPNAdapter,
+        handleEvent event: OpenVPNAdapterEvent,
+        message: String?
+    ) {
         switch event {
         case .connected:
+            tunnelUp = true
+            if reasserting { reasserting = false }
             UserDefaults(suiteName: groupIdentifier)?.set(Date(), forKey: "connected_on")
-            if let startHandler = startHandler {
-                startHandler(nil)
-                self.startHandler = nil
-            }
+            startHandler?(nil)
+            startHandler = nil
         case .disconnected:
-            if let stopHandler = stopHandler {
-                if vpnReachability.isTracking {
-                    vpnReachability.stopTracking()
-                }
-                stopHandler()
-                self.stopHandler = nil
+            tunnelUp = false
+            if vpnReachability.isTracking {
+                vpnReachability.stopTracking()
             }
+            stopHandler?()
+            stopHandler = nil
+        case .reconnecting:
+            tunnelUp = false
+            reasserting = true
         default:
             break
         }
     }
 
     func openVPNAdapter(_ openVPNAdapter: OpenVPNAdapter, handleError error: Error) {
-        if let startHandler = startHandler {
+        let fatal = (error as NSError).userInfo[OpenVPNAdapterErrorFatalKey] as? Bool ?? false
+        guard fatal else { return }
+        tunnelUp = false
+        if vpnReachability.isTracking {
+            vpnReachability.stopTracking()
+        }
+        if let startHandler {
             startHandler(error)
             self.startHandler = nil
+        } else {
+            cancelTunnelWithError(error)
         }
     }
 
-    func openVPNAdapter(_ openVPNAdapter: OpenVPNAdapter, handleLogMessage logmessage: String) {
-        os_log("%{public}@", log: OSLog(subsystem: "com.bulbvpn.app", category: "OpenVPN"), logmessage)
+    func openVPNAdapter(_ openVPNAdapter: OpenVPNAdapter, handleLogMessage logMessage: String) {
+        os_log("%{public}@", log: Self.vpnLog, type: .info, logMessage)
     }
 }

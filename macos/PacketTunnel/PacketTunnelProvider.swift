@@ -1,81 +1,165 @@
-import OpenVPNAdapter
 import NetworkExtension
+import OpenVPNAdapter
 import os.log
 
-class PacketTunnelProvider: OpenVPNAdapterPacketTunnelProvider {
+extension NEPacketTunnelFlow: OpenVPNAdapterPacketFlow {}
+
+/// macOS OpenVPN tunnel. Same rule as the phone: a live session is not
+/// restarted just because the network path changed.
+class PacketTunnelProvider: NEPacketTunnelProvider {
+    private static let vpnLog = OSLog(subsystem: "app.bulbvpn.com.macos", category: "VPN")
+
+    private lazy var vpnAdapter: OpenVPNAdapter = {
+        let adapter = OpenVPNAdapter()
+        adapter.delegate = self
+        return adapter
+    }()
+
+    private let vpnReachability = OpenVPNReachability()
+    private var startHandler: ((Error?) -> Void)?
+    private var stopHandler: (() -> Void)?
+    private var tunnelUp = false
+    private var sawReachability = false
 
     override func startTunnel(
         options: [String: NSObject]?,
         completionHandler: @escaping (Error?) -> Void
     ) {
-        os_log("Starting BULBVPN tunnel (macOS)...")
-
-        guard let providerProtocol = protocolConfiguration as? NETunnelProviderProtocol,
-              let providerConfig = providerProtocol.providerConfiguration,
-              let configData = providerConfig["config"] as? Data,
-              let configString = String(data: configData, encoding: .utf8),
-              !configString.isEmpty else {
-            os_log("❌ Missing or empty OpenVPN config")
-            completionHandler(NSError(domain: "BULBVPN", code: 1, userInfo: [NSLocalizedDescriptionKey: "Missing OpenVPN configuration"]))
+        guard
+            let protocolConfiguration = protocolConfiguration as? NETunnelProviderProtocol,
+            let providerConfiguration = protocolConfiguration.providerConfiguration,
+            let ovpnFileContent = providerConfiguration["config"] as? Data
+        else {
+            completionHandler(OpenVPNAdapterError.configurationFailure)
             return
         }
 
-        os_log("✅ OpenVPN config received (%d chars)", configString.count)
+        let configuration = OpenVPNConfiguration()
+        configuration.fileContent = ovpnFileContent
+        configuration.tunPersist = true
 
-        let openVPNAdapter = OpenVPNAdapter()
-        openVPNAdapter.delegate = self
+        let evaluation: OpenVPNConfigurationEvaluation
+        do {
+            evaluation = try vpnAdapter.apply(configuration: configuration)
+        } catch {
+            completionHandler(error)
+            return
+        }
 
-        let properties: [String: Any] = [
-            OpenVPNAdapter.configurationFile: configString,
-            OpenVPNAdapter.disconnectOnSleep: false,
-        ]
+        if !evaluation.autologin {
+            guard
+                let username = options?["username"] as? String,
+                let password = options?["password"] as? String
+            else {
+                completionHandler(OpenVPNAdapterError.configurationFailure)
+                return
+            }
+            let credentials = OpenVPNCredentials()
+            credentials.username = username
+            credentials.password = password
+            do {
+                try vpnAdapter.provide(credentials: credentials)
+            } catch {
+                completionHandler(error)
+                return
+            }
+        }
 
-        openVPNAdapter.connect(with: properties)
-
-        self.startCompletionHandler = completionHandler
+        vpnReachability.startTracking { [weak self] status in
+            self?.networkBecameReachable(status)
+        }
+        startHandler = completionHandler
+        vpnAdapter.connect(using: packetFlow)
     }
 
     override func stopTunnel(
         with reason: NEProviderStopReason,
         completionHandler: @escaping () -> Void
     ) {
-        os_log("Stopping BULBVPN tunnel (macOS) (reason: %d)", reason.rawValue)
-        
-        if let openVPNAdapter = self.openVPNAdapter {
-            openVPNAdapter.disconnect()
+        stopHandler = completionHandler
+        tunnelUp = false
+        if vpnReachability.isTracking {
+            vpnReachability.stopTracking()
         }
-        
-        self.stopCompletionHandler = completionHandler
+        vpnAdapter.disconnect()
     }
 
     override func handleAppMessage(
         _ messageData: Data,
-        completionHandler: ((Data?) -> Void)?
+        completionHandler: ((Data?) -> Void)? = nil
     ) {
-        guard let message = String(data: messageData, encoding: .utf8) else {
-            completionHandler?(nil)
+        guard let completionHandler else { return }
+        guard String(data: messageData, encoding: .utf8) == "OPENVPN_STATS" else {
+            completionHandler(nil)
             return
         }
+        let stats = vpnAdapter.interfaceStatistics
+        let json = "{\"totalDownload\":\(stats.bytesIn),\"totalUpload\":\(stats.bytesOut),\"latestHandshake\":0}"
+        completionHandler(json.data(using: .utf8))
+    }
 
-        os_log("Received app message (macOS): %@", message)
+    private func networkBecameReachable(_ status: OpenVPNReachabilityStatus) {
+        let online = status == .reachableViaWiFi || status == .reachableViaWWAN
+        let first = !sawReachability
+        sawReachability = true
+        guard !first, online, !tunnelUp else { return }
+        os_log("Network is back and the tunnel is down; reconnecting", log: Self.vpnLog, type: .info)
+        vpnAdapter.reconnect(afterTimeInterval: 2)
+    }
+}
 
-        if message == "OPENVPN_STATS",
-           let openVPNAdapter = self.openVPNAdapter,
-           let stats = openVPNAdapter.vpnStats {
-            let statsString = "byteIn: \(stats.bytesIn), byteOut: \(stats.bytesOut), packetIn: \(stats.packetsIn), packetOut: \(stats.packetsOut)"
-            let responseData = statsString.data(using: .utf8)
-            completionHandler?(responseData)
-        } else {
-            completionHandler?(nil)
+extension PacketTunnelProvider: OpenVPNAdapterDelegate {
+    func openVPNAdapter(
+        _ openVPNAdapter: OpenVPNAdapter,
+        configureTunnelWithNetworkSettings networkSettings: NEPacketTunnelNetworkSettings?,
+        completionHandler: @escaping (Error?) -> Void
+    ) {
+        networkSettings?.dnsSettings?.matchDomains = [""]
+        setTunnelNetworkSettings(networkSettings, completionHandler: completionHandler)
+    }
+
+    func openVPNAdapter(
+        _ openVPNAdapter: OpenVPNAdapter,
+        handleEvent event: OpenVPNAdapterEvent,
+        message: String?
+    ) {
+        switch event {
+        case .connected:
+            tunnelUp = true
+            if reasserting { reasserting = false }
+            startHandler?(nil)
+            startHandler = nil
+        case .disconnected:
+            tunnelUp = false
+            if vpnReachability.isTracking {
+                vpnReachability.stopTracking()
+            }
+            stopHandler?()
+            stopHandler = nil
+        case .reconnecting:
+            tunnelUp = false
+            reasserting = true
+        default:
+            break
         }
     }
 
-    override func sleep(completionHandler: @escaping () -> Void) {
-        os_log("Tunnel going to sleep (macOS)...")
-        completionHandler()
+    func openVPNAdapter(_ openVPNAdapter: OpenVPNAdapter, handleError error: Error) {
+        let fatal = (error as NSError).userInfo[OpenVPNAdapterErrorFatalKey] as? Bool ?? false
+        guard fatal else { return }
+        tunnelUp = false
+        if vpnReachability.isTracking {
+            vpnReachability.stopTracking()
+        }
+        if let startHandler {
+            startHandler(error)
+            self.startHandler = nil
+        } else {
+            cancelTunnelWithError(error)
+        }
     }
 
-    override func wake() {
-        os_log("Tunnel waking up (macOS)...")
+    func openVPNAdapter(_ openVPNAdapter: OpenVPNAdapter, handleLogMessage logMessage: String) {
+        os_log("%{public}@", log: Self.vpnLog, type: .info, logMessage)
     }
 }

@@ -6,29 +6,37 @@ import '../../models/speed_test_result.dart';
 
 class SpeedTestHeader extends StatelessWidget {
   final SpeedTestStep step;
+  final bool hasResult;
 
   const SpeedTestHeader({
     super.key,
     required this.step,
+    this.hasResult = false,
   });
 
   @override
   Widget build(BuildContext context) {
     final bool testing = step != SpeedTestStep.ready;
+    final String kicker = testing
+        ? 'LIVE MEASUREMENT'
+        : (hasResult ? 'LAST RESULT' : 'THROUGHPUT CHECK');
+    final String title = testing
+        ? 'Measuring link'
+        : (hasResult ? 'One reading' : 'Speed test');
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
-          testing ? 'LIVE MEASUREMENT' : 'THROUGHPUT CHECK',
+          kicker,
           style: AppTextStyles.microLabel(
             color: testing ? AppColors.amber : AppColors.mute,
           ),
         ),
         const SizedBox(height: 8),
         Text(
-          testing ? 'Measuring link' : 'Speed test',
+          title,
           style: TextStyle(
             fontSize: 32.sp,
             fontFamily: 'Outfit',

@@ -41,7 +41,11 @@ class ExitIpNotifier extends StateNotifier<ExitIpInfo?> {
     }
   }
 
-  static const _lookupUrl = 'https://www.cloudflare.com/cdn-cgi/trace';
+  static const _traceUrls = <String>[
+    'https://1.1.1.1/cdn-cgi/trace',
+    'https://www.cloudflare.com/cdn-cgi/trace',
+    'https://api.ipify.org?format=json',
+  ];
   static const _timeout = Duration(seconds: 6);
   static const _retryDelays = <Duration>[
     Duration(seconds: 5),
@@ -73,25 +77,39 @@ class ExitIpNotifier extends StateNotifier<ExitIpInfo?> {
   }
 
   Future<bool> _attempt(int gen) async {
+    for (final url in _traceUrls) {
+      if (gen != _generation) return false;
+      if (await _read(url, gen)) return true;
+    }
+    return false;
+  }
+
+  Future<bool> _read(String url, int gen) async {
     try {
-      final res = await http.get(Uri.parse(_lookupUrl)).timeout(_timeout);
-      if (res.statusCode == 200 && gen == _generation) {
+      final res = await http.get(Uri.parse(url)).timeout(_timeout);
+      if (res.statusCode != 200 || gen != _generation) return false;
+      final body = res.body;
+      String? ip;
+      var loc = '';
+      if (body.trimLeft().startsWith('{')) {
+        final map = jsonDecode(body);
+        if (map is Map) ip = map['ip']?.toString();
+      } else {
         final fields = <String, String>{};
-        for (final line in const LineSplitter().convert(res.body)) {
+        for (final line in const LineSplitter().convert(body)) {
           final i = line.indexOf('=');
           if (i > 0) fields[line.substring(0, i)] = line.substring(i + 1);
         }
-        final ip = fields['ip'];
-        if (ip != null && ip.isNotEmpty) {
-          state = ExitIpInfo(ip: ip, loc: fields['loc'] ?? '');
-          debugPrint('[ExitIp] resolved $ip (${fields['loc'] ?? '??'})');
-          return true;
-        }
+        ip = fields['ip'];
+        loc = fields['loc'] ?? '';
       }
+      if (ip == null || ip.isEmpty) return false;
+      state = ExitIpInfo(ip: ip, loc: loc);
+      debugPrint('[ExitIp] resolved $ip ($loc) via $url');
+      return true;
     } catch (_) {
-      // Timeout or network error — caller handles the retry schedule.
+      return false;
     }
-    return false;
   }
 }
 

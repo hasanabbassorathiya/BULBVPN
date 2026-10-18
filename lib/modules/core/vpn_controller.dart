@@ -17,6 +17,8 @@ import 'package:bulbvpn/modules/core/network.dart';
 import 'package:bulbvpn/modules/core/log.dart';
 import 'package:bulbvpn/modules/core/softether_vpn.dart';
 import 'package:bulbvpn/modules/core/vpn_gate_candidates.dart';
+import 'package:bulbvpn/modules/core/vpn_session_store.dart';
+import 'package:bulbvpn/modules/main/application/server_ping_provider.dart';
 import 'package:bulbvpn/modules/main/presentation/screens/main_screen.dart';
 
 class VpnController {
@@ -68,14 +70,15 @@ class VpnController {
   // Rotation tuning
   // ---------------------------------------------------------------------------
   /// Time we allow one candidate to reach `connected` before moving on.
-  static const _attemptWatchdog = Duration(seconds: 25);
+  static const _attemptWatchdog = Duration(seconds: 10);
   /// Per-candidate TCP reachability probe budget.
-  static const _probeTimeout = Duration(milliseconds: 2500);
+  static const _probeTimeout = Duration(milliseconds: 800);
   /// How many candidates we actually try (probe-ranked) per connect press.
-  static const _maxAttempts = 12;
-  /// How many candidates we probe at most (ranked by CSV ping first).
-  static const _maxProbe = 24;
+  static const _maxAttempts = 3;
+  /// How many candidates we probe at most (ranked by measured ping first).
+  static const _maxProbe = 6;
   static const _lastGoodKey = 'bulbvpn_last_good_server_v1';
+  static const _lastSslKey = 'bulbvpn_last_ssl_v1';
 
   /// Bumped by stop/disconnect to cancel an in-flight rotation loop.
   int _rotationGeneration = 0;
@@ -92,7 +95,7 @@ class VpnController {
       _initialized = true;
       _log.addLog('[VpnController] VpnController initialized successfully');
       if (_useTestConfig) {
-        _log.addLog('[VpnController] TEST MODE ENABLED - Will fetch fresh VPN Gate config');
+        _log.addLog('[VpnController] Catalog refresh is on');
       }
     } catch (e, stackTrace) {
       _log.addLog('[VpnController] ERROR initializing: $e');
@@ -101,22 +104,27 @@ class VpnController {
     }
   }
 
-  Future<void> handleConnectionButton(WidgetRef ref) async {
-    final connectionState = ref.read(connectionStateProvider);
+  Future<void> handleConnectionButton() async {
+    final container = _container;
+    if (container == null) {
+      _log.addLog('[VpnController] Not ready');
+      return;
+    }
+    final connectionState = container.read(connectionStateProvider);
     _log.addLog('[VpnController] handleConnectionButton called, current status: ${connectionState.status}');
     switch (connectionState.status) {
       case ConnectionStatus.connected:
-        await _disconnect(ref);
+        await _disconnect();
         return;
       case ConnectionStatus.loading:
       case ConnectionStatus.connecting:
       case ConnectionStatus.disconnecting:
-        await _stopVpn(ref);
+        await _stopVpn();
         return;
       case ConnectionStatus.disconnected:
       case ConnectionStatus.error:
       case ConnectionStatus.noInternet:
-        await _connect(ref);
+        await _connect();
         return;
       default:
         _log.addLog('[VpnController] Unknown status: ${connectionState.status}');
@@ -152,9 +160,70 @@ class VpnController {
     } catch (_) {}
   }
 
-  /// Builds the full candidate list: last-good first, then fresh VPN Gate
+  Future<({String dial, String sni})?> _readLastSsl() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_lastSslKey);
+      if (raw != null && raw.contains('|')) {
+        final parts = raw.split('|');
+        if (parts[0].isNotEmpty && parts[1].isNotEmpty) {
+          return (dial: parts[0], sni: parts[1]);
+        }
+      }
+    } catch (_) {}
+    final session = await VpnSessionStore.read();
+    final host = session?.host ?? '';
+    if (host.isEmpty) return null;
+    final sni = (session?.label ?? '').split(' · ').first;
+    return (dial: host, sni: sni.isEmpty ? host : sni);
+  }
+
+  Future<void> _saveLastSsl(String dial, String sni) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_lastSslKey, '$dial|$sni');
+    } catch (_) {}
+  }
+
+  /// Lowest live ping first, one host per subnet, dialed by IP so carrier DNS
+  /// cannot black-hole the relay name.
+  Future<List<({String dial, String sni})>> _fastestSoftEtherTargets(
+    ProviderContainer container,
+  ) async {
+    try {
+      final servers = await container.read(serversProvider.future);
+      final measured = container.read(serverPingProvider).byIp;
+      final ordered = sortByMeasuredPing(servers, measured);
+      final picked = <({String dial, String sni})>[];
+      final seenSubnet = <String>{};
+      final remembered = await _readLastSsl();
+      if (remembered != null) {
+        picked.add(remembered);
+        seenSubnet.add(_subnet(remembered.dial));
+      }
+      for (final server in ordered) {
+        if (server.ip.isEmpty) continue;
+        final subnet = _subnet(server.ip);
+        if (!seenSubnet.add(subnet)) continue;
+        final sni = SoftEtherVpn.fqdn(server.hostName);
+        picked.add((dial: server.ip, sni: sni.isEmpty ? server.ip : sni));
+        if (picked.length >= 8) break;
+      }
+      if (picked.isNotEmpty) {
+        _log.addLog('[VpnController] SoftEther trying ${picked.length} measured relays');
+        return picked;
+      }
+    } catch (e) {
+      _log.addLog('[VpnController] SoftEther target list failed: $e');
+    }
+    final hosts = await SoftEtherVpn.hosts();
+    return [for (final host in hosts) (dial: host, sni: host)];
+  }
+
+  /// Builds the full candidate list: last-good first, then the on-device
+  /// catalog, then a network fetch when the catalog is empty.
   /// (official CSV, then mirror), then the UI-cached server list.
-  Future<List<Candidate>> _buildCandidates(WidgetRef ref) async {
+  Future<List<Candidate>> _buildCandidates(ProviderContainer container) async {
     final candidates = <Candidate>[];
     final seen = <String>{};
 
@@ -180,31 +249,30 @@ class VpnController {
       } catch (_) {}
     }
 
-    // 2) Fresh VPN Gate fetch (official CSV → mirrors).
-    if (_useTestConfig) {
-      final fresh = await VpnGateCandidates.fetchAll(
-        onLog: (m) => _log.addLog('[VpnController] $m'),
-      );
-      addAll(fresh);
-    }
-
-    // 3) Cached UI list as final fallback.
+    // 2) On-device catalog, ordered by the ping this phone just measured.
     try {
-      final cachedServers = await ref.read(serversProvider.future);
+      final cachedServers = await container.read(serversProvider.future);
+      final measured = container.read(serverPingProvider).byIp;
+      final ordered = sortByMeasuredPing(cachedServers, measured);
       final fromCache = <Candidate>[];
-      for (final s in cachedServers) {
+      for (final s in ordered) {
         if (s.openVpnConfigBase64.isEmpty) continue;
-        final c = _candidateFromB64(s.openVpnConfigBase64, fallbackIp: s.ip, csvPing: s.ping);
+        final live = measured[s.ip];
+        final ping = live != null && live.status == PingStatus.ok ? live.ms : s.ping;
+        final c = _candidateFromB64(s.openVpnConfigBase64, fallbackIp: s.ip, csvPing: ping);
         if (c != null) fromCache.add(c);
       }
-      fromCache.sort((a, b) {
-        final pa = a.csvPing <= 0 ? 9999 : a.csvPing;
-        final pb = b.csvPing <= 0 ? 9999 : b.csvPing;
-        return pa.compareTo(pb);
-      });
       addAll(fromCache);
     } catch (e) {
       _log.addLog('[VpnController] Cached server list unavailable: $e');
+    }
+
+    // 3) Network refresh only when nothing local is connectable.
+    if (_useTestConfig && candidates.isEmpty) {
+      final fresh = await VpnGateCandidates.fetchAll(
+        onLog: (m) => _log.addLog('[VpnController] $m'),
+      ).timeout(const Duration(seconds: 6), onTimeout: () => const []);
+      addAll(fresh);
     }
 
     return candidates;
@@ -228,8 +296,9 @@ class VpnController {
   int _endpointRank(Candidate c) {
     final ping = c.csvPing <= 0 ? 9999 : c.csvPing;
     final tcp = c.protocol == 'tcp' ? 0 : 100000;
-    // TCP 443 first inside a subnet: DPI networks treat it best.
-    final portBias = c.port == 443 ? 0 : 1000;
+    // Port 443 often accepts the TCP handshake on this carrier and then
+    // never finishes authentication. Prefer the relay's own port.
+    final portBias = c.port == 443 ? 500 : 0;
     return tcp + portBias + ping;
   }
 
@@ -301,9 +370,11 @@ class VpnController {
   // Connect flow
   // ---------------------------------------------------------------------------
 
-  Future<void> _connect(WidgetRef ref) async {
-    final connectionNotifier = ref.read(connectionStateProvider.notifier);
-    final loggerNotifier = ref.read(loggerStateProvider.notifier);
+  Future<void> _connect() async {
+    final container = _container;
+    if (container == null) return;
+    final connectionNotifier = container.read(connectionStateProvider.notifier);
+    final loggerNotifier = container.read(loggerStateProvider.notifier);
     _log.addLog('[VpnController] Starting connection process...');
     connectionNotifier.setLoading();
     loggerNotifier.setLoading();
@@ -332,54 +403,10 @@ class VpnController {
       }
     }
 
+    // OpenVPN is the path that actually forwards on mobile data. SoftEther
+    // is one short fallback after those attempts, not a minute of dead handshakes.
     if (Platform.isAndroid) {
-      final sslGen = ++_rotationGeneration;
-      connectionNotifier.holdEngineEvents(true);
-      final selectedHost = _serverHost;
-      final selectedIp = _serverIp;
-      final List<({String dial, String sni})> targets;
-      if (selectedIp != null || selectedHost != null) {
-        final sni = SoftEtherVpn.fqdn(selectedHost ?? '');
-        final dial = (selectedIp != null && selectedIp.isNotEmpty)
-            ? selectedIp
-            : sni;
-        targets = [(dial: dial, sni: sni.isEmpty ? dial : sni)];
-        _log.addLog('[VpnController] SoftEther selected relay $dial sni=${targets.first.sni}');
-      } else {
-        final hosts = await SoftEtherVpn.hosts();
-        targets = [for (final host in hosts) (dial: host, sni: host)];
-      }
-      var sslUp = false;
-      if (sslGen == _rotationGeneration) {
-        for (final target in targets) {
-          if (sslGen != _rotationGeneration) break;
-          connectionNotifier.setConnecting();
-          _log.addLog('[VpnController] SoftEther SSL ${target.dial} sni=${target.sni}');
-          final result = await SoftEtherVpn.connect(
-            dial: target.dial,
-            sni: target.sni,
-          );
-          if (sslGen != _rotationGeneration) break;
-          if (result.ok) {
-            _log.addLog('[VpnController] CONNECTED via SoftEther SSL ${target.sni} (${result.detail})');
-            ref.read(softEtherHostProvider.notifier).state =
-                '${target.sni} · ${target.dial}';
-            connectionNotifier.setConnected();
-            sslUp = true;
-            break;
-          }
-          _log.addLog('[VpnController] SoftEther failed ${target.dial}: ${result.detail}');
-        }
-      }
-      if (sslUp) return;
-      connectionNotifier.holdEngineEvents(false);
-      if (sslGen != _rotationGeneration) return;
-      if (selectedIp != null || selectedHost != null) {
-        _log.addLog('[VpnController] Selected relay failed; not switching to another server');
-        connectionNotifier.setError();
-        _vibrationService.vibrateError();
-        return;
-      }
+      await SoftEtherVpn.disconnect();
     }
 
     // A picked server is tried first. It does not replace the rest of the
@@ -396,7 +423,7 @@ class VpnController {
     }
 
     final fetchGen = ++_rotationGeneration;
-    final built = await _buildCandidates(ref);
+    final built = await _buildCandidates(container);
     if (fetchGen != _rotationGeneration) return;
 
     final seen = <String>{};
@@ -421,6 +448,11 @@ class VpnController {
     }
 
     final ranked = await _rankByReachability(candidates);
+    if (preferred.isNotEmpty) {
+      final first = preferred.first;
+      ranked.removeWhere((candidate) => candidate.ip == first.ip && candidate.port == first.port);
+      ranked.insert(0, first);
+    }
     if (ranked.isEmpty) {
       _log.addLog('[VpnController] ERROR: no candidates after ranking');
       connectionNotifier.setError();
@@ -435,6 +467,8 @@ class VpnController {
           return;
         }
         connectionNotifier.setConnecting();
+        container.read(softEtherHostProvider.notifier).state =
+            '${candidate.ip}:${candidate.port}';
         _log.addLog('[VpnController] Attempt ${candidate.ip}:${candidate.port} (${candidate.protocol})...');
         try { FirebaseCrashlytics.instance.log('vpn attempt ${candidate.ip}:${candidate.port}'); } catch (_) {}
 
@@ -443,7 +477,13 @@ class VpnController {
 
         if (ok) {
           _log.addLog('[VpnController] CONNECTED via ${candidate.ip}:${candidate.port}');
+          connectionNotifier.holdEngineEvents(false);
+          connectionNotifier.setConnected();
           await _saveLastGood(candidate);
+          await VpnSessionStore.save(
+            label: '${candidate.ip}:${candidate.port}',
+            host: candidate.ip,
+          );
           try {
             await _analyticsService.logVpnConnected('vpn_gate', '${candidate.ip}:${candidate.port}', 0);
           } catch (_) {}
@@ -456,6 +496,10 @@ class VpnController {
         } catch (_) {}
     }
 
+    if (gen != _rotationGeneration) return;
+    if (Platform.isAndroid && await _tryOneSoftEther(container, connectionNotifier)) {
+      return;
+    }
     if (gen == _rotationGeneration) {
       final tried = ranked.take(_maxAttempts).length;
       _log.addLog('[VpnController] All $tried attempts failed');
@@ -465,6 +509,36 @@ class VpnController {
         await _analyticsService.logVpnFailed(ip: 'rotation', ping: 0, rawStage: 'all_candidates_failed', serverLabel: _serverLabel);
       } catch (_) {}
     }
+  }
+
+  /// One SoftEther dial, used only after OpenVPN misses. Returns true when up.
+  Future<bool> _tryOneSoftEther(
+    ProviderContainer container,
+    ConnectionStateNotifier connectionNotifier,
+  ) async {
+    final sslGen = _rotationGeneration;
+    final targets = await _fastestSoftEtherTargets(container);
+    if (targets.isEmpty || sslGen != _rotationGeneration) return false;
+    final target = targets.first;
+    connectionNotifier.setConnecting();
+    _log.addLog('[VpnController] SoftEther fallback ${target.dial}');
+    container.read(softEtherHostProvider.notifier).state =
+        '${target.sni} · ${target.dial}';
+    final result = await SoftEtherVpn.connect(dial: target.dial, sni: target.sni);
+    if (sslGen != _rotationGeneration) return false;
+    if (result.ok || result.detail == 'already running') {
+      _log.addLog('[VpnController] CONNECTED via SoftEther ${target.dial}');
+      final label = '${target.sni} · ${target.dial}';
+      container.read(softEtherHostProvider.notifier).state = label;
+      await VpnSessionStore.save(label: label, host: target.dial);
+      await _saveLastSsl(target.dial, target.sni);
+      connectionNotifier.holdEngineEvents(true);
+      connectionNotifier.setConnected();
+      return true;
+    }
+    _log.addLog('[VpnController] SoftEther fallback failed: ${result.detail}');
+    connectionNotifier.holdEngineEvents(false);
+    return false;
   }
 
   /// Connects to one candidate and waits up to [_attemptWatchdog] for the
@@ -523,55 +597,63 @@ class VpnController {
       try {
         await _vpnService.disconnect();
       } catch (_) {}
-      await Future<void>.delayed(const Duration(milliseconds: 1200));
+      await Future<void>.delayed(const Duration(milliseconds: 250));
     }
     return result;
   }
 
   /// Drops the current tunnel and opens the relay that is selected now.
-  Future<void> reconnect(WidgetRef ref) async {
+  Future<void> reconnect() async {
+    final container = _container;
+    if (container == null) return;
     _rotationGeneration++;
     _log.addLog('[VpnController] Switching relay to ${_serverHost ?? 'auto'}');
-    ref.read(connectionStateProvider.notifier).holdEngineEvents(false);
-    ref.read(softEtherHostProvider.notifier).state = null;
+    container.read(connectionStateProvider.notifier).holdEngineEvents(false);
+    container.read(softEtherHostProvider.notifier).state = null;
     await SoftEtherVpn.disconnect();
-    await _connect(ref);
+    await _connect();
   }
 
-  Future<void> _stopVpn(WidgetRef ref) async {
-    final connectionNotifier = ref.read(connectionStateProvider.notifier);
+  Future<void> _stopVpn() async {
+    final container = _container;
+    if (container == null) return;
+    final connectionNotifier = container.read(connectionStateProvider.notifier);
     _log.addLog('[VpnController] Stopping VPN...');
-    _rotationGeneration++; // cancels any rotation in flight
+    _rotationGeneration++;
     connectionNotifier.holdEngineEvents(false);
     connectionNotifier.setDisconnecting();
-    ref.read(softEtherHostProvider.notifier).state = null;
+    container.read(softEtherHostProvider.notifier).state = null;
     await SoftEtherVpn.disconnect();
     await _vpnService.disconnect();
-    _clearData(ref);
+    await VpnSessionStore.clear();
+    _clearData(container);
     connectionNotifier.setDisconnected();
   }
 
-  Future<void> _disconnect(WidgetRef ref) async {
-    final connectionNotifier = ref.read(connectionStateProvider.notifier);
-    final vpnData = await _container?.read(vpnDataProvider.future);
+  Future<void> _disconnect() async {
+    final container = _container;
+    if (container == null) return;
+    final connectionNotifier = container.read(connectionStateProvider.notifier);
+    final vpnData = await container.read(vpnDataProvider.future);
     _log.addLog('[VpnController] Disconnecting VPN...');
     _rotationGeneration++;
     connectionNotifier.holdEngineEvents(false);
     connectionNotifier.setDisconnecting();
-    ref.read(softEtherHostProvider.notifier).state = null;
+    container.read(softEtherHostProvider.notifier).state = null;
     await SoftEtherVpn.disconnect();
     await _vpnService.disconnect();
-    _clearData(ref);
-    vpnData?.disableVPN();
+    await VpnSessionStore.clear();
+    _clearData(container);
+    vpnData.disableVPN();
     connectionNotifier.setDisconnected();
     _analyticsService.logVpnDisconnected();
   }
 
-  void _clearData(WidgetRef ref) {
-    final groupNotifier = ref.read(groupStateProvider.notifier);
+  void _clearData(ProviderContainer container) {
+    final groupNotifier = container.read(groupStateProvider.notifier);
     groupNotifier.setGroupName('');
-    ref.read(flowLineStepProvider.notifier).setTotalSteps(0);
-    ref.read(flowLineStepProvider.notifier).setStep(0);
+    container.read(flowLineStepProvider.notifier).setTotalSteps(0);
+    container.read(flowLineStepProvider.notifier).setStep(0);
   }
 
   void dispose() {

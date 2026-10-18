@@ -60,3 +60,10 @@ app.*.map.json
 
 # Playwright MCP artifacts
 .playwright-mcp/
+
+# FVM Version Cache
+.fvm/
+
+# Local release output and signing keys. Never commit these.
+/dist/
+/signing/

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math';
 import 'package:bulbvpn/core/network/http_client.dart';
 import 'package:bulbvpn/core/network/http_client_interface.dart';
@@ -8,6 +9,7 @@ import 'package:bulbvpn/shared/providers/connection_state_provider.dart';
 import 'package:bulbvpn/shared/services/vibration_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'services/cloudflare_logger_service.dart';
 import 'services/download_measurement_service.dart';
 import 'services/latency_measurement_service.dart';
@@ -98,6 +100,44 @@ class SpeedTestNotifier extends StateNotifier<SpeedTestState> {
     _logger = CloudflareLoggerService(_api);
     _vibrationService = VibrationService();
     _vibrationService.init();
+    _loadSavedResult();
+  }
+
+  static const _resultKey = 'bulb_speed_test_v1';
+
+  Future<void> _loadSavedResult() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_resultKey);
+    if (!mounted || raw == null || raw.isEmpty) return;
+    try {
+      final map = jsonDecode(raw) as Map<String, dynamic>;
+      final result = SpeedTestResult(
+        downloadSpeed: (map['download'] as num?)?.toDouble() ?? 0,
+        uploadSpeed: (map['upload'] as num?)?.toDouble() ?? 0,
+        ping: (map['ping'] as num?)?.toInt() ?? 0,
+        latency: (map['latency'] as num?)?.toInt() ?? 0,
+        packetLoss: (map['loss'] as num?)?.toDouble() ?? 0,
+        jitter: (map['jitter'] as num?)?.toInt() ?? 0,
+      );
+      if (result.downloadSpeed <= 0 && result.uploadSpeed <= 0) return;
+      state = state.copyWith(result: result, testCompleted: true, progress: 1);
+    } catch (_) {}
+  }
+
+  Future<void> _persistResult() async {
+    final prefs = await SharedPreferences.getInstance();
+    final result = state.result;
+    await prefs.setString(
+      _resultKey,
+      jsonEncode({
+        'download': result.downloadSpeed,
+        'upload': result.uploadSpeed,
+        'ping': result.ping,
+        'latency': result.latency,
+        'loss': result.packetLoss,
+        'jitter': result.jitter,
+      }),
+    );
   }
 
   String _generateMeasurementId() {
@@ -414,22 +454,23 @@ class SpeedTestNotifier extends StateNotifier<SpeedTestState> {
   }
 
   void _checkConnectionStability() {
-    final isStable = ResultsCalculatorService.checkConnectionStability(state.result);
+    final result = state.result;
+    final hasNumbers = result.downloadSpeed > 0 || result.uploadSpeed > 0;
+    final isStable = ResultsCalculatorService.checkConnectionStability(result);
 
-    if (!isStable) {
-      _vibrationService.vibrateError();
-      state = state.copyWith(
-        step: SpeedTestStep.ready,
-        isConnectionStable: false,
-        errorMessage: 'Your connection was unstable, and the test was interrupted.',
-        hadError: true,
-      );
+    state = state.copyWith(
+      step: SpeedTestStep.ready,
+      progress: 1,
+      testCompleted: hasNumbers,
+      isConnectionStable: isStable,
+      hadError: !hasNumbers,
+      errorMessage: hasNumbers ? null : 'Speed test failed. Please try again.',
+      clearErrorMessage: hasNumbers,
+    );
+    if (hasNumbers) {
+      _persistResult();
     } else {
-      state = state.copyWith(
-        step: SpeedTestStep.ready,
-        clearErrorMessage: true,
-        hadError: false,
-      );
+      _vibrationService.vibrateError();
     }
   }
 

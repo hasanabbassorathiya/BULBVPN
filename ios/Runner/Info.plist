@@ -56,5 +56,7 @@
 	<array>
 		<string>group.com.bulbvpn.app</string>
 	</array>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 </dict>
 </plist>

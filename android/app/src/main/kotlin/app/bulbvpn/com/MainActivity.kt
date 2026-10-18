@@ -29,6 +29,15 @@ class MainActivity : FlutterActivity() {
                 "bytesDown" -> {
                     result.success(SoftEtherVpnService.instance?.bytesReceived() ?: 0L)
                 }
+                "status" -> {
+                    val service = SoftEtherVpnService.instance
+                    result.success(
+                        mapOf(
+                            "running" to (service?.isTunnelUp() == true),
+                            "host" to (service?.activeHost ?: ""),
+                        ),
+                    )
+                }
                 else -> result.notImplemented()
             }
         }

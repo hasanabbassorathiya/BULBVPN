@@ -64,6 +64,15 @@ class ConnectionStateNotifier extends StateNotifier<ConnectionState> {
   StreamSubscription? _statusSub;
   Timer? _statsTimer;
   bool _holdEngineEvents = false;
+  DateTime? _ignoreDisconnectUntil;
+
+  /// The OS tunnel is already up. Ignore a stale `disconnected` replay
+  /// from the OpenVPN engine while the UI catches up.
+  void adoptLiveTunnel({required bool holdEngine}) {
+    _ignoreDisconnectUntil = DateTime.now().add(const Duration(seconds: 4));
+    holdEngineEvents(holdEngine);
+    setConnected();
+  }
 
   /// While a SoftEther tunnel owns the session, ignore OpenVPN status events
   /// so a stray `disconnected` does not tear the UI back down.
@@ -103,6 +112,15 @@ class ConnectionStateNotifier extends StateNotifier<ConnectionState> {
     _statsTimer = Timer.periodic(const Duration(seconds: 1), (_) async {
       if (!mounted) return;
       try {
+        if (_holdEngineEvents && state.status == ConnectionStatus.connected) {
+          final tunnel = await SoftEtherVpn.status();
+          if (!tunnel.running) {
+            Log().addLog('[ConnectionStateNotifier] SoftEther tunnel dropped');
+            holdEngineEvents(false);
+            setDisconnected();
+            return;
+          }
+        }
         final total = _holdEngineEvents
             ? await SoftEtherVpn.bytesReceived()
             : await _openVpnBytes();
@@ -122,6 +140,13 @@ class ConnectionStateNotifier extends StateNotifier<ConnectionState> {
 
   void _onStatusEvent(vpn_status.ConnectionStatus status) {
     if (_holdEngineEvents) return;
+    final ignoreUntil = _ignoreDisconnectUntil;
+    if (ignoreUntil != null &&
+        DateTime.now().isBefore(ignoreUntil) &&
+        (status == vpn_status.ConnectionStatus.disconnected ||
+            status == vpn_status.ConnectionStatus.unknown)) {
+      return;
+    }
     debugPrint('[ConnectionStateNotifier] VPN status: ${status.name}');
     try {
       FirebaseCrashlytics.instance.log('vpn status ${status.name}');

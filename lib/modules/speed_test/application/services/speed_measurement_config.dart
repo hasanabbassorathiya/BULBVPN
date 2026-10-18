@@ -1,16 +1,13 @@
 class SpeedMeasurementConfig {
+  /// One latency sample, one download, one upload. A second pass only
+  /// starts when the user taps the test again.
   static const List<Map<String, dynamic>> measurements = [
-    {'type': 'latency', 'numPackets': 1},
-    {'type': 'download', 'bytes': 100000, 'count': 1, 'bypassMinDuration': true},
-    {'type': 'latency', 'numPackets': 20},
-    {'type': 'download', 'bytes': 100000, 'count': 9},
-    {'type': 'download', 'bytes': 1000000, 'count': 8},
-    {'type': 'upload', 'bytes': 100000, 'count': 8},
-    {'type': 'upload', 'bytes': 1000000, 'count': 6},
-    {'type': 'download', 'bytes': 10000000, 'count': 6},
+    {'type': 'latency', 'numPackets': 6},
+    {'type': 'download', 'bytes': 2000000, 'count': 1, 'bypassMinDuration': true},
+    {'type': 'upload', 'bytes': 1000000, 'count': 1},
   ];
 
-  static const int totalMeasurements = 8;
+  static const int totalMeasurements = 3;
   static const int maxConsecutiveFailures = 3;
   static const int chunkSize = 65536;
   static const Duration measurementDelay = Duration(milliseconds: 50);

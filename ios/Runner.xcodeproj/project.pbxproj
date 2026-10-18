@@ -11,21 +11,19 @@
 		1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */ = {isa = PBXBuildFile; fileRef = 1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */; };
 		331C808B294A63AB00263BE5 /* RunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 331C807B294A618700263BE5 /* RunnerTests.swift */; };
 		3B3967161E833CAA004F5970 /* AppFrameworkInfo.plist in Resources */ = {isa = PBXBuildFile; fileRef = 3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */; };
+		580F015C93122D1C9E1AA088 /* Pods_VPNExtension.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2A92B151619A9A61DF1B5A9D /* Pods_VPNExtension.framework */; };
 		97C146FC1CF9000F007C117D /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FA1CF9000F007C117D /* Main.storyboard */; };
 		97C146FE1CF9000F007C117D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FD1CF9000F007C117D /* Assets.xcassets */; };
 		97C147011CF9000F007C117D /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FF1CF9000F007C117D /* LaunchScreen.storyboard */; };
 		A07E7C702E1AEDBC003EAA1E /* libresolv.9.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = A07E7C6E2E1AEDB0003EAA1E /* libresolv.9.tbd */; };
 		A07E7C712E1AEDC6003EAA1E /* libresolv.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = A07E7C6F2E1AEDB5003EAA1E /* libresolv.tbd */; };
 		A0CABC062DEF330300154A44 /* NetworkExtension.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A0CABC052DEF330300154A44 /* NetworkExtension.framework */; };
-		A0CABC0E2DEF330300154A44 /* PacketTunnel.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A0CABC042DEF330300154A44 /* PacketTunnel.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		A0CABC1D2DEF334C00154A44 /* vpn_service.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0CABC1C2DEF334C00154A44 /* vpn_service.swift */; };
 		A0CABC212DEF335D00154A44 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0CABC202DEF335D00154A44 /* AppDelegate.swift */; };
+		A0CABC2F2DEF330300154A44 /* PacketTunnelProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0CABC2E2DEF330300154A44 /* PacketTunnelProvider.swift */; };
 		A0CABC262DEF33BC00154A44 /* Tun2SocksKit in Frameworks */ = {isa = PBXBuildFile; productRef = A0CABC252DEF33BC00154A44 /* Tun2SocksKit */; };
 		A0CABC282DEF33BC00154A44 /* Tun2SocksKitC in Frameworks */ = {isa = PBXBuildFile; productRef = A0CABC272DEF33BC00154A44 /* Tun2SocksKitC */; };
 		E640D9F7888558C3BD23A668 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = AE9BD0D6942BB307941DBA0D /* GoogleService-Info.plist */; };
-		F1D23AC02E83A529002FF2F6 /* IosDXcore.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = F1D23ABF2E83A528002FF2F6 /* IosDXcore.xcframework */; };
-		F1D584A52E7B5D3B00076143 /* VpnPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1D584A42E7B5D3B00076143 /* VpnPlugin.swift */; };
-		FE197567FA0C370D7A74D3F4 /* Pods_RunnerTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DCDDE16F3C4844CAA5A11A52 /* Pods_RunnerTests.framework */; };
+		EB3BBBCF8219005D64713C03 /* VPNExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = A0CABC042DEF330300154A44 /* VPNExtension.appex */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -36,47 +34,36 @@
 			remoteGlobalIDString = 97C146ED1CF9000F007C117D;
 			remoteInfo = Runner;
 		};
-		A0CABC0C2DEF330300154A44 /* PBXContainerItemProxy */ = {
+		EAC84F46F132A2AED4A9BB6E /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 97C146E61CF9000F007C117D /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = A0CABC032DEF330300154A44;
-			remoteInfo = PacketTunnel;
+			remoteInfo = VPNExtension;
 		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
-		9705A1C41CF9048500538489 /* Embed Frameworks */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = "";
-			dstSubfolderSpec = 10;
-			files = (
-			);
-			name = "Embed Frameworks";
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		A0CABC0F2DEF330300154A44 /* Embed Foundation Extensions */ = {
+		CE5FD99C833B5E9E063DF7F1 /* Embed App Extensions */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
 			dstPath = "";
 			dstSubfolderSpec = 13;
 			files = (
-				A0CABC0E2DEF330300154A44 /* PacketTunnel.appex in Embed Foundation Extensions */,
+				EB3BBBCF8219005D64713C03 /* VPNExtension.appex in Embed App Extensions */,
 			);
-			name = "Embed Foundation Extensions";
+			name = "Embed App Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		080E1658DB175E1D2908DEBD /* Pods-RunnerTests.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.debug.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.debug.xcconfig"; sourceTree = "<group>"; };
 		1498D2321E8E86230040F4C2 /* GeneratedPluginRegistrant.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = GeneratedPluginRegistrant.h; sourceTree = "<group>"; };
 		1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = GeneratedPluginRegistrant.m; sourceTree = "<group>"; };
+		2A92B151619A9A61DF1B5A9D /* Pods_VPNExtension.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_VPNExtension.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		331C807B294A618700263BE5 /* RunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerTests.swift; sourceTree = "<group>"; };
 		331C8081294A63A400263BE5 /* RunnerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RunnerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = AppFrameworkInfo.plist; path = Flutter/AppFrameworkInfo.plist; sourceTree = "<group>"; };
-		57363EA03AFF24D0E968A11A /* Pods-RunnerTests.profile.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.profile.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.profile.xcconfig"; sourceTree = "<group>"; };
 		5EA42D8668FB73A2B1B9AB3C /* Pods-Runner.profile.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.profile.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.profile.xcconfig"; sourceTree = "<group>"; };
 		74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Runner-Bridging-Header.h"; sourceTree = "<group>"; };
 		7AFA3C8E1D35360C0083082E /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = Release.xcconfig; path = Flutter/Release.xcconfig; sourceTree = "<group>"; };
@@ -90,27 +77,26 @@
 		9EE2D2E711EA264CEEE7C68D /* Pods-Runner.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.debug.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"; sourceTree = "<group>"; };
 		A07E7C6E2E1AEDB0003EAA1E /* libresolv.9.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libresolv.9.tbd; path = usr/lib/libresolv.9.tbd; sourceTree = SDKROOT; };
 		A07E7C6F2E1AEDB5003EAA1E /* libresolv.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libresolv.tbd; path = usr/lib/libresolv.tbd; sourceTree = SDKROOT; };
-		A0CABC042DEF330300154A44 /* PacketTunnel.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = PacketTunnel.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		A0CABC042DEF330300154A44 /* VPNExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = VPNExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		A0CABC052DEF330300154A44 /* NetworkExtension.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = NetworkExtension.framework; path = System/Library/Frameworks/NetworkExtension.framework; sourceTree = SDKROOT; };
-		A0CABC1C2DEF334C00154A44 /* vpn_service.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = vpn_service.swift; sourceTree = "<group>"; };
 		A0CABC202DEF335D00154A44 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		A0CABC2E2DEF330300154A44 /* PacketTunnelProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PacketTunnel/PacketTunnelProvider.swift; sourceTree = SOURCE_ROOT; };
 		A0FE506B2DEF106E0019DB1D /* Runner.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Runner.entitlements; sourceTree = "<group>"; };
 		AE9BD0D6942BB307941DBA0D /* GoogleService-Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; name = "GoogleService-Info.plist"; path = "Runner/GoogleService-Info.plist"; sourceTree = "<group>"; };
+		B26B2BD9A74ED16D47F7FF4F /* Pods-VPNExtension.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-VPNExtension.release.xcconfig"; path = "Target Support Files/Pods-VPNExtension/Pods-VPNExtension.release.xcconfig"; sourceTree = "<group>"; };
 		B5AFB6DC5EFD54F48A0655A6 /* Pods_Runner.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_Runner.framework; sourceTree = BUILT_PRODUCTS_DIR; };
-		DCDDE16F3C4844CAA5A11A52 /* Pods_RunnerTests.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_RunnerTests.framework; sourceTree = BUILT_PRODUCTS_DIR; };
-		F126793C97B47EFB321481A7 /* Pods-RunnerTests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.release.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.release.xcconfig"; sourceTree = "<group>"; };
-		F1D23ABF2E83A528002FF2F6 /* IosDXcore.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = IosDXcore.xcframework; sourceTree = "<group>"; };
-		F1D584A42E7B5D3B00076143 /* VpnPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VpnPlugin.swift; sourceTree = "<group>"; };
+		E290AB978336A1D64EED7007 /* Pods-VPNExtension.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-VPNExtension.debug.xcconfig"; path = "Target Support Files/Pods-VPNExtension/Pods-VPNExtension.debug.xcconfig"; sourceTree = "<group>"; };
 		F363D13D253BC7A752C07D84 /* Pods-Runner.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.release.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"; sourceTree = "<group>"; };
+		F36544882EF29DAC99E9A5E5 /* Pods-VPNExtension.profile.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-VPNExtension.profile.xcconfig"; path = "Target Support Files/Pods-VPNExtension/Pods-VPNExtension.profile.xcconfig"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		A0CABC132DEF330300154A44 /* Exceptions for "PacketTunnel" folder in "PacketTunnel" target */ = {
+		A0CABC132DEF330300154A44 /* Exceptions for "PacketTunnel" folder in "VPNExtension" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
 			);
-			target = A0CABC032DEF330300154A44 /* PacketTunnel */;
+			target = A0CABC032DEF330300154A44 /* VPNExtension */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
@@ -118,7 +104,7 @@
 		A0CABC072DEF330300154A44 /* PacketTunnel */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				A0CABC132DEF330300154A44 /* Exceptions for "PacketTunnel" folder in "PacketTunnel" target */,
+				A0CABC132DEF330300154A44 /* Exceptions for "PacketTunnel" folder in "VPNExtension" target */,
 			);
 			explicitFileTypes = {
 			};
@@ -130,11 +116,10 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
-		000FE965B0052269440B32A8 /* Frameworks */ = {
+		0C5F095708A54FC5B4266A50 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				FE197567FA0C370D7A74D3F4 /* Pods_RunnerTests.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -150,12 +135,12 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				F1D23AC02E83A529002FF2F6 /* IosDXcore.xcframework in Frameworks */,
 				A0CABC282DEF33BC00154A44 /* Tun2SocksKitC in Frameworks */,
 				A07E7C702E1AEDBC003EAA1E /* libresolv.9.tbd in Frameworks */,
 				A0CABC062DEF330300154A44 /* NetworkExtension.framework in Frameworks */,
 				A0CABC262DEF33BC00154A44 /* Tun2SocksKit in Frameworks */,
 				A07E7C712E1AEDC6003EAA1E /* libresolv.tbd in Frameworks */,
+				580F015C93122D1C9E1AA088 /* Pods_VPNExtension.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -168,9 +153,9 @@
 				9EE2D2E711EA264CEEE7C68D /* Pods-Runner.debug.xcconfig */,
 				F363D13D253BC7A752C07D84 /* Pods-Runner.release.xcconfig */,
 				5EA42D8668FB73A2B1B9AB3C /* Pods-Runner.profile.xcconfig */,
-				080E1658DB175E1D2908DEBD /* Pods-RunnerTests.debug.xcconfig */,
-				F126793C97B47EFB321481A7 /* Pods-RunnerTests.release.xcconfig */,
-				57363EA03AFF24D0E968A11A /* Pods-RunnerTests.profile.xcconfig */,
+				E290AB978336A1D64EED7007 /* Pods-VPNExtension.debug.xcconfig */,
+				B26B2BD9A74ED16D47F7FF4F /* Pods-VPNExtension.release.xcconfig */,
+				F36544882EF29DAC99E9A5E5 /* Pods-VPNExtension.profile.xcconfig */,
 			);
 			path = Pods;
 			sourceTree = "<group>";
@@ -181,8 +166,8 @@
 				A07E7C6F2E1AEDB5003EAA1E /* libresolv.tbd */,
 				A07E7C6E2E1AEDB0003EAA1E /* libresolv.9.tbd */,
 				B5AFB6DC5EFD54F48A0655A6 /* Pods_Runner.framework */,
-				DCDDE16F3C4844CAA5A11A52 /* Pods_RunnerTests.framework */,
 				A0CABC052DEF330300154A44 /* NetworkExtension.framework */,
+				2A92B151619A9A61DF1B5A9D /* Pods_VPNExtension.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -216,7 +201,6 @@
 				331C8082294A63A400263BE5 /* RunnerTests */,
 				0D62D67FB1A329CFE23A9207 /* Pods */,
 				1B666241F829C6C4259E4AF0 /* Frameworks */,
-				F1D23ABF2E83A528002FF2F6 /* IosDXcore.xcframework */,
 				AE9BD0D6942BB307941DBA0D /* GoogleService-Info.plist */,
 			);
 			sourceTree = "<group>";
@@ -226,7 +210,7 @@
 			children = (
 				97C146EE1CF9000F007C117D /* Runner.app */,
 				331C8081294A63A400263BE5 /* RunnerTests.xctest */,
-				A0CABC042DEF330300154A44 /* PacketTunnel.appex */,
+				A0CABC042DEF330300154A44 /* VPNExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -234,9 +218,7 @@
 		97C146F01CF9000F007C117D /* Runner */ = {
 			isa = PBXGroup;
 			children = (
-				F1D584A42E7B5D3B00076143 /* VpnPlugin.swift */,
 				A0CABC202DEF335D00154A44 /* AppDelegate.swift */,
-				A0CABC1C2DEF334C00154A44 /* vpn_service.swift */,
 				A0FE506B2DEF106E0019DB1D /* Runner.entitlements */,
 				97C146FA1CF9000F007C117D /* Main.storyboard */,
 				97C146FD1CF9000F007C117D /* Assets.xcassets */,
@@ -256,10 +238,8 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 331C8087294A63A400263BE5 /* Build configuration list for PBXNativeTarget "RunnerTests" */;
 			buildPhases = (
-				0D6877CE9CFA1FB730A08B51 /* [CP] Check Pods Manifest.lock */,
 				331C807D294A63A400263BE5 /* Sources */,
-				331C807F294A63A400263BE5 /* Resources */,
-				000FE965B0052269440B32A8 /* Frameworks */,
+				0C5F095708A54FC5B4266A50 /* Frameworks */,
 			);
 			buildRules = (
 			);
@@ -280,8 +260,7 @@
 				97C146EA1CF9000F007C117D /* Sources */,
 				97C146EB1CF9000F007C117D /* Frameworks */,
 				97C146EC1CF9000F007C117D /* Resources */,
-				9705A1C41CF9048500538489 /* Embed Frameworks */,
-				A0CABC0F2DEF330300154A44 /* Embed Foundation Extensions */,
+				CE5FD99C833B5E9E063DF7F1 /* Embed App Extensions */,
 				3B06AD1E1E4923F5004D2608 /* Thin Binary */,
 				615F147CC07E8FB69611F2E3 /* [CP] Embed Pods Frameworks */,
 				C7C5CB8AAD44A38A39191792 /* [CP] Copy Pods Resources */,
@@ -289,20 +268,20 @@
 			buildRules = (
 			);
 			dependencies = (
-				A0CABC0D2DEF330300154A44 /* PBXTargetDependency */,
+				BF7A7DAFFFC8971AA6784474 /* PBXTargetDependency */,
 			);
 			name = Runner;
 			productName = Runner;
 			productReference = 97C146EE1CF9000F007C117D /* Runner.app */;
 			productType = "com.apple.product-type.application";
 		};
-		A0CABC032DEF330300154A44 /* PacketTunnel */ = {
+		A0CABC032DEF330300154A44 /* VPNExtension */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = A0CABC142DEF330300154A44 /* Build configuration list for PBXNativeTarget "PacketTunnel" */;
+			buildConfigurationList = A0CABC142DEF330300154A44 /* Build configuration list for PBXNativeTarget "VPNExtension" */;
 			buildPhases = (
-				A0CABC002DEF330300154A44 /* Sources */,
+				48F177D01565AB77ABA17B2A /* [CP] Check Pods Manifest.lock */,
+				A0CABC2D2DEF330300154A44 /* Sources */,
 				A0CABC012DEF330300154A44 /* Frameworks */,
-				A0CABC022DEF330300154A44 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -311,13 +290,13 @@
 			fileSystemSynchronizedGroups = (
 				A0CABC072DEF330300154A44 /* PacketTunnel */,
 			);
-			name = PacketTunnel;
+			name = VPNExtension;
 			packageProductDependencies = (
 				A0CABC252DEF33BC00154A44 /* Tun2SocksKit */,
 				A0CABC272DEF33BC00154A44 /* Tun2SocksKitC */,
 			);
-			productName = PacketTunnel;
-			productReference = A0CABC042DEF330300154A44 /* PacketTunnel.appex */;
+			productName = VPNExtension;
+			productReference = A0CABC042DEF330300154A44 /* VPNExtension.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
@@ -332,9 +311,9 @@
 				ORGANIZATIONNAME = "";
 				TargetAttributes = {
 					331C8080294A63A400263BE5 = {
-					DevelopmentTeam = 3477R2P24R;
-					ProvisioningStyle = Automatic;
 						CreatedOnToolsVersion = 14.0;
+						DevelopmentTeam = 3477R2P24R;
+						ProvisioningStyle = Automatic;
 						TestTargetID = 97C146ED1CF9000F007C117D;
 					};
 					97C146ED1CF9000F007C117D = {
@@ -364,19 +343,12 @@
 			targets = (
 				97C146ED1CF9000F007C117D /* Runner */,
 				331C8080294A63A400263BE5 /* RunnerTests */,
-				A0CABC032DEF330300154A44 /* PacketTunnel */,
+				A0CABC032DEF330300154A44 /* VPNExtension */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		331C807F294A63A400263BE5 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		97C146EC1CF9000F007C117D /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -389,38 +361,9 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		A0CABC022DEF330300154A44 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
-		0D6877CE9CFA1FB730A08B51 /* [CP] Check Pods Manifest.lock */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-				"${PODS_PODFILE_DIR_PATH}/Podfile.lock",
-				"${PODS_ROOT}/Manifest.lock",
-			);
-			name = "[CP] Check Pods Manifest.lock";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-				"$(DERIVED_FILE_DIR)/Pods-RunnerTests-checkManifestLockResult.txt",
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
-			showEnvVarsInLog = 0;
-		};
 		3B06AD1E1E4923F5004D2608 /* Thin Binary */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
@@ -436,6 +379,28 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "/bin/sh \"$FLUTTER_ROOT/packages/flutter_tools/bin/xcode_backend.sh\" embed_and_thin\n";
+		};
+		48F177D01565AB77ABA17B2A /* [CP] Check Pods Manifest.lock */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"${PODS_PODFILE_DIR_PATH}/Podfile.lock",
+				"${PODS_ROOT}/Manifest.lock",
+			);
+			name = "[CP] Check Pods Manifest.lock";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(DERIVED_FILE_DIR)/Pods-VPNExtension-checkManifestLockResult.txt",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
+			showEnvVarsInLog = 0;
 		};
 		615F147CC07E8FB69611F2E3 /* [CP] Embed Pods Frameworks */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -524,16 +489,15 @@
 			buildActionMask = 2147483647;
 			files = (
 				A0CABC212DEF335D00154A44 /* AppDelegate.swift in Sources */,
-				F1D584A52E7B5D3B00076143 /* VpnPlugin.swift in Sources */,
-				A0CABC1D2DEF334C00154A44 /* vpn_service.swift in Sources */,
 				1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		A0CABC002DEF330300154A44 /* Sources */ = {
+		A0CABC2D2DEF330300154A44 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A0CABC2F2DEF330300154A44 /* PacketTunnelProvider.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -545,10 +509,11 @@
 			target = 97C146ED1CF9000F007C117D /* Runner */;
 			targetProxy = 331C8085294A63A400263BE5 /* PBXContainerItemProxy */;
 		};
-		A0CABC0D2DEF330300154A44 /* PBXTargetDependency */ = {
+		BF7A7DAFFFC8971AA6784474 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = A0CABC032DEF330300154A44 /* PacketTunnel */;
-			targetProxy = A0CABC0C2DEF330300154A44 /* PBXContainerItemProxy */;
+			name = VPNExtension;
+			target = A0CABC032DEF330300154A44 /* VPNExtension */;
+			targetProxy = EAC84F46F132A2AED4A9BB6E /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -616,7 +581,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 13.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				SDKROOT = iphoneos;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -734,7 +699,6 @@
 		};
 		331C8088294A63A400263BE5 /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 080E1658DB175E1D2908DEBD /* Pods-RunnerTests.debug.xcconfig */;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
@@ -753,7 +717,6 @@
 		};
 		331C8089294A63A400263BE5 /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = F126793C97B47EFB321481A7 /* Pods-RunnerTests.release.xcconfig */;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
@@ -770,7 +733,6 @@
 		};
 		331C808A294A63A400263BE5 /* Profile */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 57363EA03AFF24D0E968A11A /* Pods-RunnerTests.profile.xcconfig */;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
@@ -789,7 +751,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
-				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = AppIcon;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++0x";
 				CLANG_CXX_LIBRARY = "libc++";
@@ -835,7 +797,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 13.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				MTL_ENABLE_DEBUG_INFO = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
@@ -848,7 +810,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
-				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = AppIcon;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++0x";
 				CLANG_CXX_LIBRARY = "libc++";
@@ -888,7 +850,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 13.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				SDKROOT = iphoneos;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -1115,6 +1077,7 @@
 		};
 		A0CABC102DEF330300154A44 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = E290AB978336A1D64EED7007 /* Pods-VPNExtension.debug.xcconfig */;
 			buildSettings = {
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
@@ -1129,7 +1092,7 @@
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = PacketTunnel/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = PacketTunnel;
+				INFOPLIST_KEY_CFBundleDisplayName = BULBVPN;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				IPHONEOS_DEPLOYMENT_TARGET = 15.6;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -1142,6 +1105,7 @@
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = app.bulbvpn.com;
+				PRODUCT_MODULE_NAME = PacketTunnelProvider;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -1158,6 +1122,7 @@
 		};
 		A0CABC112DEF330300154A44 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = B26B2BD9A74ED16D47F7FF4F /* Pods-VPNExtension.release.xcconfig */;
 			buildSettings = {
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
@@ -1172,7 +1137,7 @@
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = PacketTunnel/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = PacketTunnel;
+				INFOPLIST_KEY_CFBundleDisplayName = BULBVPN;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				IPHONEOS_DEPLOYMENT_TARGET = 15.6;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -1184,6 +1149,7 @@
 				MARKETING_VERSION = 1.0;
 				MTL_FAST_MATH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = app.bulbvpn.com;
+				PRODUCT_MODULE_NAME = PacketTunnelProvider;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -1198,6 +1164,7 @@
 		};
 		A0CABC122DEF330300154A44 /* Profile */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = F36544882EF29DAC99E9A5E5 /* Pods-VPNExtension.profile.xcconfig */;
 			buildSettings = {
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
@@ -1212,7 +1179,7 @@
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = PacketTunnel/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = PacketTunnel;
+				INFOPLIST_KEY_CFBundleDisplayName = BULBVPN;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				IPHONEOS_DEPLOYMENT_TARGET = 15.6;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -1224,6 +1191,7 @@
 				MARKETING_VERSION = 1.0;
 				MTL_FAST_MATH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = app.bulbvpn.com;
+				PRODUCT_MODULE_NAME = PacketTunnelProvider;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -1269,7 +1237,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		A0CABC142DEF330300154A44 /* Build configuration list for PBXNativeTarget "PacketTunnel" */ = {
+		A0CABC142DEF330300154A44 /* Build configuration list for PBXNativeTarget "VPNExtension" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				A0CABC102DEF330300154A44 /* Debug */,

@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "dataUsages": [
+    {
+      "category": "PRODUCT_INTERACTION",
+      "purposes": ["ANALYTICS"],
+      "dataProtections": ["DATA_NOT_LINKED_TO_YOU"]
+    },
+    {
+      "category": "CRASH_DATA",
+      "purposes": ["ANALYTICS"],
+      "dataProtections": ["DATA_NOT_LINKED_TO_YOU"]
+    },
+    {
+      "category": "PERFORMANCE_DATA",
+      "purposes": ["ANALYTICS"],
+      "dataProtections": ["DATA_NOT_LINKED_TO_YOU"]
+    },
+    {
+      "category": "OTHER_DIAGNOSTIC_DATA",
+      "purposes": ["ANALYTICS"],
+      "dataProtections": ["DATA_NOT_LINKED_TO_YOU"]
+    },
+    {
+      "category": "DEVICE_ID",
+      "purposes": ["ANALYTICS"],
+      "dataProtections": ["DATA_NOT_LINKED_TO_YOU"]
+    }
+  ]
+}
