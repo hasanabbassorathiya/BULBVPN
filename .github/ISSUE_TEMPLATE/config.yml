@@ -1,11 +1,11 @@
 blank_issues_enabled: false
 contact_links:
-  - name: Wiki
-    url: https://github.com/UnboundTechCo/defyxVPN/wiki
-    about: A guide for using the application and troubleshooting issues.
+  - name: BULBVPN
+    url: https://github.com/hasanabbassorathiya/BULBVPN
+    about: Source, server catalog, and release notes.
   - name: Privacy policy
-    url: https://defyxvpn.com/privacy-policy
+    url: https://bulbvpn-e9b4c.web.app/privacy.html
     about: The policy for user privacy and data protection.
   - name: Contact us
-    url: https://defyxvpn.com/contact
+    url: mailto:hasanabbassorathiya12@gmail.com
     about: Ways to reach support or the development team.

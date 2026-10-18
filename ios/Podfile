@@ -70,4 +70,11 @@ post_install do |installer|
       '-Wno-error=non-modular-include-in-framework-module',
     ].join(' ')
   end
+
+  # SoftEther TLS 1.0 pin + forceAesCbc re-apply (see patches/openvpn_adapter/).
+  # Pods are gitignored; this keeps the fix across `pod install` / CI.
+  patch_script = File.expand_path('../scripts/patch_openvpn_adapter.sh', __dir__)
+  unless system(patch_script, 'ios')
+    raise 'OpenVPNAdapter SoftEther patch failed — see scripts/patch_openvpn_adapter.sh'
+  end
 end

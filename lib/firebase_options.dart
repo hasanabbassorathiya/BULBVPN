@@ -28,10 +28,9 @@ class DefaultFirebaseOptions {
       case TargetPlatform.iOS:
         return ios;
       case TargetPlatform.macOS:
-        throw UnsupportedError(
-          'DefaultFirebaseOptions have not been configured for macos - '
-          'you can reconfigure this by running the FlutterFire CLI again.',
-        );
+        // Same Firebase iOS app / bundle id (app.bulbvpn.com) until a
+        // dedicated macOS app is registered in the Firebase console.
+        return macos;
       case TargetPlatform.windows:
         throw UnsupportedError(
           'DefaultFirebaseOptions have not been configured for windows - '
@@ -58,6 +57,15 @@ class DefaultFirebaseOptions {
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
+    apiKey: 'AIzaSyC8T5Qom6SQ6VZgTZpGD1aQ2pibPRZpT2w',
+    appId: '1:1068168730517:ios:da1096f11ed437fbe5c89c',
+    messagingSenderId: '1068168730517',
+    projectId: 'bulbvpn-e9b4c',
+    storageBucket: 'bulbvpn-e9b4c.firebasestorage.app',
+    iosBundleId: 'app.bulbvpn.com',
+  );
+
+  static const FirebaseOptions macos = FirebaseOptions(
     apiKey: 'AIzaSyC8T5Qom6SQ6VZgTZpGD1aQ2pibPRZpT2w',
     appId: '1:1068168730517:ios:da1096f11ed437fbe5c89c',
     messagingSenderId: '1068168730517',

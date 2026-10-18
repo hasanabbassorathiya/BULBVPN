@@ -4,12 +4,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>The app — BULBVPN</title>
-  <meta name="description" content="Screens, servers, speed and settings: what the BULBVPN Android app puts in front of you — plus live community endpoints and download links.">
+  <meta name="description" content="Screens, servers, speed and settings in BULBVPN: a private OpenVPN client for Wi-Fi and mobile data on Android and iPhone.">
   <meta name="theme-color" content="#0A0D14">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="BULBVPN">
   <meta property="og:title" content="The app — BULBVPN">
-  <meta property="og:description" content="Four screens, one button: connect, verify your exit IP, check throughput, read the log.">
+  <meta property="og:description" content="Connect, verify your exit IP, and check throughput. Release builds hide technical logs.">
   <meta property="og:url" content="https://bulbvpn-e9b4c.web.app/app">
   <meta property="og:image" content="https://bulbvpn-e9b4c.web.app/assets/screenshots/connected.webp">
   <meta name="twitter:card" content="summary_large_image">
@@ -43,12 +43,12 @@
         <span class="eyebrow">The app</span>
         <h1>Four screens,<br>one button.</h1>
         <p class="lead">
-          The Android build is deliberately short on menus. Home owns the tunnel
+          The app is deliberately short on menus. Home owns the OpenVPN tunnel
           and your exit IP; a bottom sheet owns the server list; speed and
           settings sit one tap away in the navigation bar.
         </p>
         <div class="doc-meta">
-          <span>Platform · Android</span>
+          <span>Platform · Android &amp; iPhone</span>
           <span>Core · OpenVPN</span>
           <span>Price · Free</span>
         </div>
@@ -63,8 +63,8 @@
             <h2 id="screens-title">Captured from a running build.</h2>
           </div>
           <p>
-            Not mock-ups — every frame below is a screenshot of the actual app
-            connected to a live community endpoint on Android.
+            Frames below are screenshots of the running app. They show the real
+            screens — home, connect, servers, and speed — without invented scores.
           </p>
         </div>
 
@@ -182,13 +182,12 @@
           </div>
 
           <div class="card span-4 reveal">
-            <span class="k">Session · the tape</span>
-            <h3>A plain-text log, on the device</h3>
+            <span class="k">Release · quiet</span>
+            <h3>Logs stay out of the release app</h3>
             <p>
-              Initialization, server selection, handshake, state transitions,
-              errors — appended line by line during the session and kept local.
-              When something misbehaves, you can read exactly what the tunnel
-              did, and share it in a bug report without exporting personal data.
+              The Play and TestFlight builds do not show handshake traces or
+              catalog URLs. A debug build can still keep a local log for
+              development. Those lines are not uploaded.
             </p>
           </div>
         </div>
@@ -251,8 +250,8 @@
             <span class="tag">SECURE TUNNEL</span>
           </a>
           <p>
-            A lean Android VPN that shows its work: exit IP on screen and session
-            logs on device — free to use, no account required.
+            A private OpenVPN client for Wi-Fi and mobile data. Exit IP on screen
+            Release builds hide technical logs. Free to use, no account required.
           </p>
         </div>
         <div class="footer-col">

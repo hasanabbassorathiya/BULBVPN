@@ -566,8 +566,14 @@ class _MainScreenState extends ConsumerState<MainScreen> with WidgetsBindingObse
               padding: const EdgeInsets.fromLTRB(20, 6, 20, 0),
               child: LayoutBuilder(
                 builder: (context, constraints) {
-                  final tight = constraints.maxHeight < 740;
-                  return Column(
+                  final bounded = constraints.hasBoundedHeight &&
+                      constraints.maxHeight.isFinite;
+                  // iPad landscape and the iPhone-on-iPad window are shorter
+                  // than the phone column. Expanded inside an unbounded
+                  // height throws; scroll instead.
+                  final tight = !bounded || constraints.maxHeight < 740;
+                  final column = Column(
+                mainAxisSize: tight ? MainAxisSize.min : MainAxisSize.max,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   // ---- Top bar: brand (+ debug logs only) ------------
@@ -645,39 +651,28 @@ class _MainScreenState extends ConsumerState<MainScreen> with WidgetsBindingObse
                   ),
 
                   // ---- Orb zone (optical center) ---------------------
-                  Expanded(
-                    child: Align(
-                      alignment: const Alignment(0, -0.18),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Builder(builder: (context) {
-                            final total = ref.watch(connectionStateProvider.select((s) => s.totalDownload));
-                            final delta = total - (_prevByteIn ?? total);
-                            return BulbOrb(
-                              phase: phase,
-                              onTap: _onConnectPressed,
-                              size: tight ? 156 : 210,
-                              byteDelta: delta.clamp(0, 1 << 30),
-                            );
-                          }),
-                          const SizedBox(height: 20),
-                          StaggeredIn(
-                            delayMs: 100,
-                            offset: 8,
-                            child: Text(
-                              _orbLabel(status, cs.vpnStatus),
-                              style: AppTextStyles.microLabel(
-                                color: phase == BulbPhase.idle
-                                    ? AppColors.steel
-                                    : AppColors.ink,
-                              ),
-                            ),
-                          ),
-                        ],
+                  if (tight)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      child: _orbBlock(
+                        ref,
+                        phase,
+                        tight: true,
+                        label: _orbLabel(status, cs.vpnStatus),
+                      ),
+                    )
+                  else
+                    Expanded(
+                      child: Align(
+                        alignment: const Alignment(0, -0.18),
+                        child: _orbBlock(
+                          ref,
+                          phase,
+                          tight: false,
+                          label: _orbLabel(status, cs.vpnStatus),
+                        ),
                       ),
                     ),
-                  ),
 
                   // ---- Metric rail: SESSION + DOWN (1.6fr / 1fr) ------
                   StaggeredIn(
@@ -803,12 +798,54 @@ class _MainScreenState extends ConsumerState<MainScreen> with WidgetsBindingObse
                   SizedBox(height: tight ? 72 : 96),
                 ],
               );
+                  if (tight) {
+                    return SingleChildScrollView(child: column);
+                  }
+                  return column;
                 },
               ),
             ),
           ),
         ),
       ),
+    );
+  }
+
+  Widget _orbBlock(
+    WidgetRef ref,
+    BulbPhase phase, {
+    required bool tight,
+    required String label,
+  }) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Builder(builder: (context) {
+          final total = ref.watch(
+            connectionStateProvider.select((s) => s.totalDownload),
+          );
+          final delta = total - (_prevByteIn ?? total);
+          return BulbOrb(
+            phase: phase,
+            onTap: _onConnectPressed,
+            size: tight ? 156 : 210,
+            byteDelta: delta.clamp(0, 1 << 30),
+          );
+        }),
+        const SizedBox(height: 20),
+        StaggeredIn(
+          delayMs: 100,
+          offset: 8,
+          child: Text(
+            label,
+            style: AppTextStyles.microLabel(
+              color: phase == BulbPhase.idle
+                  ? AppColors.steel
+                  : AppColors.ink,
+            ),
+          ),
+        ),
+      ],
     );
   }
 

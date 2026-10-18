@@ -1,8 +1,6 @@
 PODS:
   - battery_plus (0.0.1):
     - FlutterMacOS
-  - connectivity_plus (0.0.1):
-    - FlutterMacOS
   - device_info_plus (0.0.1):
     - FlutterMacOS
   - Firebase/CoreOnly (12.4.0):
@@ -171,7 +169,6 @@ PODS:
 
 DEPENDENCIES:
   - battery_plus (from `Flutter/ephemeral/.symlinks/plugins/battery_plus/macos`)
-  - connectivity_plus (from `Flutter/ephemeral/.symlinks/plugins/connectivity_plus/macos`)
   - device_info_plus (from `Flutter/ephemeral/.symlinks/plugins/device_info_plus/macos`)
   - firebase_analytics (from `Flutter/ephemeral/.symlinks/plugins/firebase_analytics/macos`)
   - firebase_core (from `Flutter/ephemeral/.symlinks/plugins/firebase_core/macos`)
@@ -209,8 +206,6 @@ SPEC REPOS:
 EXTERNAL SOURCES:
   battery_plus:
     :path: Flutter/ephemeral/.symlinks/plugins/battery_plus/macos
-  connectivity_plus:
-    :path: Flutter/ephemeral/.symlinks/plugins/connectivity_plus/macos
   device_info_plus:
     :path: Flutter/ephemeral/.symlinks/plugins/device_info_plus/macos
   firebase_analytics:
@@ -250,7 +245,6 @@ CHECKOUT OPTIONS:
 
 SPEC CHECKSUMS:
   battery_plus: f51ad29136e025b714b96f7d096f44f604615da7
-  connectivity_plus: 4adf20a405e25b42b9c9f87feff8f4b6fde18a4e
   device_info_plus: 4fb280989f669696856f8b129e4a5e3cd6c48f76
   Firebase: f07b15ae5a6ec0f93713e30b923d9970d144af3e
   firebase_analytics: 09241c4796c1c42a02349ef8bf30025f5b640f0e
@@ -282,6 +276,6 @@ SPEC CHECKSUMS:
   url_launcher_macos: f87a979182d112f911de6820aefddaf56ee9fbfd
   webview_flutter_wkwebview: 8ebf4fded22593026f7dbff1fbff31ea98573c8d
 
-PODFILE CHECKSUM: 0b2a527aff15fd5ce04c33cb9bb7c61e6317ddbe
+PODFILE CHECKSUM: e375d8217273190fd9a94aaf7c9c514e5996baf4
 
 COCOAPODS: 1.17.0

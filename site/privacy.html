@@ -42,7 +42,7 @@
         <h1>Privacy policy</h1>
         <p class="lead">
           The short version: the app has no accounts, does not upload your
-          browsing history, and keeps its session log on your device. It does
+          browsing history. Release builds do not show a session log. It does
           talk to a small, fixed set of remote services — each named below — and
           routes your traffic through community-run VPN servers.
         </p>
@@ -219,12 +219,12 @@
 
         <h2 id="logs">6. Session logs</h2>
         <p>
-          The app maintains a plain-text log of connection events (initialization,
-          server selection, handshake progress, state changes, errors) in memory
-          on your device for the duration of the session. It is not uploaded to
-          us. If you attach a log to a bug report voluntarily, you do so
-          yourself, and the report may include the server IP you connected
-          through — review it before posting.
+          Debug builds can keep a plain-text log of connection events
+          (initialization, server selection, handshake progress, state changes,
+          errors) on the device. Release builds do not show that log. It is
+          not uploaded. If you attach a debug log to a bug report voluntarily,
+          you do so yourself, and the report may include the server IP you
+          connected through — review it before posting.
         </p>
 
         <h2 id="website">7. This website</h2>
@@ -278,7 +278,7 @@
             <span class="tag">SECURE TUNNEL</span>
           </a>
           <p>
-            A lean Android VPN that shows its work: exit IP on screen and session
+            A private OpenVPN client for Wi-Fi and mobile data. Exit IP on screen and session
             logs on device — free to use, no account required.
           </p>
         </div>

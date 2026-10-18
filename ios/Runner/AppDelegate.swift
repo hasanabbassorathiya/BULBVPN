@@ -7,7 +7,8 @@ import Flutter
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
     if ProcessInfo.processInfo.arguments.contains("--bulb-connect") {
-      UserDefaults.standard.set(true, forKey: "bulb_autoconnect")
+      // shared_preferences stores keys under the "flutter." prefix.
+      UserDefaults.standard.set(true, forKey: "flutter.bulb_autoconnect")
     }
     GeneratedPluginRegistrant.register(with: self)
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)

@@ -1,27 +1,61 @@
 # BULBVPN
 
 Private VPN client for Android, iOS, macOS, and Windows. Built with Flutter.
-It dials OpenVPN first on Iranian Wi‑Fi and mobile data, keeps a live tunnel
-across network changes, and falls back to SoftEther on Android when needed.
+It dials OpenVPN first, keeps a live tunnel across network changes, and falls
+back to SoftEther when that path is the one that forwards.
+
+The phone and tablet apps do not download the server list from VPN Gate.
+GitHub Actions refreshes a catalog in this repo, and connect resolves names
+with DNS-over-HTTPS.
 
 ## Features
 
 - One-tap connect and disconnect
+- Hourly server catalog from GitHub Actions (`data/vpngate.json`)
+- DNS-over-HTTPS (Cloudflare, then Google) before a hostname is dialed
 - Device-side server ping with the fastest relay on top
-- OpenVPN-first connect that prefers the relay’s own port
+- OpenVPN-first connect, with a SoftEther TLS 1.0 path for VPN Gate relays
+- Signed macOS app (`bulbvpn.app`) with the same packet-tunnel provider
 - Session restore when you reopen the app while the tunnel is still up
 - Built-in Cloudflare speed test
-- Private UI: country labels only, no public relay hostnames in the home screen
-- SoftEther SSL-VPN path on Android as a short fallback
+- Private UI: country labels only, no public relay hostnames on the home screen
+- Release builds hide the in-app log. Debug builds still have the log button.
 
 ## Platforms
 
 | Platform | Status |
 | --- | --- |
-| Android | Production path verified on Iranian Wi‑Fi and mobile data |
-| iOS | Packet tunnel + App Store upload |
-| macOS | Packet tunnel provider (OpenVPNAdapter) |
+| Android | Play package `app.bulbvpn.com` |
+| iOS | Packet tunnel, iPhone and iPad, TestFlight / App Store |
+| macOS | Signed `bulbvpn.app` (`flutter build macos --release`) |
 | Windows | Bundled OpenVPN + TAP; run the release script on Windows |
+
+## Server catalog and DNS
+
+`.github/workflows/vpngate-servers.yml` runs hourly (and on demand). It
+fetches the public server CSV with `scripts/fetch_vpngate.py` and commits
+`data/vpngate.json` when the list changes. Clients load that file from
+jsDelivr and raw GitHub. They do not call VPN Gate on the device.
+
+When a relay is a hostname, `DohResolver` asks Cloudflare DNS-over-HTTPS,
+then Google, and dials the IPv4 answer.
+
+## macOS app
+
+```bash
+flutter build macos --release
+open build/macos/Build/Products/Release/bulbvpn.app
+```
+
+The packet tunnel is `macos/PacketTunnel`. SoftEther TLS fixes are applied
+after `pod install` by `scripts/patch_openvpn_adapter.sh` (see
+`patches/openvpn_adapter/`).
+
+## Logs
+
+Release and profile builds do not show the log panel (`kDebugMode` is false).
+Connection traces stay in the debug build and in the packet-tunnel file log
+used while developing. They are not part of the release UI.
 
 ## Requirements
 

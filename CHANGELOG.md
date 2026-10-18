@@ -1,4 +1,13 @@
-# Defyx Changelog
+# BULBVPN Changelog
+
+## 1.0.0 (Build 8)
+
+- iPad packet tunnel: universal device family, iOS 16 tunnel settings, quieter extension
+- macOS `bulbvpn.app` with the same SoftEther TLS 1.0 pin
+- Server catalog from GitHub Actions; DNS-over-HTTPS on connect
+- Release UI hides logs
+
+
 
 ## v3.2.30 (Build 190)
 
@@ -200,5 +209,5 @@
 
 ## v1.0.0 (Build 10)
 
-- Initial beta release of Defyx
+- Initial beta release of the client
 - Core functionality implemented

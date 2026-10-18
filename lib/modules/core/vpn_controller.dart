@@ -78,10 +78,13 @@ class VpnController {
   Duration get _attemptWatchdog => Platform.isIOS || Platform.isMacOS
       ? _appleAttemptWatchdog
       : _androidAttemptWatchdog;
+
   /// Per-candidate TCP reachability probe budget.
   static const _probeTimeout = Duration(milliseconds: 800);
+
   /// How many candidates we actually try (probe-ranked) per connect press.
   static const _maxAttempts = 3;
+
   /// How many candidates we probe at most (ranked by measured ping first).
   static const _maxProbe = 6;
   static const _lastGoodKey = 'bulbvpn_last_good_server_v1';
@@ -96,14 +99,23 @@ class VpnController {
     _vibrationService.init();
     final now = DateTime.now();
     final offset = now.timeZoneOffset;
-    _log.addLog('[VpnController] Timezone offset: ${offset.inMinutes / 60.0} hours');
+    _log.addLog(
+      '[VpnController] Timezone offset: ${offset.inMinutes / 60.0} hours',
+    );
     try {
       await _vpnService.initialize();
       _initialized = true;
       _log.addLog('[VpnController] VpnController initialized successfully');
     } catch (e, stackTrace) {
       _log.addLog('[VpnController] ERROR initializing: $e');
-      try { FirebaseCrashlytics.instance.recordError(e, stackTrace, reason: 'VpnController initialize', fatal: false); } catch (_) {}
+      try {
+        FirebaseCrashlytics.instance.recordError(
+          e,
+          stackTrace,
+          reason: 'VpnController initialize',
+          fatal: false,
+        );
+      } catch (_) {}
       rethrow;
     }
   }
@@ -115,7 +127,9 @@ class VpnController {
       return;
     }
     final connectionState = container.read(connectionStateProvider);
-    _log.addLog('[VpnController] handleConnectionButton called, current status: ${connectionState.status}');
+    _log.addLog(
+      '[VpnController] handleConnectionButton called, current status: ${connectionState.status}',
+    );
     switch (connectionState.status) {
       case ConnectionStatus.connected:
         await _disconnect();
@@ -131,7 +145,9 @@ class VpnController {
         await _connect();
         return;
       default:
-        _log.addLog('[VpnController] Unknown status: ${connectionState.status}');
+        _log.addLog(
+          '[VpnController] Unknown status: ${connectionState.status}',
+        );
         break;
     }
   }
@@ -145,7 +161,11 @@ class VpnController {
     final decoded = decodeOvpn(b64);
     if (decoded == null || !decoded.contains('<ca>')) return null;
     final withAuth = configForCurrentEngine(decoded);
-    return Candidate.fromConfig(withAuth, fallbackIp: fallbackIp, csvPing: csvPing);
+    return Candidate.fromConfig(
+      withAuth,
+      fallbackIp: fallbackIp,
+      csvPing: csvPing,
+    );
   }
 
   Future<String?> _readLastGood() async {
@@ -160,7 +180,10 @@ class VpnController {
   Future<void> _saveLastGood(Candidate c) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_lastGoodKey, jsonEncode({'ip': c.ip, 'port': c.port, 'b64': c.b64}));
+      await prefs.setString(
+        _lastGoodKey,
+        jsonEncode({'ip': c.ip, 'port': c.port, 'b64': c.b64}),
+      );
     } catch (_) {}
   }
 
@@ -214,7 +237,9 @@ class VpnController {
         if (picked.length >= 8) break;
       }
       if (picked.isNotEmpty) {
-        _log.addLog('[VpnController] SoftEther trying ${picked.length} measured relays');
+        _log.addLog(
+          '[VpnController] SoftEther trying ${picked.length} measured relays',
+        );
         return picked;
       }
     } catch (e) {
@@ -248,7 +273,9 @@ class VpnController {
         final c = _candidateFromB64(map['b64'] as String);
         if (c != null) {
           addAll([c]);
-          _log.addLog('[VpnController] Last-good server: ${map['ip']}:${map['port']}');
+          _log.addLog(
+            '[VpnController] Last-good server: ${map['ip']}:${map['port']}',
+          );
         }
       } catch (_) {}
     }
@@ -262,8 +289,14 @@ class VpnController {
       for (final s in ordered) {
         if (s.openVpnConfigBase64.isEmpty) continue;
         final live = measured[s.ip];
-        final ping = live != null && live.status == PingStatus.ok ? live.ms : s.ping;
-        final c = _candidateFromB64(s.openVpnConfigBase64, fallbackIp: s.ip, csvPing: ping);
+        final ping = live != null && live.status == PingStatus.ok
+            ? live.ms
+            : s.ping;
+        final c = _candidateFromB64(
+          s.openVpnConfigBase64,
+          fallbackIp: s.ip,
+          csvPing: ping,
+        );
         if (c != null) fromCache.add(c);
       }
       addAll(fromCache);
@@ -292,9 +325,10 @@ class VpnController {
   int _endpointRank(Candidate c) {
     final ping = c.csvPing <= 0 ? 9999 : c.csvPing;
     final tcp = c.protocol == 'tcp' ? 0 : 100000;
-    // Port 443 often accepts the TCP handshake on this carrier and then
-    // never finishes authentication. Prefer the relay's own port.
-    final portBias = c.port == 443 ? 500 : 0;
+    // On this network, non-443 TCP ports complete the socket and then
+    // never finish the OpenVPN handshake. The relays that actually
+    // reach CONNECTED are TCP 443 (219.100.37.0/24).
+    final portBias = c.port == 443 ? 0 : 800;
     return tcp + portBias + ping;
   }
 
@@ -302,7 +336,8 @@ class VpnController {
   /// A single low-ping cluster (one operator, same dead path) otherwise
   /// fills the whole probe and attempt budget.
   List<Candidate> _spreadSubnets(List<Candidate> input, int limit) {
-    final sorted = [...input]..sort((a, b) => _endpointRank(a).compareTo(_endpointRank(b)));
+    final sorted = [...input]
+      ..sort((a, b) => _endpointRank(a).compareTo(_endpointRank(b)));
     final groups = <String, List<Candidate>>{};
     for (final candidate in sorted) {
       groups.putIfAbsent(_subnet(candidate.ip), () => []).add(candidate);
@@ -329,7 +364,9 @@ class VpnController {
   Future<List<Candidate>> _rankByReachability(List<Candidate> input) async {
     final shortlist = _spreadSubnets(input, _maxProbe);
     final subnets = shortlist.map((c) => _subnet(c.ip)).toSet().length;
-    _log.addLog('[VpnController] Probing ${shortlist.length} candidate endpoints across $subnets subnets...');
+    _log.addLog(
+      '[VpnController] Probing ${shortlist.length} candidate endpoints across $subnets subnets...',
+    );
 
     final results = <Candidate>[]; // reachable
     final dead = <Candidate>[]; // unreachable
@@ -350,16 +387,27 @@ class VpnController {
 
     final orderedReachable = _spreadSubnets(results, results.length);
     final orderedDead = _spreadSubnets(dead, dead.length);
-    _log.addLog('[VpnController] Probe results: ${orderedReachable.length} reachable, ${orderedDead.length} dead');
+    _log.addLog(
+      '[VpnController] Probe results: ${orderedReachable.length} reachable, ${orderedDead.length} dead',
+    );
     for (final c in orderedReachable.take(5)) {
-      _log.addLog('[VpnController]   reachable: ${c.ip}:${c.port} (ping ${c.csvPing})');
+      _log.addLog(
+        '[VpnController]   reachable: ${c.ip}:${c.port} (ping ${c.csvPing})',
+      );
     }
     if (orderedReachable.isEmpty) {
       for (final c in orderedDead.take(5)) {
-        _log.addLog('[VpnController]   will try (unprobed): ${c.ip}:${c.port} (ping ${c.csvPing})');
+        _log.addLog(
+          '[VpnController]   will try (unprobed): ${c.ip}:${c.port} (ping ${c.csvPing})',
+        );
       }
     }
-    return [...orderedReachable, ...orderedDead];
+    // A closed probe on 443 must not hide it behind ports that accept TCP
+    // and then stall the handshake.
+    final merged = [...orderedReachable, ...orderedDead];
+    final tls443 = merged.where((c) => c.protocol == 'tcp' && c.port == 443);
+    final rest = merged.where((c) => c.protocol != 'tcp' || c.port != 443);
+    return [...tls443, ...rest];
   }
 
   // ---------------------------------------------------------------------------
@@ -402,8 +450,17 @@ class VpnController {
       if (!ok) {
         _log.addLog('[VpnController] VPN/notification permission denied');
         try {
-          await FirebaseCrashlytics.instance.recordError('VPN permission denied', StackTrace.current, fatal: false);
-          await _analyticsService.logVpnFailed(ip: 'permission', ping: 0, rawStage: 'permission_denied', serverLabel: _serverLabel);
+          await FirebaseCrashlytics.instance.recordError(
+            'VPN permission denied',
+            StackTrace.current,
+            fatal: false,
+          );
+          await _analyticsService.logVpnFailed(
+            ip: 'permission',
+            ping: 0,
+            rawStage: 'permission_denied',
+            serverLabel: _serverLabel,
+          );
         } catch (_) {}
         connectionNotifier.setError();
         _vibrationService.vibrateError();
@@ -424,14 +481,13 @@ class VpnController {
       _log.addLog('[VpnController] Selected server tried first: $_serverLabel');
       final c = _candidateFromB64(base64Encode(utf8.encode(_serverConfig!)));
       if (c != null) {
-        preferred.add(c);
-        // Prefer the relay's own TCP port. Port 443 often accepts TCP and
-        // never finishes OpenVPN auth on SoftEther / VPN Gate.
-        final tcp = Candidate.asTcp(c);
-        if (tcp != null) preferred.add(tcp);
+        // UDP rarely dials on filtered paths. TCP 443 is the SoftEther
+        // listener that finishes OpenVPN; keep the profile port as a backup.
+        final on443 = c.port == 443 ? c : (Candidate.withPort(c, 443) ?? c);
+        preferred.add(on443);
         if (c.port != 443) {
-          final alt = Candidate.withPort(c, 443);
-          if (alt != null) preferred.add(alt);
+          final tcp = Candidate.asTcp(c) ?? c;
+          preferred.add(tcp);
         }
       }
     }
@@ -447,6 +503,7 @@ class VpnController {
         candidates.add(candidate);
       }
     }
+
     for (final candidate in preferred) {
       addCandidate(candidate);
     }
@@ -455,19 +512,28 @@ class VpnController {
     }
     if (candidates.isEmpty) {
       _log.addLog('[VpnController] ERROR: No server config available');
-      try { await _analyticsService.logVpnFailed(ip: 'no_server', ping: 0, rawStage: 'no_config', serverLabel: _serverLabel); } catch (_) {}
+      try {
+        await _analyticsService.logVpnFailed(
+          ip: 'no_server',
+          ping: 0,
+          rawStage: 'no_config',
+          serverLabel: _serverLabel,
+        );
+      } catch (_) {}
       connectionNotifier.setError();
       _vibrationService.vibrateError();
       return;
     }
 
     final ranked = await _rankByReachability(candidates);
-    // Keep the selected host first, but use its best-ranked endpoint
-    // (native TCP / non-443) instead of blindly forcing the profile port.
+    // Keep the selected host first, on TCP 443 when that listener exists.
     if (preferred.isNotEmpty) {
       final host = preferred.first.ip;
       final sameHost = ranked.where((c) => c.ip == host).toList();
-      final first = sameHost.isNotEmpty ? sameHost.first : preferred.first;
+      final on443 = sameHost.where((c) => c.port == 443).toList();
+      final first = on443.isNotEmpty
+          ? on443.first
+          : (sameHost.isNotEmpty ? sameHost.first : preferred.first);
       ranked.removeWhere((c) => c.ip == first.ip && c.port == first.port);
       ranked.insert(0, first);
     }
@@ -480,42 +546,62 @@ class VpnController {
 
     final gen = ++_rotationGeneration;
     for (final candidate in ranked.take(_maxAttempts)) {
-        if (gen != _rotationGeneration) {
-          _log.addLog('[VpnController] Rotation cancelled');
-          return;
-        }
-        connectionNotifier.setConnecting();
-        container.read(softEtherHostProvider.notifier).state =
-            '${candidate.ip}:${candidate.port}';
-        _log.addLog('[VpnController] Attempt ${candidate.ip}:${candidate.port} (${candidate.protocol})...');
-        try { FirebaseCrashlytics.instance.log('vpn attempt ${candidate.ip}:${candidate.port}'); } catch (_) {}
+      if (gen != _rotationGeneration) {
+        _log.addLog('[VpnController] Rotation cancelled');
+        return;
+      }
+      connectionNotifier.setConnecting();
+      container.read(softEtherHostProvider.notifier).state =
+          '${candidate.ip}:${candidate.port}';
+      _log.addLog(
+        '[VpnController] Attempt ${candidate.ip}:${candidate.port} (${candidate.protocol})...',
+      );
+      try {
+        FirebaseCrashlytics.instance.log(
+          'vpn attempt ${candidate.ip}:${candidate.port}',
+        );
+      } catch (_) {}
 
-        final ok = await _attemptCandidate(candidate);
-        if (gen != _rotationGeneration) return;
+      final ok = await _attemptCandidate(candidate);
+      if (gen != _rotationGeneration) return;
 
-        if (ok) {
-          _log.addLog('[VpnController] CONNECTED via ${candidate.ip}:${candidate.port}');
-          connectionNotifier.holdEngineEvents(false);
-          connectionNotifier.setConnected();
-          await _saveLastGood(candidate);
-          await VpnSessionStore.save(
-            label: '${candidate.ip}:${candidate.port}',
-            host: candidate.ip,
-          );
-          try {
-            await _analyticsService.logVpnConnected('vpn_gate', '${candidate.ip}:${candidate.port}', 0);
-          } catch (_) {}
-          // statusStream already flipped the notifier to connected.
-          return;
-        }
-        _log.addLog('[VpnController] Attempt failed: ${candidate.ip}:${candidate.port}, moving to next candidate');
+      if (ok) {
+        _log.addLog(
+          '[VpnController] CONNECTED via ${candidate.ip}:${candidate.port}',
+        );
+        connectionNotifier.holdEngineEvents(false);
+        connectionNotifier.setConnected();
+        await _saveLastGood(candidate);
+        await VpnSessionStore.save(
+          label: '${candidate.ip}:${candidate.port}',
+          host: candidate.ip,
+        );
         try {
-          await _analyticsService.logVpnFailed(ip: candidate.ip, ping: candidate.csvPing, rawStage: 'candidate_timeout', serverLabel: _serverLabel);
+          await _analyticsService.logVpnConnected(
+            'vpn_gate',
+            '${candidate.ip}:${candidate.port}',
+            0,
+          );
         } catch (_) {}
+        // statusStream already flipped the notifier to connected.
+        return;
+      }
+      _log.addLog(
+        '[VpnController] Attempt failed: ${candidate.ip}:${candidate.port}, moving to next candidate',
+      );
+      try {
+        await _analyticsService.logVpnFailed(
+          ip: candidate.ip,
+          ping: candidate.csvPing,
+          rawStage: 'candidate_timeout',
+          serverLabel: _serverLabel,
+        );
+      } catch (_) {}
     }
 
     if (gen != _rotationGeneration) return;
-    if (Platform.isAndroid && await _tryOneSoftEther(container, connectionNotifier)) {
+    if (Platform.isAndroid &&
+        await _tryOneSoftEther(container, connectionNotifier)) {
       return;
     }
     if (gen == _rotationGeneration) {
@@ -524,7 +610,12 @@ class VpnController {
       connectionNotifier.setError();
       _vibrationService.vibrateError();
       try {
-        await _analyticsService.logVpnFailed(ip: 'rotation', ping: 0, rawStage: 'all_candidates_failed', serverLabel: _serverLabel);
+        await _analyticsService.logVpnFailed(
+          ip: 'rotation',
+          ping: 0,
+          rawStage: 'all_candidates_failed',
+          serverLabel: _serverLabel,
+        );
       } catch (_) {}
     }
   }
@@ -542,7 +633,10 @@ class VpnController {
     _log.addLog('[VpnController] SoftEther fallback ${target.dial}');
     container.read(softEtherHostProvider.notifier).state =
         '${target.sni} · ${target.dial}';
-    final result = await SoftEtherVpn.connect(dial: target.dial, sni: target.sni);
+    final result = await SoftEtherVpn.connect(
+      dial: target.dial,
+      sni: target.sni,
+    );
     if (sslGen != _rotationGeneration) return false;
     if (result.ok || result.detail == 'already running') {
       _log.addLog('[VpnController] CONNECTED via SoftEther ${target.dial}');
@@ -590,29 +684,32 @@ class VpnController {
       }
     }
 
-    sub = _vpnService.statusStream().listen((engine.ConnectionStatus status) {
-      switch (status) {
-        case engine.ConnectionStatus.connected:
-          _log.addLog('[VpnController] Engine reported CONNECTED');
-          finish(true);
-          break;
-        case engine.ConnectionStatus.disconnected:
-          if (!armed) return;
-          _log.addLog(
-            '[VpnController] Engine reported DISCONNECTED during attempt',
-          );
-          finish(false);
-          break;
-        case engine.ConnectionStatus.connecting:
-          armed = true;
-          break;
-        default:
-          break;
-      }
-    }, onError: (Object e) {
-      _log.addLog('[VpnController] statusStream error: $e');
-      finish(false);
-    });
+    sub = _vpnService.statusStream().listen(
+      (engine.ConnectionStatus status) {
+        switch (status) {
+          case engine.ConnectionStatus.connected:
+            _log.addLog('[VpnController] Engine reported CONNECTED');
+            finish(true);
+            break;
+          case engine.ConnectionStatus.disconnected:
+            if (!armed) return;
+            _log.addLog(
+              '[VpnController] Engine reported DISCONNECTED during attempt',
+            );
+            finish(false);
+            break;
+          case engine.ConnectionStatus.connecting:
+            armed = true;
+            break;
+          default:
+            break;
+        }
+      },
+      onError: (Object e) {
+        _log.addLog('[VpnController] statusStream error: $e');
+        finish(false);
+      },
+    );
 
     watchdog = Timer(_attemptWatchdog, () {
       _log.addLog(
@@ -628,10 +725,7 @@ class VpnController {
       try {
         if (completer.isCompleted) return;
         armed = true;
-        await _vpnService.connect(
-          config: dial.config,
-          name: 'BULBVPN',
-        );
+        await _vpnService.connect(config: dial.config, name: 'BULBVPN');
         _log.addLog(
           '[VpnController] connect() returned for ${dial.ip}:${dial.port}',
         );

@@ -67,3 +67,5 @@ app.*.map.json
 # Local release output and signing keys. Never commit these.
 /dist/
 /signing/
+# Local Playwright CLI snapshots (may include session URLs)
+.playwright-cli/

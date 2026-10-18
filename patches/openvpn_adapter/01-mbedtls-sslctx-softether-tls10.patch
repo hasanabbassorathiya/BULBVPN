@@ -1,0 +1,22 @@
+--- a/Sources/OpenVPN3/openvpn/mbedtls/ssl/sslctx.hpp
++++ b/Sources/OpenVPN3/openvpn/mbedtls/ssl/sslctx.hpp
+@@ -787,8 +787,18 @@
+ 	  mbedtls_ssl_init(ssl);
+ 
+ 	  // set minimum TLS version
+-	  if (!c.force_aes_cbc_ciphersuites || c.tls_version_min > TLSVersion::UNDEF)
++	  // force_aes_cbc_ciphersuites is the SoftEther path (DHE-RSA-AES-CBC-SHA).
++	  // A profile tls-version-min used to take the other branch
++	  // (`|| tls_version_min > UNDEF`), which raised the floor and left
++	  // the handshake sitting after VERIFY OK. Pin TLS 1.0 so the profile
++	  // cannot override the forced suites.
++	  if (c.force_aes_cbc_ciphersuites)
+ 	    {
++	      mbedtls_ssl_conf_min_version(sslconf, MBEDTLS_SSL_MAJOR_VERSION_3, MBEDTLS_SSL_MINOR_VERSION_1);
++	      mbedtls_ssl_conf_max_version(sslconf, MBEDTLS_SSL_MAJOR_VERSION_3, MBEDTLS_SSL_MINOR_VERSION_1);
++	    }
++	  else if (c.tls_version_min > TLSVersion::UNDEF)
++	    {
+ 	      int major;
+ 	      int minor;
+ 	      switch (c.tls_version_min)

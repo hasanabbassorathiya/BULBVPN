@@ -1,5 +1,8 @@
 # Connecting BULBVPN on Iranian mobile data
 
+Release builds hide the in-app log. The traces below are from a debug
+session on the device, not from the Play or TestFlight UI.
+
 This is the method that made the tunnel carry traffic on Irancell LTE
 (Samsung SM-M127G, Android 11). The same failure showed up on Hamrah Aval:
 Wi-Fi connected, mobile data either killed the app or sat on "connecting"

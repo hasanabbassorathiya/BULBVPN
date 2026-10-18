@@ -1,4 +1,4 @@
-## Defyx VPN RELEASE_TAG is now available
+## BULBVPN RELEASE_TAG is now available
 
 ### Some software changes:
 
@@ -19,9 +19,7 @@
         <tbody align="left">
             <tr>
                 <td>
-                    <a href="https://apps.apple.com/us/app/defyx/id6746811872?platform=iphone" target="_blank">
-                        <img src="https://img.shields.io/badge/iOS-Apple Store-F0F0F1.svg?logo=apple">
-                    </a>
+                    <img src="https://img.shields.io/badge/iOS-Apple Store-F0F0F1.svg?logo=apple">
                 </td>
                 <td>
                     15.6 or later
@@ -29,20 +27,15 @@
             </tr>
             <tr>
                 <td>
-                    <a href="https://play.google.com/store/apps/details?id=de.unboundtech.defyxvpn" target="_blank">
+                    <a href="https://play.google.com/store/apps/details?id=app.bulbvpn.com" target="_blank">
                         <img src="https://img.shields.io/badge/Android-Google Play-044d29.svg?logo=googleplay">
-                    </a>
-                    <a href="https://github.com/UnboundTechCo/defyxVPN/releases/download/RELEASE_TAG/app-release.apk">
-                        <img src="https://img.shields.io/badge/Android-APK Universal-0d7365.svg?logo=android">
                     </a>
                 </td>
                 <td>8.0 or later</td>
             </tr>
             <tr>
                 <td>
-                    <a href="https://apps.apple.com/us/app/defyx/id6746811872?platform=ipad" target="_blank">
-                        <img src="https://img.shields.io/badge/iPad-Apple Store-F0F0F1.svg?logo=apple">
-                    </a>
+                    <img src="https://img.shields.io/badge/iPad-Apple Store-F0F0F1.svg?logo=apple">
                 </td>
                 <td>
                    15.6 or later
@@ -58,9 +51,7 @@
             </tr>
             <tr>
                 <td>
-                    <a href="https://apps.apple.com/us/app/defyx/id6746811872" target="_blank">
-                        <img src="https://img.shields.io/badge/macOS-Apple Store-F0F0F1.svg?logo=apple">
-                    </a>
+                    <img src="https://img.shields.io/badge/macOS-bulbvpn.app-F0F0F1.svg?logo=apple">
                 </td>
                 <td>
                    12.5 or later<br />Apple M1 chip or later 
@@ -82,4 +73,4 @@
 
 #### To report issues or provide suggestions:
 
-https://github.com/UnboundTechCo/defyxVPN/issues
+https://github.com/hasanabbassorathiya/BULBVPN/issues

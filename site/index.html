@@ -4,12 +4,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>BULBVPN — the tunnel you can inspect</title>
-  <meta name="description" content="BULBVPN is a lean Android VPN. One tap to connect, your exit IP on screen, a readable session log, and no account in the way.">
+  <meta name="description" content="BULBVPN is a private OpenVPN client for Android, iOS, and Mac. Exit IP on screen, no account. Release builds do not show technical logs.">
   <meta name="theme-color" content="#0A0D14">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="BULBVPN">
   <meta property="og:title" content="BULBVPN — the tunnel you can inspect">
-  <meta property="og:description" content="One tap to connect, your exit IP on screen, a readable session log. A VPN built to be checked.">
+  <meta property="og:description" content="One tap to connect, your exit IP on screen. Release builds hide technical logs.">
   <meta property="og:url" content="https://bulbvpn-e9b4c.web.app/">
   <meta property="og:image" content="https://bulbvpn-e9b4c.web.app/assets/screenshots/connected.webp">
   <meta name="twitter:card" content="summary_large_image">
@@ -44,10 +44,10 @@
           <span class="eyebrow">Introduction</span>
           <h1>The tunnel you can <span class="amber">inspect</span>.</h1>
           <p class="lead">
-            BULBVPN is a lean Android VPN. One tap connects you through a community
-            OpenVPN endpoint — and instead of asking you to trust a green padlock,
-            it puts the evidence on screen: your public exit IP, the server you
-            landed on, and a session log written line by line.
+            BULBVPN is a private OpenVPN client for Wi-Fi and mobile data,
+            including networks in Iran. One tap starts an OpenVPN tunnel, and the
+            home screen shows the evidence: your public exit IP and the server you
+            landed on. Release builds hide technical logs.
           </p>
           <div class="hero-actions">
             <a class="btn btn-primary" href="app.html">See the app</a>
@@ -65,7 +65,7 @@
 
     <div class="fact-strip">
       <div class="container">
-        <span class="fact"><b>OpenVPN</b> core</span>
+        <span class="fact"><b>OpenVPN</b> first</span>
         <span class="fact"><b data-server-count>96</b> community endpoints</span>
         <span class="fact"><b>No account</b> required</span>
         <span class="fact"><b>Exit IP</b> on screen</span>
@@ -93,9 +93,8 @@
             <h3>Connect</h3>
             <div class="body">
               <p>
-                One tap on the orb. The app pulls the live community endpoint list,
-                picks a server with a valid OpenVPN profile, and negotiates the
-                tunnel — with each step reported in the in-app log as it happens.
+                One tap on the orb. The app loads the GitHub Actions server catalog,
+                resolves the relay with DNS-over-HTTPS, and negotiates the tunnel.
               </p>
             </div>
           </article>
@@ -126,12 +125,12 @@
 
           <article class="row reveal">
             <span class="idx">04</span>
-            <h3>Read the tape</h3>
+            <h3>Quiet release</h3>
             <div class="body">
               <p>
-                Every handshake, retry, and state change is appended to a
-                plain-text session log on the device. When a connection behaves
-                oddly, the evidence is already there — <a href="app.html">see the screens</a>.
+                The release app does not show handshake logs or catalog URLs.
+                Debug builds keep a local log for development.
+                <a href="app.html">See the screens</a>.
               </p>
             </div>
           </article>
@@ -159,9 +158,9 @@
             <span class="k">Endpoints</span>
             <span class="stat"><span data-server-count>96</span> <span class="unit">NODES LIVE</span></span>
             <p>
-              Community-run VPN Gate servers across dozens of countries, refreshed
-              from the public list on every connection attempt. Slow nodes happen;
-              the log will tell you which one you got.
+              Community relays across dozens of countries. GitHub Actions
+              refreshes the catalog hourly. The app loads that file and uses
+              DNS-over-HTTPS. It does not call the source list on the device.
             </p>
           </div>
 
@@ -198,8 +197,8 @@
         <span class="eyebrow">The app</span>
         <h2>Four screens: home, servers, speed, settings.</h2>
         <p class="lead">
-          Screenshots, the live endpoint list, and download links — everything
-          the Android build puts in front of you.
+          Screenshots, the live endpoint list, and download links — the same
+          OpenVPN client on Android and iPhone.
         </p>
         <div class="hero-actions">
           <a class="btn btn-primary" href="app.html">Open the showcase</a>
@@ -217,8 +216,8 @@
             <span class="tag">SECURE TUNNEL</span>
           </a>
           <p>
-            A lean Android VPN that shows its work: exit IP on screen and session
-            logs on device — free to use, no account required.
+            A private OpenVPN client for Wi-Fi and mobile data. Exit IP on screen
+            Release builds hide technical logs. Free to use, no account required.
           </p>
         </div>
         <div class="footer-col">

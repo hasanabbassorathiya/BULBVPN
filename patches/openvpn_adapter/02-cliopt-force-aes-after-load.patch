@@ -1,0 +1,14 @@
+--- a/Sources/OpenVPN3/openvpn/client/cliopt.hpp
++++ b/Sources/OpenVPN3/openvpn/client/cliopt.hpp
+@@ -724,8 +724,10 @@
+       cc->set_rng(rng);
+       cc->set_local_cert_enabled(pcc.clientCertEnabled() && !config.disable_client_cert);
+       cc->set_private_key_password(config.private_key_password);
+-      cc->set_force_aes_cbc_ciphersuites(config.force_aes_cbc_ciphersuites);
+       cc->load(opt, lflags);
++      // Profile tls-version-min / tls-cipher must not clear this. load()
++      // parses those options; re-apply afterwards so they cannot win.
++      cc->set_force_aes_cbc_ciphersuites(config.force_aes_cbc_ciphersuites);
+       cc->set_tls_version_min_override(config.tls_version_min_override);
+       cc->set_tls_cert_profile_override(config.tls_cert_profile_override);
+       if (!cc->get_mode().is_client())
