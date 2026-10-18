@@ -1,0 +1,27 @@
+BULB VPN is a free, unlimited OpenVPN client with nothing hidden. No account. No subscription. No ads. No activity logs.
+
+One screen shows everything that matters: your real exit IP (tap to copy), live session time, and real-time transfer rates. A session log stays on your device, so you always know exactly what happened while you were connected.
+
+WHY BULB VPN
+
+• Free forever — every feature, every server, no paywall
+• No account required — install and connect in one tap
+• Exit IP on screen — see the IP you're browsing with, always
+• On-device session log — connection events stored locally, never uploaded
+• Community-powered servers — hundreds of free community VPN endpoints worldwide, ranked by latency
+• Real speed test — measure download, upload, ping, packet loss and jitter through the tunnel
+• OpenVPN core — the industry-standard VPN protocol, open and auditable
+• Modern dark interface — built for focus, with live status, flags and ping per server
+
+HOW IT WORKS
+
+1. Open the app — your current public IP is shown on the home screen
+2. Tap to connect — BULB picks the fastest available server, or choose a country yourself
+3. Watch the exit IP change — the home screen updates the moment the tunnel is up
+4. Check your speed — run a throughput test any time to see real numbers through the VPN
+
+PRIVACY BY DESIGN
+
+BULB VPN does not require an account and does not keep connection logs. Server lists are fetched from a public mirror; analytics measure only core reliability (connect success, disconnect reasons, chosen server region). Read the full details in the in-app privacy policy.
+
+BULB VPN is built by an independent developer. If you have questions or feedback, reach us at hasanabbassorathiya12@gmail.com.
