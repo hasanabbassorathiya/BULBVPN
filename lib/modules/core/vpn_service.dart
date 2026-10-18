@@ -46,9 +46,7 @@ class VpnService {
 
     final groupIdentifier = 'group.com.bulbvpn.app';
     final localizedDescription = 'BULBVPN Secure Connection';
-    final providerBundleIdentifier = Platform.isMacOS
-        ? 'app.bulbvpn.com.macos.VPNExtension'
-        : 'app.bulbvpn.com.VPNExtension';
+    final providerBundleIdentifier = 'app.bulbvpn.com.VPNExtension';
 
     _log.addLog('[VpnService] Initializing OpenVPNDart with:');
     _log.addLog('[VpnService]   groupIdentifier: $groupIdentifier');

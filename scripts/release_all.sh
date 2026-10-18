@@ -59,8 +59,42 @@ build_ios() {
   copy_first "$OUT/${NAME}-ios.ipa" "$ipa"
 }
 
+# no_screenshot declares macOS support but ships no macOS pod. A no-op
+# plugin lets the desktop build link; screenshot calls already fail closed.
+prepare_macos_screenshot_stub() {
+  local root
+  root="$(find "$HOME/.pub-cache/hosted" -type d -name 'no_screenshot-*' | head -1)"
+  if [[ -z "$root" ]]; then
+    return 0
+  fi
+  mkdir -p "$root/macos/Classes"
+  cat > "$root/macos/no_screenshot.podspec" <<'EOF'
+Pod::Spec.new do |s|
+  s.name             = 'no_screenshot'
+  s.version          = '0.3.1'
+  s.summary          = 'No-op macOS screenshot plugin.'
+  s.homepage         = 'https://github.com/hasanabbassorathiya/BULBVPN'
+  s.license          = { :type => 'MIT' }
+  s.author           = { 'BULBVPN' => 'support@bulbvpn.com' }
+  s.source           = { :path => '.' }
+  s.osx.deployment_target = '13.0'
+  s.source_files = 'Classes/**/*'
+  s.dependency 'FlutterMacOS'
+  s.swift_version = '5.0'
+end
+EOF
+  cat > "$root/macos/Classes/NoScreenshotPlugin.swift" <<'EOF'
+import FlutterMacOS
+
+public class NoScreenshotPlugin: NSObject, FlutterPlugin {
+  public static func register(with registrar: FlutterPluginRegistrar) {}
+}
+EOF
+}
+
 build_macos() {
   echo "== macOS =="
+  prepare_macos_screenshot_stub
   flutter build macos --release
   local app="build/macos/Build/Products/Release/${NAME}.app"
   if [[ ! -d "$app" ]]; then
