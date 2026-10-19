@@ -507,3 +507,23 @@ Connected home screens from Android, iPad, and Mac are on
 [bulbvpn-e9b4c.web.app/app](https://bulbvpn-e9b4c.web.app/app).
 The iPhone is paired wirelessly, so the screenshot service that
 only sees USB could not capture it.
+
+### Store upload, 19 Oct 2026 07:14
+
+Code is on `redesign/production-grade` at `b49fd06`.
+
+- **Android.** `1.0.0 (10)` AAB is on the production track as a
+  draft (version code 10, edit `14411176918822422942`). Play
+  refuses `status completed` while the app itself is still a
+  draft: `Only releases with status draft may be created on draft
+  app.` Production goes live only after the app leaves draft in
+  Play Console.
+- **iOS.** IPA `1.0.0 (10)` committed to App Store Connect
+  (upload `c3e59db5-d6a2-4e5a-8287-9199f2b97b20`). Version 1.0 was
+  already `WAITING_FOR_REVIEW`, so this binary is the new build
+  for that version once processing finishes.
+- **macOS.** No Mac App Store installer certificate is on this
+  Mac (`3rd Party Mac Developer Installer` is absent). The
+  confirmed build stays a local Developer-signed app.
+- **Windows.** No Windows machine was attached, so nothing was
+  uploaded there.
