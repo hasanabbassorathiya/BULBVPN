@@ -324,9 +324,9 @@ Hosts tried included `156.239.242.10:443`, `219.100.37.11:443`,
 The earlier success on this phone used `sslDebug=3` and logged
 `SSL Handshake: TLSv1.0/TLS-DHE-RSA-WITH-AES-256-CBC-SHA`, then
 `CONNECTED` on `219.100.37.196:443` (tun `10.245.15.209`).
-`sslDebug=0` and `sslDebug=1` both stall after the certificate.
-The providers are set back to `sslDebug=3`. That binary was not
-the one installed for this pass.
+That debug level only prints the handshake. It does not change it.
+The providers stay at `sslDebug=1` so the iOS 16 iPad extension is
+not jetsam'd. Later failures are dead relays, not a missing debug flag.
 
 ### iPad (iPad 2017, iPad6,11, iOS 16.7.16, USB)
 
@@ -388,3 +388,122 @@ before any other relay, up to eight attempts. Random ports such as
 1220 and 1467 are not used for OpenVPN. Android still falls back to
 SoftEther and now tries three relays instead of one. The Android
 OpenVPN watchdog is 18s so a live handshake is not cut off at 10s.
+
+### Retest after the dial-order change, 19 Oct 2026 01:14
+
+The same devices, with OpenVPN limited to TCP 443 and
+`219.100.37.0/24` first.
+
+- **Android.** Probes reached `219.100.37.170`, `.117`, `.206`,
+  `.192`, and `.196` on port 443. Those OpenVPN attempts failed.
+  SoftEther then connected to `150.40.105.6`. The UI showed
+  Connected, about 41 KB/s down, exit `5.239.172.255`.
+- **iPhone.** Autoconnect dialed `219.100.37.11`, `.113`, `.99`,
+  `.97`, then `.118`, all TCP 443. The first four reported
+  disconnected. The log stopped on `.118` still connecting. No
+  `CONNECTED` line. `219.100.37.196`, the host from 19:56Z, was not
+  in this list.
+- **iPad.** Same Runner.app installed and launched. A short syslog
+  sample had no `VPNExtension` lines.
+- **macOS app.** `--bulb-connect` started the process. The BULBVPN
+  VPN profile stayed Disconnected and the app-group log gained no
+  new handshake.
+
+### Why the 19:56 iPhone session is not repeating
+
+The OpenVPNAdapter settings from that session are still in
+`ios/VPNExtension/PacketTunnelProvider.swift` and the macOS provider:
+`forceCiphersuitesAESCBC`, `disableClientCert`, TLS 1.0 as minimum
+and maximum, tls-auth key direction 1. That is the same pair
+[openvpn_flutter](https://github.com/nizwar/openvpn_flutter) documents
+as `certIsRequired: false` (otherwise iOS stays on "connecting") and
+[OpenVPNAdapter#15](https://github.com/ss-abramchuk/OpenVPNAdapter/issues/15)
+documents as `forceCiphersuitesAESCBC` plus `disableClientCert`.
+[openvpn_dart](https://github.com/mysteriumnetwork/openvpn_dart) does
+not expose another switch. Its Apple engine is OpenVPNAdapter, so
+the configuration lives in the extension.
+
+VPN Gate relays accept TCP and print `VERIFY OK` on hosts that never
+PUSH. The 19:56 connect was one live listener
+(`219.100.37.196:443`). Later passes dialed other addresses. Android
+OpenVPN also failed on `.117` and `.196` in the 01:14 pass, so those
+listeners had stopped finishing OpenVPN. The native SoftEther session
+on the same network still completes.
+
+### SoftEther client, not another OpenVPN flag
+
+[SoftEther Zig](https://github.com/devstroop/SoftEtherZig) v0.3.13 is
+the client Android already links. On this Mac its `vpnclient` reached
+`Authentication successful` and DHCP `10.244.203.219` against
+`219.100.37.179:443` (hub `VPNGATE`, user `vpn`, SNI
+`public-vpn-187.opengw.net`). Prebuilt libraries exist for iOS,
+macOS, Windows, and Android. The iPhone, iPad, and Mac app still
+start OpenVPNAdapter, so they do not use that session. Putting it in
+the packet tunnel means linking `libsoftether`, binding the socket to
+the physical interface, and dialing with `createTCPConnection` so the
+server socket does not loop into the tunnel.
+
+### Play production, 19 Oct 2026
+
+`flutter build appbundle --release` wrote
+`android/app/build/outputs/bundle/release/app-release.aab` for
+**1.0.0 (9)**. `gpd publish play --track production --status completed`
+uploaded far enough for Play to answer: only a draft release may be
+created on a draft app. Production already listed **1.0.0 (8)**. A
+later attempt to save version 9 as a production draft did not finish
+(token connection refused, then the bundle upload timed out). The
+API cannot mark production live until the Play app leaves draft in
+Play Console.
+
+### Fresh install, 19 Oct 2026 06:25
+
+The app was removed and installed again on every attached device.
+No Windows machine was attached.
+
+The first pass dialed OpenVPN before SoftEther on iPhone, iPad, and
+Android. Those OpenVPN attempts timed out. macOS dials SoftEther
+first and connected to `219.100.37.105` (`public-vpn-139.opengw.net`)
+in about nine seconds. DHCP was `10.239.17.103`, and
+`scutil --nc status "BULBVPN Secure Connection"` stayed Connected
+with traffic on the tunnel.
+
+`VpnController` now starts SoftEther before OpenVPN on iOS, iPad,
+and Android as well. OpenVPN remains the backup if those relays
+miss. A second install of that build connected:
+
+- **iPhone 16.** `CONNECTED via SoftEther 219.100.37.105` at
+  06:42 local. The packet-tunnel log says `softether connected`
+  at 03:12:08Z, bound to `en0`.
+- **iPad (iOS 16.7.16).** Same line, `CONNECTED via SoftEther
+  219.100.37.105`. The iPad clock is US Pacific, so the log reads
+  20:12:40 the previous evening.
+- **Android (CPH2691).** The first SoftEther dial was cancelled at
+  8 seconds (`connect code -12`, `SOFTETHER_ERR_CANCELLED`) and
+  then aborted in `closeTun` (fdsan double-close). The handshake
+  budget is the 28 second limit again, and `closeTun` checks the
+  fd before closing it. After that APK, the UI showed Connected
+  on `219.100.37.105`, TLS 1.2, AES-256-CBC, DHCP `10.239.49.252`.
+
+The Apple extension still links the repacked SoftEther static
+library and reads `# bulb-host` / `# bulb-sni` instead of starting
+OpenVPNAdapter for that attempt. macOS uses the same socketpair
+fd adapter. The separate iOS OpenSSL archives are not linked; the
+SoftEther archive already contains OpenSSL.
+
+### Confirmation reinstall, 19 Oct 2026 06:53
+
+The same apps were removed and installed again. SoftEther dials
+first. Each attached device connected to `219.100.37.105`:
+
+- **iPhone 16** at 06:53:42 local.
+- **iPad (iOS 16.7.16)** at 20:24:16 Pacific.
+- **macOS** at 06:54:05 local. System VPN status stayed Connected.
+- **Android (CPH2691)** at 06:54:27 local. The UI showed Connected.
+
+No Windows machine was attached. Store version for this tree is
+**1.0.0 (10)**.
+
+Connected home screens from Android, iPad, and Mac are on
+[bulbvpn-e9b4c.web.app/app](https://bulbvpn-e9b4c.web.app/app).
+The iPhone is paired wirelessly, so the screenshot service that
+only sees USB could not capture it.

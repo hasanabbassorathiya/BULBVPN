@@ -72,6 +72,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     /// How many OpenVPN log lines have been kept this dial. iOS 16
     /// packet-tunnel jetsam is about 50 MB (tighter on 2 GB A9 iPads).
     private var retainedLogLines = 0
+    private var softEther: SoftEtherSession?
 
     override func startTunnel(
         options: [String: NSObject]?,
@@ -103,6 +104,23 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             groupIdentifier = String(decoding: groupData, as: UTF8.self)
         }
 
+        if let text = String(data: ovpnFileContent, encoding: .utf8),
+           let host = Self.marker(text, name: "bulb-host") {
+            let sni = Self.marker(text, name: "bulb-sni") ?? "\(host).opengw.net"
+            fileLog("softether host=\(host) sni=\(sni)")
+            let session = SoftEtherSession(provider: self)
+            softEther = session
+            session.start(host: host, sni: sni) { [weak self] error in
+                if let error {
+                    self?.fileLog("softether failed \(error.localizedDescription)")
+                } else {
+                    self?.fileLog("softether connected")
+                }
+                completionHandler(error)
+            }
+            return
+        }
+
         let prepared = Self.softEtherProfile(ovpnFileContent)
         let configuration = OpenVPNConfiguration()
         configuration.fileContent = prepared
@@ -115,9 +133,11 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         // VPN Gate ships a dummy client cert. Sending it leaves SoftEther
         // waiting after VERIFY OK. Username/password is the real auth.
         configuration.disableClientCert = true
-        // Level 1 records handshake errors. Level 3 filled the iOS 16
-        // iPad extension and got it jetsam'd. The TLS 1.0 pin is what
-        // finishes SoftEther, not this debug level.
+        // Level 1 records errors. Level 3 was used once to confirm the
+        // ClientHello: TLS 1.0 and suites 0x0039/0x0033 went out to
+        // 219.100.37.196 and the server never finished, so the
+        // `SSL Handshake: TLSv1.0/...` line did not return. Level 3
+        // also jetsams the iOS 16 iPad extension.
         configuration.sslDebugLevel = 1
         if let tls10 = OpenVPNMinTLSVersion(rawValue: 1) {
             configuration.minTLSVersion = tls10
@@ -182,6 +202,12 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         completionHandler: @escaping () -> Void
     ) {
         os_log("stopTunnel reason=%{public}d", log: Self.vpnLog, type: .info, reason.rawValue)
+        if let softEther {
+            softEther.stop()
+            self.softEther = nil
+            completionHandler()
+            return
+        }
         cancelStartTimeout()
         stopHandler = completionHandler
         tunnelUp = false
@@ -211,7 +237,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             startHandler(Self.configurationError("OpenVPN handshake timed out"))
         }
         startTimeoutWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 22, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 45, execute: work)
     }
 
     private func cancelStartTimeout() {
@@ -247,6 +273,17 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     /// express on their own: drop the dummy client cert, force tls-auth
     /// key-direction 1, and remove tls-version-min / tls-cipher lines that
     /// override `forceCiphersuitesAESCBC` on the mbed TLS build.
+    private static func marker(_ text: String, name: String) -> String? {
+        let prefix = "# \(name) "
+        for line in text.split(whereSeparator: \.isNewline) {
+            if line.hasPrefix(prefix) {
+                let value = line.dropFirst(prefix.count).trimmingCharacters(in: .whitespaces)
+                if !value.isEmpty { return String(value) }
+            }
+        }
+        return nil
+    }
+
     private static func softEtherProfile(_ data: Data) -> Data {
         guard var text = String(data: data, encoding: .utf8) else { return data }
         text = stripBlock(text, tag: "cert")
@@ -409,6 +446,7 @@ extension PacketTunnelProvider: OpenVPNAdapterDelegate {
             || logMessage.contains("ERROR")
             || logMessage.contains("AUTH")
             || logMessage.contains("PUSH")
+            || logMessage.contains("SSL Handshake")
             || logMessage.contains("fatal")
         if keep {
             os_log("%{public}@", log: Self.vpnLog, type: .info, logMessage)

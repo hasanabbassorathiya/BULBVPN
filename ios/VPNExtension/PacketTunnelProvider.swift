@@ -115,9 +115,11 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         // VPN Gate ships a dummy client cert. Sending it leaves SoftEther
         // waiting after VERIFY OK. Username/password is the real auth.
         configuration.disableClientCert = true
-        // Level 1 records handshake errors. Level 3 filled the iOS 16
-        // iPad extension and got it jetsam'd. The TLS 1.0 pin is what
-        // finishes SoftEther, not this debug level.
+        // Level 1 records errors. Level 3 was used once to confirm the
+        // ClientHello: TLS 1.0 and suites 0x0039/0x0033 went out to
+        // 219.100.37.196 and the server never finished, so the
+        // `SSL Handshake: TLSv1.0/...` line did not return. Level 3
+        // also jetsams the iOS 16 iPad extension.
         configuration.sslDebugLevel = 1
         if let tls10 = OpenVPNMinTLSVersion(rawValue: 1) {
             configuration.minTLSVersion = tls10
@@ -211,7 +213,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             startHandler(Self.configurationError("OpenVPN handshake timed out"))
         }
         startTimeoutWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 22, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 45, execute: work)
     }
 
     private func cancelStartTimeout() {
@@ -409,6 +411,7 @@ extension PacketTunnelProvider: OpenVPNAdapterDelegate {
             || logMessage.contains("ERROR")
             || logMessage.contains("AUTH")
             || logMessage.contains("PUSH")
+            || logMessage.contains("SSL Handshake")
             || logMessage.contains("fatal")
         if keep {
             os_log("%{public}@", log: Self.vpnLog, type: .info, logMessage)

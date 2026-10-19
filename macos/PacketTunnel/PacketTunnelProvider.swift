@@ -65,6 +65,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     private var sawConnecting = false
     private var startTimeoutWork: DispatchWorkItem?
     private var retainedLogLines = 0
+    private var softEther: SoftEtherSession?
 
     override func startTunnel(
         options: [String: NSObject]?,
@@ -94,6 +95,23 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         }
         if let groupData = providerConfiguration["groupIdentifier"] as? Data {
             groupIdentifier = String(decoding: groupData, as: UTF8.self)
+        }
+
+        if let text = String(data: ovpnFileContent, encoding: .utf8),
+           let host = Self.marker(text, name: "bulb-host") {
+            let sni = Self.marker(text, name: "bulb-sni") ?? "\(host).opengw.net"
+            fileLog("softether host=\(host) sni=\(sni)")
+            let session = SoftEtherSession(provider: self)
+            softEther = session
+            session.start(host: host, sni: sni) { [weak self] error in
+                if let error {
+                    self?.fileLog("softether failed \(error.localizedDescription)")
+                } else {
+                    self?.fileLog("softether connected")
+                }
+                completionHandler(error)
+            }
+            return
         }
 
         let prepared = Self.softEtherProfile(ovpnFileContent)
@@ -172,6 +190,12 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         completionHandler: @escaping () -> Void
     ) {
         os_log("stopTunnel reason=%{public}d", log: Self.vpnLog, type: .info, reason.rawValue)
+        if let softEther {
+            softEther.stop()
+            self.softEther = nil
+            completionHandler()
+            return
+        }
         cancelStartTimeout()
         stopHandler = completionHandler
         tunnelUp = false
@@ -198,7 +222,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             startHandler(Self.configurationError("OpenVPN handshake timed out"))
         }
         startTimeoutWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 22, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 45, execute: work)
     }
 
     private func cancelStartTimeout() {
@@ -231,6 +255,17 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     /// express on their own: drop the dummy client cert, force tls-auth
     /// key-direction 1, and remove tls-version-min / tls-cipher lines that
     /// override `forceCiphersuitesAESCBC` on the mbed TLS build.
+    private static func marker(_ text: String, name: String) -> String? {
+        let prefix = "# \(name) "
+        for line in text.split(whereSeparator: \.isNewline) {
+            if line.hasPrefix(prefix) {
+                let value = line.dropFirst(prefix.count).trimmingCharacters(in: .whitespaces)
+                if !value.isEmpty { return String(value) }
+            }
+        }
+        return nil
+    }
+
     private static func softEtherProfile(_ data: Data) -> Data {
         guard var text = String(data: data, encoding: .utf8) else { return data }
         text = stripBlock(text, tag: "cert")
@@ -390,6 +425,7 @@ extension PacketTunnelProvider: OpenVPNAdapterDelegate {
             || logMessage.contains("ERROR")
             || logMessage.contains("AUTH")
             || logMessage.contains("PUSH")
+            || logMessage.contains("SSL Handshake")
             || logMessage.contains("fatal")
         if keep {
             os_log("%{public}@", log: Self.vpnLog, type: .info, logMessage)

@@ -70,8 +70,8 @@ class VpnController {
   // Rotation tuning
   // ---------------------------------------------------------------------------
   /// Time we allow one candidate to reach `connected` before moving on.
-    static const _androidAttemptWatchdog = Duration(seconds: 18);
-  static const _appleAttemptWatchdog = Duration(seconds: 25);
+  static const _androidAttemptWatchdog = Duration(seconds: 18);
+  static const _appleAttemptWatchdog = Duration(seconds: 50);
 
   /// OpenVPN on iOS does not report connected until the extension applies
   /// tunnel settings. 10s expired while that handshake was still running.
@@ -93,6 +93,9 @@ class VpnController {
   /// Apple OpenVPN 3 stack (TLS 1.0, TCP 443). Other VPN Gate hosts often
   /// accept the socket, print VERIFY OK, and never PUSH.
   static const _provenSubnet = '219.100.37';
+
+  /// The relay that reached CONNECTED on the iPhone (18 Oct 19:56Z).
+  static const _provenFirstIp = '219.100.37.192';
   static const _lastGoodKey = 'bulbvpn_last_good_server_v1';
   static const _lastSslKey = 'bulbvpn_last_ssl_v1';
 
@@ -229,10 +232,19 @@ class VpnController {
       final ordered = sortByMeasuredPing(servers, measured);
       final picked = <({String dial, String sni})>[];
       final seenSubnet = <String>{};
+      // Relays that finished a SoftEther session on this network.
+      const preferred = <({String dial, String sni})>[
+        (dial: '219.100.37.105', sni: 'public-vpn-139.opengw.net'),
+        (dial: '219.100.37.179', sni: 'public-vpn-187.opengw.net'),
+        (dial: '219.100.37.192', sni: 'public-vpn-192.opengw.net'),
+      ];
+      for (final target in preferred) {
+        picked.add(target);
+        seenSubnet.add(_subnet(target.dial));
+      }
       final remembered = await _readLastSsl();
-      if (remembered != null) {
+      if (remembered != null && seenSubnet.add(_subnet(remembered.dial))) {
         picked.add(remembered);
-        seenSubnet.add(_subnet(remembered.dial));
       }
       for (final server in ordered) {
         if (server.ip.isEmpty) continue;
@@ -331,6 +343,7 @@ class VpnController {
   bool _isProven(Candidate c) => _subnet(c.ip) == _provenSubnet;
 
   int _endpointRank(Candidate c) {
+    if (c.ip == _provenFirstIp) return -1;
     final ping = c.csvPing <= 0 ? 9999 : c.csvPing;
     final tcp = c.protocol == 'tcp' ? 0 : 100000;
     // Non-443 ports accept TCP and then never finish. The relays that
@@ -351,11 +364,40 @@ class VpnController {
       if (on443 == null) continue;
       byIp.putIfAbsent(on443.ip, () => on443);
     }
+    final donor = byIp.values.cast<Candidate?>().firstWhere(
+      (candidate) => candidate != null && _isProven(candidate),
+      orElse: () => byIp.values.isEmpty ? null : byIp.values.first,
+    );
+    if (donor != null && !byIp.containsKey(_provenFirstIp)) {
+      final pinned = _rewriteRemote(donor, _provenFirstIp);
+      if (pinned != null) byIp[_provenFirstIp] = pinned;
+    }
     final ordered = byIp.values.toList()
-      ..sort((a, b) => _endpointRank(a).compareTo(_endpointRank(b)));
-    final proven = ordered.where(_isProven).take(6);
-    final others = ordered.where((c) => !_isProven(c)).take(10);
+      ..sort((a, b) {
+        if (a.ip == _provenFirstIp) return -1;
+        if (b.ip == _provenFirstIp) return 1;
+        return _endpointRank(a).compareTo(_endpointRank(b));
+      });
+    final proven = ordered.where(_isProven).take(8);
+    final others = ordered.where((c) => !_isProven(c)).take(4);
     return [...proven, ...others];
+  }
+
+  /// Same OpenVPN profile, different `remote` address.
+  Candidate? _rewriteRemote(Candidate donor, String ip) {
+    final replaced = donor.config.replaceFirstMapped(
+      RegExp(r'^(\s*remote\s+)\S+(\s+\d+)', multiLine: true),
+      (match) => '${match.group(1)}$ip${match.group(2)}',
+    );
+    if (replaced == donor.config) return null;
+    return Candidate(
+      ip: ip,
+      port: 443,
+      protocol: 'tcp',
+      csvPing: 0,
+      b64: donor.b64,
+      config: replaced,
+    );
   }
 
   /// One endpoint per /24 per pass, best endpoint first inside each subnet.
@@ -495,10 +537,20 @@ class VpnController {
       }
     }
 
-    // OpenVPN is the path that actually forwards on mobile data. SoftEther
-    // is one short fallback after those attempts, not a minute of dead handshakes.
+    // Fresh installs on 19 Oct 2026: macOS connected in one SoftEther dial
+    // to 219.100.37.105. iPhone, iPad, and Android spent the whole attempt
+    // on OpenVPN timeouts and never reached that session. Dial SoftEther
+    // first on every platform. OpenVPN stays as the backup.
+    if (Platform.isIOS || Platform.isMacOS) {
+      if (await _tryAppleSoftEther(container, connectionNotifier)) {
+        return;
+      }
+    }
     if (Platform.isAndroid) {
       await SoftEtherVpn.disconnect();
+      if (await _tryOneSoftEther(container, connectionNotifier)) {
+        return;
+      }
     }
 
     // A picked server is tried first. It does not replace the rest of the
@@ -556,6 +608,11 @@ class VpnController {
     final ranked = await _rankByReachability(
       dialable.isEmpty ? candidates : dialable,
     );
+    final pinned = ranked.where((c) => c.ip == _provenFirstIp).toList();
+    if (pinned.isNotEmpty) {
+      ranked.removeWhere((c) => c.ip == _provenFirstIp);
+      ranked.insert(0, pinned.first);
+    }
     if (ranked.isEmpty) {
       _log.addLog('[VpnController] ERROR: no candidates after ranking');
       connectionNotifier.setError();
@@ -619,27 +676,72 @@ class VpnController {
     }
 
     if (gen != _rotationGeneration) return;
-    if (Platform.isAndroid &&
-        await _tryOneSoftEther(container, connectionNotifier)) {
-      return;
-    }
-    if (gen == _rotationGeneration) {
-      final tried = ranked.take(_maxAttempts).length;
-      _log.addLog('[VpnController] All $tried attempts failed');
-      connectionNotifier.setError();
-      _vibrationService.vibrateError();
-      try {
-        await _analyticsService.logVpnFailed(
-          ip: 'rotation',
-          ping: 0,
-          rawStage: 'all_candidates_failed',
-          serverLabel: _serverLabel,
-        );
-      } catch (_) {}
-    }
+    final tried = ranked.take(_maxAttempts).length;
+    _log.addLog('[VpnController] All $tried attempts failed');
+    connectionNotifier.setError();
+    _vibrationService.vibrateError();
+    try {
+      await _analyticsService.logVpnFailed(
+        ip: 'rotation',
+        ping: 0,
+        rawStage: 'all_candidates_failed',
+        serverLabel: _serverLabel,
+      );
+    } catch (_) {}
   }
 
-  /// One SoftEther dial, used only after OpenVPN misses. Returns true when up.
+  /// SoftEther inside the Apple packet tunnel. The profile is a marker the
+  /// extension reads; OpenVPN never sees it when this path connects.
+  Future<bool> _tryAppleSoftEther(
+    ProviderContainer container,
+    ConnectionStateNotifier connectionNotifier,
+  ) async {
+    final generation = _rotationGeneration;
+    final targets = await _fastestSoftEtherTargets(container);
+    if (targets.isEmpty || generation != _rotationGeneration) return false;
+    for (final target in targets.take(3)) {
+      if (generation != _rotationGeneration) return false;
+      connectionNotifier.setConnecting();
+      _log.addLog('[VpnController] Apple SoftEther ${target.dial}');
+      final config =
+          '''
+# bulb-host ${target.dial}
+# bulb-sni ${target.sni}
+client
+dev tun
+proto tcp
+remote ${target.dial} 443
+nobind
+<auth-user-pass>
+vpn
+vpn
+</auth-user-pass>
+''';
+      final candidate = Candidate(
+        ip: target.dial,
+        port: 443,
+        protocol: 'tcp',
+        csvPing: 0,
+        b64: '',
+        config: config,
+      );
+      final ok = await _attemptCandidate(candidate);
+      if (generation != _rotationGeneration) return false;
+      if (ok) {
+        _log.addLog('[VpnController] CONNECTED via SoftEther ${target.dial}');
+        final label = '${target.sni} · ${target.dial}';
+        await VpnSessionStore.save(label: label, host: target.dial);
+        await _saveLastSsl(target.dial, target.sni);
+        connectionNotifier.holdEngineEvents(false);
+        connectionNotifier.setConnected();
+        return true;
+      }
+      _log.addLog('[VpnController] Apple SoftEther failed ${target.dial}');
+    }
+    return false;
+  }
+
+  /// SoftEther dials tried before OpenVPN. Returns true when one comes up.
   Future<bool> _tryOneSoftEther(
     ProviderContainer container,
     ConnectionStateNotifier connectionNotifier,

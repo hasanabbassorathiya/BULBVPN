@@ -390,12 +390,14 @@ class SoftEtherVpnService : VpnService() {
     }
 
     private fun closeTun() {
-        if (tunFd >= 0) {
-            try {
-                ParcelFileDescriptor.adoptFd(tunFd).close()
-            } catch (_: Exception) {
-            }
-            tunFd = -1
+        val fd = tunFd
+        tunFd = -1
+        if (fd < 0) return
+        try {
+            // fromFd dups. A closed fd throws here instead of aborting in fdsan.
+            ParcelFileDescriptor.fromFd(fd).close()
+            ParcelFileDescriptor.adoptFd(fd).close()
+        } catch (_: Throwable) {
         }
     }
 
@@ -479,8 +481,10 @@ class SoftEtherVpnService : VpnService() {
         }
         protectedSockets = 0
         val started = android.os.SystemClock.elapsedRealtime()
-        val cap = started + minOf(budgetMs, 8_000)
-        var deadline = started + 8_000
+        // iPhone and Mac finish this same relay in about 9s. An 8s cap
+        // cancels the handshake (code -12) before DHCP returns.
+        val cap = started + budgetMs
+        var deadline = cap
         while (worker.isAlive && android.os.SystemClock.elapsedRealtime() < deadline) {
             Thread.sleep(200)
             val now = android.os.SystemClock.elapsedRealtime()

@@ -490,6 +490,51 @@ strong {
   background: linear-gradient(180deg, var(--amber), transparent 80%);
 }
 
+/* ---------- device row ---------- */
+
+.device-row {
+  display: grid;
+  grid-template-columns: 0.7fr 0.9fr 1.3fr;
+  gap: clamp(18px, 3vw, 28px);
+  align-items: end;
+  margin-bottom: clamp(36px, 6vw, 64px);
+}
+
+.tablet,
+.desktop {
+  position: relative;
+  border: 1px solid var(--hairline);
+  background: var(--surface);
+  box-shadow:
+    0 40px 80px -40px rgba(0, 0, 0, 0.85),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.tablet {
+  border-radius: 28px;
+  padding: 10px;
+}
+
+.desktop {
+  border-radius: 16px;
+  padding: 8px;
+}
+
+.tablet img,
+.desktop img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.tablet img {
+  border-radius: 18px;
+}
+
+.desktop img {
+  border-radius: 10px;
+}
+
 /* ---------- phone gallery ---------- */
 
 .gallery {
@@ -1040,6 +1085,10 @@ strong {
   .gallery .shot,
   .gallery .shot.wide {
     grid-column: span 6;
+  }
+
+  .device-row {
+    grid-template-columns: 1fr;
   }
 
   .gallery .shot.offset {
