@@ -1,5 +1,8 @@
 # Connecting BULBVPN on Iranian mobile data
 
+For the full catalog of VPN failures (every platform, IR Wi‑Fi / mobile
+data, and global), see [`vpn-issues.md`](vpn-issues.md).
+
 Release builds hide the in-app log. The traces below are from a debug
 session on the device, not from the Play or TestFlight UI.
 
@@ -437,11 +440,11 @@ the client Android already links. On this Mac its `vpnclient` reached
 `Authentication successful` and DHCP `10.244.203.219` against
 `219.100.37.179:443` (hub `VPNGATE`, user `vpn`, SNI
 `public-vpn-187.opengw.net`). Prebuilt libraries exist for iOS,
-macOS, Windows, and Android. The iPhone, iPad, and Mac app still
-start OpenVPNAdapter, so they do not use that session. Putting it in
-the packet tunnel means linking `libsoftether`, binding the socket to
-the physical interface, and dialing with `createTCPConnection` so the
-server socket does not loop into the tunnel.
+macOS, Windows, and Android. Apple apps now dial SoftEther first
+via `# bulb-host` / `# bulb-sni` in the packet tunnel (`libsoftether`,
+physical-interface bind, `createTCPConnection` so the control socket
+does not loop into the tunnel). OpenVPNAdapter remains the fallback.
+See [`vpn-issues.md`](vpn-issues.md).
 
 ### Play production, 19 Oct 2026
 
@@ -527,3 +530,26 @@ Code is on `redesign/production-grade` at `b49fd06`.
   confirmed build stays a local Developer-signed app.
 - **Windows.** No Windows machine was attached, so nothing was
   uploaded there.
+
+### Country pick SoftEther escape, 20 Oct 2026
+
+Selecting a country whose SoftEther relays were all unreachable
+used to skip SoftEther and then hang on OpenVPN until the connect
+budget expired (Mac log: Russia plan 0/5 reachable, Connecting
+~55s). The controller now:
+
+1. Tries the picked SoftEther host and same-country SoftEther.
+2. Appends proven / measured SoftEther as an **escape** after that.
+3. TCP-probes SoftEther on Android and Apple before a native dial.
+4. Fail-fasts the OpenVPN path when a strict probe finds 0 reachable.
+
+Device check the same evening:
+
+- **Android (CPH2691).** Auto SoftEther Connected
+  (`219.100.37.212`). Picked United States → SoftEther plan
+  included JP escape → CONNECTED via SoftEther
+  `219.100.37.105` (UI Japan LIVE).
+- **iPad (iOS 16.7.16).** After Allow on Add VPN Configurations,
+  SoftEther auto Connected via `219.100.37.105` in ~9s.
+- Store tree for this pass is **1.0.0 (11)**. See also
+  [`vpn-issues.md`](vpn-issues.md).

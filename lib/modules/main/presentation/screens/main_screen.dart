@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -10,6 +11,7 @@ import 'package:openvpn_dart/vpn_status.dart' as vpn_status;
 import 'package:bulbvpn/core/theme/app_colors.dart';
 import 'package:bulbvpn/core/theme/app_text_styles.dart';
 import 'package:bulbvpn/modules/core/log.dart';
+import 'package:bulbvpn/modules/core/relay_target.dart';
 import 'package:bulbvpn/modules/core/server_catalog.dart';
 import 'package:bulbvpn/modules/core/softether_vpn.dart';
 import 'package:bulbvpn/modules/core/vpn_controller.dart';
@@ -103,14 +105,56 @@ class _MainScreenState extends ConsumerState<MainScreen> with WidgetsBindingObse
   }
 
   Future<void> _restoreLiveTunnel() async {
-    final tunnel = await SoftEtherVpn.status();
-    final engine = await VpnService().getStatus();
-    final live = tunnel.running || engine == vpn_status.ConnectionStatus.connected;
-    if (!live) return;
+    final current = ref.read(connectionStateProvider).status;
+    if (current == ConnectionStatus.disconnecting) return;
+    // This runs from a lifecycle callback, so a platform-channel exception
+    // must never escape as an unhandled async error. If neither engine can be
+    // asked, treat the tunnel as unverified rather than claiming it is up.
+    var tunnel = SoftEtherStatus.down;
+    try {
+      tunnel = await SoftEtherVpn.status();
+    } catch (e) {
+      log.addLog('[MainScreen] SoftEther status failed on resume: $e');
+    }
+    var engine = vpn_status.ConnectionStatus.disconnected;
+    try {
+      engine = await VpnService().getStatus();
+    } catch (e) {
+      log.addLog('[MainScreen] Engine status failed on resume: $e');
+    }
+    final live =
+        tunnel.isLive || engine == vpn_status.ConnectionStatus.connected;
+    if (!mounted) return;
+    if (!live) {
+      // The tunnel died while the app was backgrounded / the OS revoked it.
+      // Returning silently here left the orb on "Connected" while all traffic
+      // was already leaving in the clear.
+      final latest = ref.read(connectionStateProvider).status;
+      if (latest == ConnectionStatus.connected) {
+        final notifier = ref.read(connectionStateProvider.notifier);
+        notifier.holdEngineEvents(false);
+        notifier.setDisconnected();
+        ref.read(connectedRelayProvider.notifier).state = null;
+        ref.read(softEtherHostProvider.notifier).state = null;
+        _connectedAt = null;
+        _prevByteIn = null;
+        log.addLog('[MainScreen] Cleared stale connected state');
+      } else if (latest == ConnectionStatus.disconnected ||
+          latest == ConnectionStatus.error ||
+          latest == ConnectionStatus.noInternet) {
+        // The tunnel is really gone. Drop the persisted relay too, so a later
+        // session cannot inherit the country of a dead one.
+        await VpnSessionStore.clear();
+      }
+      return;
+    }
+    if (ref.read(connectionStateProvider).status == ConnectionStatus.disconnecting) {
+      return;
+    }
     final session = await VpnSessionStore.read();
     if (!mounted) return;
     final notifier = ref.read(connectionStateProvider.notifier);
-    notifier.adoptLiveTunnel(holdEngine: tunnel.running);
+    notifier.adoptLiveTunnel(holdEngine: tunnel.isLive);
     final label = session?.label.isNotEmpty == true
         ? session!.label
         : (tunnel.host.isNotEmpty ? tunnel.host : null);
@@ -118,8 +162,27 @@ class _MainScreenState extends ConsumerState<MainScreen> with WidgetsBindingObse
       ref.read(softEtherHostProvider.notifier).state = label;
     }
     if (session != null) {
+      final relay = RelayTarget(
+        dial: session.host,
+        sni: tunnel.host,
+        countryCode: session.countryCode,
+        countryName: session.countryName,
+        source: 'restored',
+      );
+      if (relay.countryCode.isNotEmpty || relay.countryName.isNotEmpty) {
+        ref.read(connectedRelayProvider.notifier).state = relay;
+      }
       _connectedAt = DateTime.fromMillisecondsSinceEpoch(session.startedMs);
       _updateSession();
+    }
+    if (ref.read(connectedRelayProvider) == null) {
+      // A live tunnel with no persisted relay metadata is still live. Publish
+      // an explicit unknown relay so the orb and the pill cannot disagree.
+      ref.read(connectedRelayProvider.notifier).state = RelayTarget(
+        dial: tunnel.host,
+        sni: tunnel.host,
+        source: 'restored',
+      );
     }
     log.addLog('[MainScreen] Restored live tunnel ${label ?? tunnel.host}');
   }
@@ -134,6 +197,8 @@ class _MainScreenState extends ConsumerState<MainScreen> with WidgetsBindingObse
         '${server.displayCountry} · ${server.ip}',
         hostName: server.hostName,
         ip: server.ip,
+        countryCode: server.countryShort,
+        countryName: server.displayCountry,
       );
     } catch (e) {
       log.addLog('[MainScreen] ERROR decoding server config: $e');
@@ -452,41 +517,34 @@ class _MainScreenState extends ConsumerState<MainScreen> with WidgetsBindingObse
     }
   }
 
-  String _stageLabel(vpn_status.ConnectionStatus? engine, ConnectionStatus status) {
-    if (status == ConnectionStatus.connected) return 'secure tunnel';
-    if (status == ConnectionStatus.disconnected ||
-        status == ConnectionStatus.error ||
-        status == ConnectionStatus.noInternet) {
-      return status == ConnectionStatus.disconnected ? 'idle' : 'tunnel closed';
-    }
-    switch (engine) {
-      case vpn_status.ConnectionStatus.connected:
+  String _stageLabel(ConnectionStatus status) {
+    switch (status) {
+      case ConnectionStatus.connected:
         return 'secure tunnel';
-      case vpn_status.ConnectionStatus.connecting:
+      case ConnectionStatus.connecting:
         return 'opening tunnel';
-      case vpn_status.ConnectionStatus.disconnecting:
+      case ConnectionStatus.analyzing:
+        return 'testing tunnel';
+      case ConnectionStatus.loading:
+        return 'preparing';
+      case ConnectionStatus.disconnecting:
         return 'closing tunnel';
-      case vpn_status.ConnectionStatus.disconnected:
-      case vpn_status.ConnectionStatus.unknown:
-      case null:
-        // Fall through to app-level states while the engine settles.
-        return switch (status) {
-          ConnectionStatus.connecting => 'opening tunnel',
-          ConnectionStatus.analyzing => 'testing tunnel',
-          ConnectionStatus.disconnecting => 'closing tunnel',
-          _ => 'connecting',
-        };
+      case ConnectionStatus.error:
+      case ConnectionStatus.noInternet:
+        return 'tunnel closed';
+      case ConnectionStatus.disconnected:
+        return 'idle';
     }
   }
 
-  String _orbLabel(ConnectionStatus status, vpn_status.ConnectionStatus? engine) {
+  String _orbLabel(ConnectionStatus status) {
     switch (status) {
       case ConnectionStatus.connected:
         return 'Tap to disconnect';
       case ConnectionStatus.loading:
       case ConnectionStatus.connecting:
       case ConnectionStatus.analyzing:
-        return _stageLabel(engine, status);
+        return _stageLabel(status);
       case ConnectionStatus.disconnecting:
         return 'closing tunnel';
       case ConnectionStatus.error:
@@ -504,23 +562,35 @@ class _MainScreenState extends ConsumerState<MainScreen> with WidgetsBindingObse
     final pingState = ref.watch(serverPingProvider);
     final catalog = ref.watch(serversProvider).valueOrNull ?? const <VpnServer>[];
     final fastest = _fastestServer(catalog, pingState.byIp);
+    final connectedRelay = ref.watch(connectedRelayProvider);
     final exitIp = ref.watch(exitIpProvider);
     final beforeIp = ref.watch(ipWhoProvider.select((state) => state.before?.ip));
-    final visibleExit =
-        exitIp != null && exitIp.ip.isNotEmpty && exitIp.ip != beforeIp
-            ? exitIp
-            : null;
+    // On Android the app is deliberately excluded from its own TUN so the
+    // SoftEther TLS socket survives the default route. An in-app exit-IP
+    // lookup therefore leaves via the carrier and would report the wrong
+    // country. The authoritative relay is shown instead; never label the
+    // carrier address as the tunnel exit.
+    final canMeasureExit = !Platform.isAndroid;
+    final visibleExit = canMeasureExit &&
+            exitIp != null &&
+            exitIp.ip.isNotEmpty &&
+            exitIp.ip != beforeIp
+        ? exitIp
+        : null;
     final ipWho = ref.watch(ipWhoProvider);
-    final sslHost = ref.watch(softEtherHostProvider);
     final status = cs.status;
+    final live = status == ConnectionStatus.connected;
     final afterInfo = ipWho.after;
     final afterMatches =
         visibleExit != null && afterInfo != null && afterInfo.ip == visibleExit.ip;
-    final endpointLabel = sslHost != null
-        ? publicRelayLabel(sslHost, catalog)
+    // While live, only the relay that the native session reports may be shown.
+    // The picker and the "fastest" hint are not evidence of where traffic exits.
+    // If the relay is momentarily unknown, say so instead of substituting the
+    // picker's country (the original US/India label with a Japanese exit bug).
+    final endpointLabel = status == ConnectionStatus.connected
+        ? (connectedRelay?.displayName ?? 'Connected relay')
         : (selected?.publicLabel ??
-            fastest?.publicLabel ??
-            'finding fastest');
+            (fastest != null ? 'Auto · ${fastest.publicLabel}' : 'Auto · finding fastest'));
 
     // Push server picks into the controller.
     ref.listen(selectedServerProvider, (prev, next) {
@@ -638,7 +708,8 @@ class _MainScreenState extends ConsumerState<MainScreen> with WidgetsBindingObse
                         ),
                         const SizedBox(height: 5),
                         Text(
-                          '${_stageLabel(cs.vpnStatus, status)} · $endpointLabel',
+                          '${_stageLabel(status)} · '
+                          '${live ? endpointLabel : (selected != null ? '${selected.displayCountry} picked' : 'auto')}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: AppTextStyles.monoValue(
@@ -658,7 +729,7 @@ class _MainScreenState extends ConsumerState<MainScreen> with WidgetsBindingObse
                         ref,
                         phase,
                         tight: true,
-                        label: _orbLabel(status, cs.vpnStatus),
+                        label: _orbLabel(status),
                       ),
                     )
                   else
@@ -669,7 +740,7 @@ class _MainScreenState extends ConsumerState<MainScreen> with WidgetsBindingObse
                           ref,
                           phase,
                           tight: false,
-                          label: _orbLabel(status, cs.vpnStatus),
+                          label: _orbLabel(status),
                         ),
                       ),
                     ),
@@ -770,9 +841,13 @@ class _MainScreenState extends ConsumerState<MainScreen> with WidgetsBindingObse
                           _buildIpRow(
                             label: visibleExit == null ? 'EXIT IP' : 'AFTER',
                             ip: visibleExit?.ip,
-                            location: afterMatches
-                                ? _ipLocationLabel(afterInfo)
-                                : (visibleExit?.loc ?? ''),
+                            location: visibleExit == null &&
+                                    Platform.isAndroid &&
+                                    live
+                                ? 'not measured on this device'
+                                : (afterMatches
+                                    ? _ipLocationLabel(afterInfo)
+                                    : (visibleExit?.loc ?? '')),
                             copyable: true,
                           ),
                         ],
@@ -787,7 +862,8 @@ class _MainScreenState extends ConsumerState<MainScreen> with WidgetsBindingObse
                     child: _serverPill(
                       selected,
                       catalog: catalog,
-                      sslHost: sslHost,
+                      connectedRelay: connectedRelay,
+                      live: live,
                       fastest: fastest,
                       ping: fastest == null ? null : pingState.byIp[fastest.ip],
                       probing: pingState.probing && selected == null,
@@ -896,28 +972,41 @@ class _MainScreenState extends ConsumerState<MainScreen> with WidgetsBindingObse
   Widget _serverPill(
     VpnServer? selected, {
     required List<VpnServer> catalog,
-    String? sslHost,
+    required RelayTarget? connectedRelay,
+    required bool live,
     VpnServer? fastest,
     ServerPing? ping,
     bool probing = false,
   }) {
-    final shown = selected ?? fastest;
-    final flagCode = shown == null
-        ? null
-        : (shown.countryShort.toLowerCase().length == 2
-              ? shown.countryShort.toLowerCase()
-              : 'xx');
-    final title = sslHost != null
-        ? publicRelayLabel(sslHost, catalog)
-        : (selected?.publicLabel ?? shown?.publicLabel ?? 'Finding a server');
-    final subtitle = sslHost != null
-        ? 'Private tunnel'
+    // The flag, title and badge must all describe the same thing. Mixing the
+    // picker's country with the connected relay's name was the visible symptom
+    // of the old JP fallback overriding the selected server.
+    final liveRelay = live ? connectedRelay : null;
+    final flagCode = live
+        ? (liveRelay == null || liveRelay.code.isEmpty
+            ? null
+            : liveRelay.code)
         : (selected != null
-            ? 'Selected'
+            ? (selected.countryShort.toLowerCase().length == 2
+                ? selected.countryShort.toLowerCase()
+                : null)
+            : (fastest != null && fastest.countryShort.toLowerCase().length == 2
+                ? fastest.countryShort.toLowerCase()
+                : null));
+    final title = live
+        ? (liveRelay?.displayName ?? 'Connected relay')
+        : (selected?.publicLabel ??
+            (fastest != null ? 'Auto · ${fastest.publicLabel}' : 'Choose a server'));
+    final subtitle = live
+        ? (liveRelay == null
+            ? 'Connected · relay details unavailable'
+            : 'Connected · ${liveRelay.code.isEmpty ? 'private relay' : liveRelay.code}')
+        : (selected != null
+            ? 'Selected relay'
             : (probing && ping == null
                 ? 'Measuring from this device'
-                : 'Fastest'));
-    final liveMs = sslHost == null && selected == null ? ping : null;
+                : 'Auto · fastest measured'));
+    final liveMs = !live && selected == null ? ping : null;
     return GestureDetector(
       onTap: () => showServerSheet(context),
       behavior: HitTestBehavior.opaque,
@@ -926,7 +1015,11 @@ class _MainScreenState extends ConsumerState<MainScreen> with WidgetsBindingObse
         decoration: BoxDecoration(
           color: AppColors.surface.withValues(alpha: 0.85),
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppColors.hairline),
+          border: Border.all(
+            color: live
+                ? AppColors.emerald.withValues(alpha: 0.35)
+                : AppColors.hairline,
+          ),
         ),
         child: Row(
           children: [
@@ -993,12 +1086,14 @@ class _MainScreenState extends ConsumerState<MainScreen> with WidgetsBindingObse
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
                 decoration: BoxDecoration(
-                  color: AppColors.amberTint,
+                  color: live ? AppColors.emerald.withValues(alpha: 0.14) : AppColors.amberTint,
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Text(
-                  selected == null ? 'FASTEST' : 'PICKED',
-                  style: AppTextStyles.microLabel(color: AppColors.amber),
+                  live ? 'LIVE' : (selected == null ? 'AUTO' : 'PICKED'),
+                  style: AppTextStyles.microLabel(
+                    color: live ? AppColors.emerald : AppColors.amber,
+                  ),
                 ),
               ),
             const SizedBox(width: 6),

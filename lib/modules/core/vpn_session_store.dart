@@ -8,10 +8,17 @@ class VpnSessionSnapshot {
   final String host;
   final int startedMs;
 
+  /// Country as published by the catalog, so a restored session shows the
+  /// relay that is really up instead of whatever the picker happens to hold.
+  final String countryCode;
+  final String countryName;
+
   const VpnSessionSnapshot({
     required this.label,
     required this.host,
     required this.startedMs,
+    this.countryCode = '',
+    this.countryName = '',
   });
 }
 
@@ -21,6 +28,8 @@ class VpnSessionStore {
   static Future<void> save({
     required String label,
     required String host,
+    String countryCode = '',
+    String countryName = '',
   }) async {
     final prefs = await SharedPreferences.getInstance();
     final existing = await read();
@@ -34,21 +43,28 @@ class VpnSessionStore {
         'label': label,
         'host': host,
         'startedMs': started,
+        'countryCode': countryCode,
+        'countryName': countryName,
       }),
     );
   }
 
   static Future<VpnSessionSnapshot?> read() async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_key);
-    if (raw == null || raw.isEmpty) return null;
     try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_key);
+      if (raw == null || raw.isEmpty) return null;
       final map = jsonDecode(raw) as Map<String, dynamic>;
+      final host = map['host']?.toString() ?? '';
+      if (host.isEmpty) return null;
       return VpnSessionSnapshot(
-        label: map['label']?.toString() ?? '',
-        host: map['host']?.toString() ?? '',
-        startedMs: (map['startedMs'] as num?)?.toInt() ??
+        label: map['label']?.toString() ?? host,
+        host: host,
+        startedMs:
+            int.tryParse(map['startedMs']?.toString() ?? '') ??
             DateTime.now().millisecondsSinceEpoch,
+        countryCode: map['countryCode']?.toString() ?? '',
+        countryName: map['countryName']?.toString() ?? '',
       );
     } catch (_) {
       return null;
@@ -56,7 +72,9 @@ class VpnSessionStore {
   }
 
   static Future<void> clear() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_key);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_key);
+    } catch (_) {}
   }
 }

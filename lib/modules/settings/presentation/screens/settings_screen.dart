@@ -2,14 +2,12 @@ import 'package:bulbvpn/app/links.dart';
 import 'package:bulbvpn/core/theme/app_colors.dart';
 import 'package:bulbvpn/core/theme/app_text_styles.dart';
 import 'package:bulbvpn/modules/core/log.dart';
-import 'package:bulbvpn/modules/core/server_catalog.dart';
-import 'package:bulbvpn/modules/core/vpn_server.dart';
-import 'package:bulbvpn/modules/core/softether_vpn.dart';
+import 'package:bulbvpn/modules/core/relay_target.dart';
 import 'package:bulbvpn/modules/main/presentation/widgets/server_sheet.dart';
 import 'package:bulbvpn/modules/monetization/private_app.dart';
+import 'package:bulbvpn/modules/settings/presentation/screens/logs_screen.dart';
 import 'package:bulbvpn/shared/layout/main_screen_background.dart';
 import 'package:bulbvpn/shared/providers/connection_state_provider.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -22,9 +20,9 @@ class SettingsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final connection = ref.watch(connectionStateProvider);
-    final relay = ref.watch(softEtherHostProvider);
+    final connectedRelay = ref.watch(connectedRelayProvider);
     final picked = ref.watch(selectedServerProvider);
-    final catalog = ref.watch(serversProvider).valueOrNull ?? const <VpnServer>[];
+    final live = connection.status == ConnectionStatus.connected;
 
     return MainScreenBackground(
       connectionStatus: connection.status,
@@ -52,8 +50,8 @@ class SettingsScreen extends ConsumerWidget {
                   _Row(label: 'Status', value: _statusLabel(connection.status)),
                   _Row(
                     label: 'Relay',
-                    value: relay != null
-                        ? publicRelayLabel(relay, catalog)
+                    value: live
+                        ? (connectedRelay?.displayName ?? 'Connected relay')
                         : (picked?.publicLabel ?? 'Fastest available'),
                   ),
                   _Row(
@@ -64,56 +62,72 @@ class SettingsScreen extends ConsumerWidget {
                 ],
               ),
             ),
-            if (kDebugMode) ...[
-              const SizedBox(height: 18),
-              Text('LOGS', style: AppTextStyles.microLabel()),
-              const SizedBox(height: 8),
-              _Card(
+            const SizedBox(height: 18),
+            Text('DIAGNOSTICS', style: AppTextStyles.microLabel()),
+            const SizedBox(height: 8),
+            _Card(
+              child: InkWell(
+                onTap: () => _openLogs(context),
                 child: ValueListenableBuilder<int>(
                   valueListenable: Log().version,
                   builder: (_, __, ___) {
-                    final lines = Log().recent(40);
-                    if (lines.isEmpty) {
-                      return const Padding(
-                        padding: EdgeInsets.all(16),
-                        child: Text(
-                          'No tunnel logs yet.',
-                          style: TextStyle(color: AppColors.mute, fontSize: 13),
-                        ),
-                      );
-                    }
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        for (final line in lines.take(12))
-                          Padding(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 14,
-                              vertical: 4,
-                            ),
-                            child: Text(
-                              redactRelayDetail(line),
-                              style: AppTextStyles.logLine(
-                                color: AppColors.steel,
-                              ),
+                    final count = Log().lines.length;
+                    return Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 13, 6, 13),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.receipt_long_rounded,
+                            size: 20,
+                            color: AppColors.amber,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Connection logs',
+                                  style: TextStyle(
+                                    color: AppColors.ink,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  count == 0
+                                      ? 'No entries yet · tap to open'
+                                      : '$count lines · newest first',
+                                  style: const TextStyle(
+                                    color: AppColors.mute,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                        Align(
-                          alignment: Alignment.centerRight,
-                          child: TextButton(
-                            onPressed: Log().clearLogs,
-                            child: const Text(
-                              'Clear',
-                              style: TextStyle(color: AppColors.amber),
+                          IconButton(
+                            tooltip: 'Copy logs',
+                            onPressed: () => copyLogs(context, ref),
+                            icon: const Icon(
+                              Icons.copy_rounded,
+                              size: 19,
+                              color: AppColors.steel,
                             ),
                           ),
-                        ),
-                      ],
+                          const Icon(
+                            Icons.chevron_right_rounded,
+                            size: 20,
+                            color: AppColors.mute,
+                          ),
+                        ],
+                      ),
                     );
                   },
                 ),
               ),
-            ],
+            ),
             const SizedBox(height: 18),
             Text('ABOUT', style: AppTextStyles.microLabel()),
             const SizedBox(height: 8),
@@ -150,6 +164,12 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
+  void _openLogs(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => const LogsScreen()),
+    );
+  }
+
   String _statusLabel(ConnectionStatus status) {
     return switch (status) {
       ConnectionStatus.connected => 'Connected',
@@ -177,6 +197,7 @@ class _Card extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: AppColors.surface.withValues(alpha: 0.85),
         borderRadius: BorderRadius.circular(16),

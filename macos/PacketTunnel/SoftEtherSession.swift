@@ -58,7 +58,42 @@ final class SoftEtherSession {
     private var uploadFd: Int32 = -1
     private var downloadFd: Int32 = -1
     private var packetPump: Thread?
-    private var running = false
+
+    /// `softether_destroy` while another thread is inside the client (health
+    /// probe, DHCP wait, packet pump) aborts the extension. Every handle access
+    /// is serialised here, and a destroy is deferred while a connect is still
+    /// on the stack.
+    private let stateLock = NSLock()
+    private var _running = false
+    private var connecting = false
+    private var cancelled = false
+
+    private var running: Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return _running
+    }
+
+    private func markRunning() -> Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        if cancelled { return false }
+        _running = true
+        connecting = false
+        return true
+    }
+
+    private var isCancelled: Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return cancelled
+    }
+
+    private func currentClient() -> softether_client_t? {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return client
+    }
 
     init(provider: NEPacketTunnelProvider) {
         self.provider = provider
@@ -72,22 +107,28 @@ final class SoftEtherSession {
 
         Thread.detachNewThread { [self] in
             var code = self.connect(host: host, sni: sni, plain: false)
-            if code != 0 {
+            // Only an authentication rejection (-5, SOFTETHER_ERR_AUTH_FAILED)
+            // is worth retrying with the plain password. Retrying on a
+            // timeout / connection failure doubles the wait on a dead or
+            // filtered relay and is why a selected country could sit on
+            // "connecting" for over a minute.
+            let authFailed: Int32 = -5
+            if code == authFailed {
                 code = self.connect(host: host, sni: sni, plain: true)
             }
             if code != 0 {
-                completion(self.failure("softether connect \(code)"))
+                self.failStart("softether connect \(code)", completion: completion)
                 return
             }
-            guard let client = self.client else {
-                completion(self.failure("softether missing client"))
+            guard let client = self.currentClient() else {
+                self.failStart("softether missing client", completion: completion)
                 return
             }
             // DHCP Ack lands on the library's data thread after connect
             // returns. The address stays 0 until that Ack.
             var ip: UInt32 = 0
             let dhcpDeadline = Date().addingTimeInterval(12)
-            while Date() < dhcpDeadline {
+            while Date() < dhcpDeadline && !self.isCancelled {
                 ip = softether_get_assigned_ip(client)
                 if ip != 0 { break }
                 Thread.sleep(forTimeInterval: 0.25)
@@ -95,7 +136,7 @@ final class SoftEtherSession {
             let mask = softether_get_assigned_mask(client)
             let gateway = softether_get_gateway_ip(client)
             if ip == 0 {
-                completion(self.failure("softether no address"))
+                self.failStart("softether no address", completion: completion)
                 return
             }
             let settings = self.tunnelSettings(
@@ -106,31 +147,114 @@ final class SoftEtherSession {
             )
             self.provider?.setTunnelNetworkSettings(settings) { error in
                 if let error {
-                    completion(error)
+                    self.failStart(
+                        "tunnel settings \(error.localizedDescription)",
+                        completion: completion
+                    )
                     return
                 }
-                self.running = true
+                if !self.markRunning() {
+                    self.failStart("cancelled", completion: completion)
+                    return
+                }
                 self.startPacketPump()
+                self.startHealthMonitor()
                 completion(nil)
             }
         }
     }
 
-    func stop() {
-        running = false
-        if let client {
-            softether_request_stop(client)
-            softether_disconnect(client)
-            softether_destroy(client)
+    /// The tunnel extension is the only process that can prove the SSL session
+    /// is still alive. If the library reports three consecutive misses, fail
+    /// the tunnel so the app can re-dial instead of showing a false "Connected".
+    private func startHealthMonitor() {
+        Thread.detachNewThread { [weak self] in
+            guard let self else { return }
+            Thread.sleep(forTimeInterval: 10)
+            var misses = 0
+            while self.running {
+                Thread.sleep(forTimeInterval: 5)
+                if !self.running { return }
+                self.stateLock.lock()
+                let client = self.client
+                let alive = client.map { softether_is_connected($0) } ?? false
+                self.stateLock.unlock()
+                if alive {
+                    misses = 0
+                } else {
+                    misses += 1
+                    if misses >= 3 {
+                        self.stateLock.lock()
+                        self._running = false
+                        self.stateLock.unlock()
+                        self.provider?.cancelTunnelWithError(
+                            NSError(
+                                domain: "SoftEther",
+                                code: 2,
+                                userInfo: [NSLocalizedDescriptionKey: "softether link lost"]
+                            )
+                        )
+                        return
+                    }
+                }
+            }
         }
-        client = nil
-        if uploadFd >= 0 { close(uploadFd) }
-        if downloadFd >= 0 { close(downloadFd) }
+    }
+
+    func stop() {
+        stateLock.lock()
+        _running = false
+        cancelled = true
+        let handle = client
+        let inFlight = connecting
+        if !inFlight {
+            client = nil
+        }
+        let up = uploadFd
+        let down = downloadFd
         uploadFd = -1
         downloadFd = -1
+        stateLock.unlock()
+        if let handle {
+            // Tearing a client down while softether_connect is still inside it
+            // is the crash this lock exists to prevent. Ask it to return and
+            // let the connect thread destroy its own handle.
+            softether_request_stop(handle)
+            if !inFlight {
+                softether_disconnect(handle)
+                softether_destroy(handle)
+            }
+        }
+        // Let the packet pump leave poll()/recv() before the fds are reused.
+        Thread.sleep(forTimeInterval: 0.2)
+        if up >= 0 { close(up) }
+        if down >= 0 { close(down) }
         if SoftEtherSession.current === self {
             SoftEtherSession.current = nil
         }
+    }
+
+    private func failStart(
+        _ message: String,
+        completion: @escaping (Error?) -> Void
+    ) {
+        stateLock.lock()
+        let handle = client
+        client = nil
+        connecting = false
+        let up = uploadFd
+        let down = downloadFd
+        uploadFd = -1
+        downloadFd = -1
+        stateLock.unlock()
+        if let handle {
+            softether_request_stop(handle)
+            softether_disconnect(handle)
+            softether_destroy(handle)
+        }
+        if up >= 0 { close(up) }
+        if down >= 0 { close(down) }
+        completion(failure(message))
     }
 
     func dial(host: String, port: UInt16) -> Int32 {
@@ -182,7 +306,15 @@ final class SoftEtherSession {
         guard let created = softether_create(host, 443, "VPNGATE", "vpn", "vpn") else {
             return -99
         }
+        stateLock.lock()
+        if cancelled {
+            stateLock.unlock()
+            softether_destroy(created)
+            return -2
+        }
         client = created
+        connecting = true
+        stateLock.unlock()
         softether_set_verify_certificate(created, false)
         softether_set_hostname(created, sni)
         // Network Extension owns the utun. Both Apple builds use the fd
@@ -194,21 +326,58 @@ final class SoftEtherSession {
         softether_set_udp_acceleration(created, false)
         softether_set_ip_version(created, 4)
         softether_set_connect_timeout(created, 20000)
+        // Keep the carrier NAT mapping alive and surface a black-holed session
+        // instead of leaving the UI on "Connected" forever.
+        softether_set_keepalive_interval(created, 15000)
+        softether_set_read_timeout(created, 30000)
         if plain {
             softether_set_plain_password(created)
         }
         let code = softether_connect(created)
-        if code != 0 {
+        stateLock.lock()
+        let aborted = cancelled
+        if code != 0 || aborted {
+            // Keep `connecting` true through DHCP/settings on success so a
+            // user stop cannot destroy the handle under the start thread.
+            connecting = false
+            if client == created {
+                client = nil
+            }
+        }
+        stateLock.unlock()
+        if code != 0 || aborted {
+            softether_request_stop(created)
+            softether_disconnect(created)
             softether_destroy(created)
-            client = nil
-            return code
+            // The socketpair ends installed for this attempt belong to this
+            // attempt. Without closing them every retry leaks four fds and a
+            // long-lived extension eventually runs out.
+            closeTunnelFds()
+            return code != 0 ? code : -2
         }
         return 0
     }
 
+    /// Closes the app-side ends of the two tunnel socketpairs. Only safe while
+    /// no packet pump is running (before the tunnel is marked running).
+    private func closeTunnelFds() {
+        stateLock.lock()
+        let up = uploadFd
+        let down = downloadFd
+        uploadFd = -1
+        downloadFd = -1
+        stateLock.unlock()
+        if up >= 0 { close(up) }
+        if down >= 0 { close(down) }
+    }
+
     private func installTunnelFds(_ client: softether_client_t) {
-        guard let upload = Self.socketPair(SOCK_DGRAM),
-              let download = Self.socketPair(SOCK_DGRAM) else {
+        guard let upload = Self.socketPair(SOCK_DGRAM) else {
+            return
+        }
+        guard let download = Self.socketPair(SOCK_DGRAM) else {
+            close(upload.0)
+            close(upload.1)
             return
         }
         var size: Int32 = 1024 * 1024
@@ -217,18 +386,27 @@ final class SoftEtherSession {
             setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &size, len)
             setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &size, len)
         }
+        stateLock.lock()
+        if cancelled {
+            stateLock.unlock()
+            for fd in [upload.0, upload.1, download.0, download.1] { close(fd) }
+            return
+        }
         // Library reads upload[0] and writes download[0].
         softether_set_tunnel_fds(client, download.0, upload.0)
         uploadFd = upload.1
         downloadFd = download.1
+        stateLock.unlock()
     }
 
     private func startPacketPump() {
-        guard let flow = provider?.packetFlow, downloadFd >= 0, uploadFd >= 0 else {
-            return
-        }
+        stateLock.lock()
         let download = downloadFd
         let upload = uploadFd
+        stateLock.unlock()
+        guard let flow = provider?.packetFlow, download >= 0, upload >= 0 else {
+            return
+        }
         packetPump = Thread {
             var buffer = [UInt8](repeating: 0, count: 2048)
             while self.running {

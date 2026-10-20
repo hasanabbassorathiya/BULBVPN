@@ -19,10 +19,14 @@ extern void softether_set_max_connections(softether_client_t client, uint8_t cou
 extern void softether_set_udp_acceleration(softether_client_t client, bool enabled);
 extern void softether_set_ip_version(softether_client_t client, int version);
 extern void softether_set_connect_timeout(softether_client_t client, uint32_t ms);
+extern void softether_set_read_timeout(softether_client_t client, uint32_t ms);
+extern void softether_set_keepalive_interval(softether_client_t client, uint32_t ms);
 extern void softether_set_tunnel_fd(softether_client_t client, int32_t fd);
 extern int softether_replace_tun_fd(softether_client_t client, int32_t fd);
 extern uint32_t softether_get_assigned_ip(const softether_client_t client);
 extern uint32_t softether_get_assigned_mask(const softether_client_t client);
+extern bool softether_is_connected(const softether_client_t client);
+extern uint32_t softether_get_effective_server_ip(const softether_client_t client);
 extern void softether_set_android_protect(int (*cb)(int fd));
 extern void softether_set_plain_password(softether_client_t client);
 extern int softether_get_stats(const softether_client_t client, void *out);
@@ -109,6 +113,10 @@ Java_app_bulbvpn_com_SoftEtherVpnService_nativeConfigure(
     softether_set_udp_acceleration(c, false);
     softether_set_ip_version(c, 4);
     softether_set_connect_timeout(c, 12000);
+    // Keep the CGNAT mapping in Irancell/other carriers alive and fail a
+    // black-holed session instead of reporting it as connected forever.
+    softether_set_keepalive_interval(c, 15000);
+    softether_set_read_timeout(c, 30000);
     if (plain) softether_set_plain_password(c);
     (*env)->ReleaseStringUTFChars(env, sni, s);
 }
@@ -151,6 +159,22 @@ Java_app_bulbvpn_com_SoftEtherVpnService_nativeAssignedMask(
     (void)env;
     (void)thiz;
     return (jint)softether_get_assigned_mask((softether_client_t)client);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_app_bulbvpn_com_SoftEtherVpnService_nativeIsConnected(
+    JNIEnv *env, jobject thiz, jlong client) {
+    (void)env;
+    (void)thiz;
+    return softether_is_connected((softether_client_t)client) ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jint JNICALL
+Java_app_bulbvpn_com_SoftEtherVpnService_nativeEffectiveServerIp(
+    JNIEnv *env, jobject thiz, jlong client) {
+    (void)env;
+    (void)thiz;
+    return (jint)softether_get_effective_server_ip((softether_client_t)client);
 }
 
 JNIEXPORT jint JNICALL

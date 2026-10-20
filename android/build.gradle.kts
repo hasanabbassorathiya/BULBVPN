@@ -12,6 +12,20 @@ allprojects {
     }
 }
 
+// Flutter reads its artifacts from <project>/build. Keep every Gradle module
+// writing there too; without this the APK lands in android/app/build and
+// `flutter run` reports that no APK was produced.
+val newBuildDir: Directory =
+    rootProject.layout.buildDirectory
+        .dir("../../build")
+        .get()
+rootProject.layout.buildDirectory.value(newBuildDir)
+
+subprojects {
+    val newSubprojectBuildDir: Directory = newBuildDir.dir(project.name)
+    project.layout.buildDirectory.value(newSubprojectBuildDir)
+}
+
 subprojects {
     afterEvaluate {
         extensions.findByType(LibraryExtension::class.java)?.apply {

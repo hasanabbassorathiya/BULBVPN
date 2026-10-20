@@ -13,13 +13,24 @@ Future<void> showServerSheet(BuildContext context) {
   return showModalBottomSheet(
     context: context,
     isScrollControlled: true,
+    useSafeArea: true,
     backgroundColor: AppColors.surface,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
     ),
-    builder: (_) => const FractionallySizedBox(
-      heightFactor: 0.75,
-      child: ServerSheet(),
+    builder: (sheetContext) => Padding(
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.viewInsetsOf(sheetContext).bottom,
+      ),
+      child: FractionallySizedBox(
+        heightFactor: 0.82,
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 640),
+            child: const ServerSheet(),
+          ),
+        ),
+      ),
     ),
   );
 }
@@ -66,61 +77,93 @@ class _ServerSheetState extends ConsumerState<ServerSheet> {
           padding: const EdgeInsets.fromLTRB(20, 12, 12, 8),
           child: Row(
             children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Servers',
-                    style: TextStyle(
-                      color: AppColors.ink,
-                      fontSize: 18,
-                      fontWeight: FontWeight.w600,
-                      letterSpacing: -0.3,
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Servers',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: AppColors.ink,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: -0.3,
+                      ),
                     ),
-                  ),
-                  Text(
-                    serversAsync.maybeWhen(
-                      data: (servers) => servers.isEmpty
-                          ? 'Loading catalog'
-                          : '${servers.length} relays · lowest ping first',
-                      orElse: () => 'Loading catalog',
+                    Text(
+                      serversAsync.maybeWhen(
+                        data: (servers) => servers.isEmpty
+                            ? 'Loading catalog'
+                            : '${servers.length} relays · lowest ping first',
+                        orElse: () => 'Loading catalog',
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style:
+                          const TextStyle(color: AppColors.mute, fontSize: 12),
                     ),
-                    style: const TextStyle(color: AppColors.mute, fontSize: 12),
-                  ),
-                ],
-              ),
-              const Spacer(),
-              // Ping all — real device latency, not the server-reported ms.
-              TextButton.icon(
-                onPressed: pingState.probing
-                    ? null
-                    : () async {
-                        final serversAsync = ref.read(serversProvider);
-                        final servers = serversAsync.valueOrNull;
-                        if (servers == null || servers.isEmpty) return;
-                        await ref
-                            .read(serverPingProvider.notifier)
-                            .pingAll(servers);
-                      },
-                icon: pingState.probing
-                    ? const SizedBox(
-                        width: 14,
-                        height: 14,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: AppColors.amber,
-                        ),
-                      )
-                    : const Icon(Icons.speed, size: 18, color: AppColors.amber),
-                label: Text(
-                  pingState.probing ? 'Pinging…' : 'Ping all',
-                  style: const TextStyle(
-                    color: AppColors.amber,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                  ),
+                  ],
                 ),
               ),
+              const SizedBox(width: 8),
+              // Ping all — real device latency, not the server-reported ms.
+              if (MediaQuery.sizeOf(context).width < 380)
+                IconButton(
+                  onPressed: pingState.probing
+                      ? null
+                      : () async {
+                          final serversAsync = ref.read(serversProvider);
+                          final servers = serversAsync.valueOrNull;
+                          if (servers == null || servers.isEmpty) return;
+                          await ref
+                              .read(serverPingProvider.notifier)
+                              .pingAll(servers);
+                        },
+                  tooltip: 'Ping all',
+                  icon: pingState.probing
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: AppColors.amber,
+                          ),
+                        )
+                      : const Icon(Icons.speed, size: 20, color: AppColors.amber),
+                )
+              else
+                TextButton.icon(
+                  onPressed: pingState.probing
+                      ? null
+                      : () async {
+                          final serversAsync = ref.read(serversProvider);
+                          final servers = serversAsync.valueOrNull;
+                          if (servers == null || servers.isEmpty) return;
+                          await ref
+                              .read(serverPingProvider.notifier)
+                              .pingAll(servers);
+                        },
+                  icon: pingState.probing
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: AppColors.amber,
+                          ),
+                        )
+                      : const Icon(Icons.speed, size: 18, color: AppColors.amber),
+                  label: Text(
+                    pingState.probing ? 'Pinging…' : 'Ping all',
+                    style: const TextStyle(
+                      color: AppColors.amber,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
               IconButton(
                 onPressed: () => Navigator.pop(context),
                 icon: const Icon(Icons.close, color: AppColors.steel, size: 22),
@@ -137,7 +180,7 @@ class _ServerSheetState extends ConsumerState<ServerSheet> {
             onChanged: (v) => setState(() => _query = v.trim().toLowerCase()),
             style: const TextStyle(color: AppColors.ink, fontSize: 14),
             decoration: InputDecoration(
-              hintText: 'Search country or host',
+              hintText: 'Search country',
               hintStyle: const TextStyle(color: AppColors.mute, fontSize: 14),
               prefixIcon:
                   const Icon(Icons.search, color: AppColors.mute, size: 20),
@@ -147,6 +190,74 @@ class _ServerSheetState extends ConsumerState<ServerSheet> {
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(14),
                 borderSide: BorderSide.none,
+              ),
+            ),
+          ),
+        ),
+        // Auto mode is an explicit choice, not a hidden "tap the selection
+        // again" gesture. It resets the picker so the connect path is free to
+        // use the fastest relay measured on this device.
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () {
+              ref.read(selectedServerProvider.notifier).state = null;
+              Navigator.pop(context);
+            },
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: selected == null
+                    ? AppColors.amberTint
+                    : Colors.transparent,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: selected == null
+                      ? AppColors.amber.withValues(alpha: 0.35)
+                      : AppColors.hairline,
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.bolt,
+                    size: 18,
+                    color: selected == null ? AppColors.amber : AppColors.steel,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Auto',
+                          style: TextStyle(
+                            color: selected == null
+                                ? AppColors.amber
+                                : AppColors.ink,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        const Text(
+                          'Fastest relay measured from this device',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style:
+                              TextStyle(color: AppColors.mute, fontSize: 11),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (selected == null)
+                    const Icon(
+                      Icons.check_circle,
+                      size: 18,
+                      color: AppColors.amber,
+                    ),
+                ],
               ),
             ),
           ),
@@ -333,11 +444,13 @@ class _ServerRow extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 2),
-                  const Text(
-                    'Private relay',
+                  Text(
+                    server.countryLong.isEmpty
+                        ? 'Private relay'
+                        : '${server.countryLong} · relay',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
+                    style: const TextStyle(
                       color: AppColors.mute,
                       fontSize: 11,
                     ),

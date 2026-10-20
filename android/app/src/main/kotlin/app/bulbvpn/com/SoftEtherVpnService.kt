@@ -10,10 +10,16 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.VpnService
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.ParcelFileDescriptor
+import android.os.SystemClock
 import android.util.Log
 import java.net.Inet4Address
 import java.net.InetAddress
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -22,14 +28,37 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 class SoftEtherVpnService : VpnService() {
     private val running = AtomicBoolean(false)
-    private var client: Long = 0
-    private var tunFd: Int = -1
+    // Guards the native handle and the tun fd. The session thread, the
+    // connectivity callback and a user disconnect all touch them; destroying a
+    // client while the liveness probe is inside it aborts the whole process.
+    private val sessionLock = Any()
+    @Volatile private var client: Long = 0
+    @Volatile private var tunFd: Int = -1
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     @Volatile var activeHost: String = ""
     @Volatile private var tunnelUp: Boolean = false
     @Volatile private var carrier: Network? = null
+    @Volatile private var carrierUp: Boolean = false
     @Volatile private var connectInFlight = false
     @Volatile private var protectedSockets = 0
+    @Volatile private var stopReason: String = ""
+    @Volatile private var effectiveIp: String = ""
+    @Volatile private var connectedAt: Long = 0
+    @Volatile private var networkGeneration: Int = 0
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    // Small in-memory ring buffer exposed to the Dart diagnostics sheet. It
+    // answers "why did this carrier fail?" without needing adb/logcat.
+    private val diag = ArrayDeque<String>()
+    private val diagStamp = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
+
+    private fun note(message: String) {
+        Log.i(TAG, message)
+        synchronized(diag) {
+            if (diag.size >= 240) diag.removeFirst()
+            diag.add("${diagStamp.format(Date())} $message")
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -45,11 +74,39 @@ class SoftEtherVpnService : VpnService() {
         }
     }
 
+    private fun updateNotification(text: String) {
+        try {
+            val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                Notification.Builder(this, CHANNEL)
+            } else {
+                @Suppress("DEPRECATION")
+                Notification.Builder(this)
+            }
+            val notification = builder
+                .setContentTitle("BULBVPN")
+                .setContentText(text)
+                .setSmallIcon(android.R.drawable.ic_lock_lock)
+                .setOngoing(true)
+                .build()
+            getSystemService(NotificationManager::class.java)
+                ?.notify(NOTIFICATION_ID, notification)
+        } catch (error: Throwable) {
+            Log.w(TAG, "notification update failed", error)
+        }
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val notification = Notification.Builder(this, CHANNEL)
+        val notificationBuilder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Notification.Builder(this, CHANNEL)
+        } else {
+            @Suppress("DEPRECATION")
+            Notification.Builder(this)
+        }
+        val notification = notificationBuilder
             .setContentTitle("BULBVPN")
-            .setContentText("Opening SSL tunnel")
+            .setContentText("Connecting…")
             .setSmallIcon(android.R.drawable.ic_lock_lock)
+            .setOngoing(true)
             .build()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             startForeground(
@@ -74,11 +131,32 @@ class SoftEtherVpnService : VpnService() {
             stopSelf()
             return START_NOT_STICKY
         }
-        if (!running.compareAndSet(false, true)) {
-            finish(tunnelUp, if (tunnelUp) "already running" else "busy")
+        // A previous handshake that timed out can leave the gate closed while
+        // no tunnel exists. Clear that stale gate instead of rejecting the
+        // next relay as "busy" forever.
+        if (connectInFlight) {
+            finish(false, "busy")
             return START_STICKY
         }
+        if (running.get()) {
+            // A live tunnel for the requested relay can be adopted. Anything
+            // else means the caller wants a different exit; refusing is honest
+            // and lets Dart tear the old tunnel down instead of reporting
+            // success for a session it did not ask for.
+            if (tunnelUp && host == activeHost) {
+                finish(true, "already running")
+            } else {
+                finish(false, "relay_changed")
+            }
+            return START_STICKY
+        }
+        running.set(true)
+        stopReason = ""
+        effectiveIp = ""
+        connectedAt = 0
+        lastReason = ""
         activeHost = host
+        note("service start host=$host sni=$sni")
         rememberRelay(host, sni)
         watchDefaultNetwork()
         Thread {
@@ -102,13 +180,60 @@ class SoftEtherVpnService : VpnService() {
             } catch (_: Exception) {
             }
         }
+        val generation = ++networkGeneration
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
                 val caps = manager.getNetworkCapabilities(network) ?: return
                 if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) return
                 if (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) return
+                val previous = carrier
                 carrier = network
+                carrierUp = true
                 pinCarrier()
+                // A live TCP session is bound to the old carrier. Keeping it
+                // after Wi-Fi ↔ mobile-data switches is what leaves the orb on
+                // "Connected" while nothing can leave the phone.
+                if (tunnelUp && previous != null && previous != network) {
+                    note("carrier moved $previous -> $network")
+                    val oldTunnel = tunnelUp
+                    tunnelUp = false
+                    Thread {
+                        if (oldTunnel) {
+                            finish(false, "network_changed")
+                            shutdown("network_changed")
+                        }
+                    }.apply { name = "softether-carrier-move" }.start()
+                }
+            }
+
+            override fun onLost(network: Network) {
+                if (network != carrier) return
+                carrierUp = false
+                note("underlying network lost $network")
+                mainHandler.postDelayed({
+                    if (generation == networkGeneration && carrier == network && !carrierUp) {
+                        if (tunnelUp) {
+                            tunnelUp = false
+                            finish(false, "network_lost")
+                            shutdown("network_lost")
+                        }
+                    }
+                }, 1_500)
+            }
+
+            override fun onCapabilitiesChanged(
+                network: Network,
+                caps: NetworkCapabilities,
+            ) {
+                if (network != carrier) return
+                val online = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                if (!online && carrierUp) {
+                    carrierUp = false
+                    note("carrier lost INTERNET capability")
+                } else if (online && !carrierUp) {
+                    carrierUp = true
+                    pinCarrier()
+                }
             }
         }
         networkCallback = callback
@@ -153,9 +278,10 @@ class SoftEtherVpnService : VpnService() {
                 caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
         } ?: return
         carrier = current
+        carrierUp = true
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
             setUnderlyingNetworks(arrayOf(current))
-            Log.i(TAG, "pinned underlying $current")
+            note("pinned underlying $current")
         }
     }
 
@@ -169,26 +295,29 @@ class SoftEtherVpnService : VpnService() {
                 ?.hostAddress
                 ?: host
         }
-        Log.i(TAG, "dial $host -> $address sni=$sni")
+        note("dial $host -> $address sni=$sni")
         System.loadLibrary("softether_jni")
         nativeSetProtect()
         val relayPrefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val remembered = relayPrefs.getString(PREF_TUN_IP, "").orEmpty()
         val rememberedHost = relayPrefs.getString(PREF_TUN_HOST, "").orEmpty()
         if (remembered.isNotEmpty() && rememberedHost == address) {
-            Log.i(TAG, "fast path $remembered")
+            note("fast path $remembered")
             var handle = connectOnRoutedTun(address, sni, remembered, 16)
+            if (!running.get()) return
             if (handle != 0L) {
-                val got = nativeAssignedIp(handle)
-                if (got != 0 && formatIp(got) != remembered) {
-                    val movedIp = formatIp(got)
-                    val movedPrefix = Integer.bitCount(nativeAssignedMask(handle)).coerceIn(8, 32)
-                    Log.i(TAG, "address moved to $movedIp/$movedPrefix")
+                val got = sampledAddress(handle)
+                if (got != null && got.first != 0 && formatIp(got.first) != remembered) {
+                    val movedIp = formatIp(got.first)
+                    val movedPrefix = Integer.bitCount(got.second).coerceIn(8, 32)
+                    note("address moved to $movedIp/$movedPrefix")
                     retireClient()
                     handle = connectOnRoutedTun(address, sni, movedIp, movedPrefix)
+                    if (!running.get()) return
                 }
                 if (handle != 0L) {
-                    val shown = nativeAssignedIp(handle)
+                    val shown = sampledAddress(handle)?.first ?: 0
+                    if (!running.get()) return
                     holdSession(if (shown != 0) formatIp(shown) else remembered)
                     return
                 }
@@ -199,7 +328,7 @@ class SoftEtherVpnService : VpnService() {
                 return
             }
             retireClient()
-            Log.i(TAG, "fast path missed, probing")
+            note("fast path missed, probing")
         }
         val created = nativeCreate(address, 443, "VPNGATE", "vpn", "vpn")
         if (created == 0L) {
@@ -208,31 +337,50 @@ class SoftEtherVpnService : VpnService() {
             stopSelf()
             return
         }
-        client = created
-        nativeConfigure(created, sni, false)
-        tunFd = openTun("10.211.254.2", 24, defaultRoute = false)
-        nativeSetTun(created, tunFd)
-        Log.i(TAG, "connecting $address sni=$sni")
+        // softether_connect() initializes the packet adapter from the fd that
+        // is configured at that moment. With no fd it authenticates, then
+        // fails with SOFTETHER_ERR_ADAPTER (-9) and the old retry path built a
+        // second client whose teardown races the library and SIGSEGVs. Give it
+        // a real placeholder interface now; replace it with the server-assigned
+        // routed interface once DHCP is known.
+        val initial = try {
+            openTun("10.211.254.2", 24, defaultRoute = false)
+        } catch (error: Throwable) {
+            note("initial tun failed: ${error.message}")
+            nativeDestroy(created)
+            finish(false, "tun setup failed")
+            running.set(false)
+            stopSelf()
+            return
+        }
+        synchronized(sessionLock) {
+            if (!running.get()) {
+                nativeDestroy(created)
+                closeFdNow(initial)
+                return
+            }
+            client = created
+            nativeConfigure(created, sni, false)
+            tunFd = initial
+            nativeSetTun(created, initial)
+        }
+        note("connecting $address sni=$sni")
         val started = android.os.SystemClock.elapsedRealtime()
         var code = connectWithDeadline(created, 28_000)
         val fastReject = android.os.SystemClock.elapsedRealtime() - started < 15_000
-        if (code != 0 && code != -100 && running.get() && fastReject) {
-            Log.w(TAG, "hashed auth failed code=$code, retrying plain password")
-            nativeStop(created)
-            nativeDestroy(created)
-            closeTun()
-            val retry = nativeCreate(address, 443, "VPNGATE", "vpn", "vpn")
-            client = retry
-            if (retry == 0L) {
-                finish(false, "create failed")
-                running.set(false)
-                stopSelf()
-                return
+        if (code == -5 && running.get() && fastReject) {
+            // Only a real auth rejection earns a second handshake. -9 is an
+            // adapter error, not auth. Reconnect the *same* client: destroying
+            // it and creating another one races the native teardown.
+            note("hashed auth rejected, retrying plain password on same client")
+            synchronized(sessionLock) {
+                if (client == created) {
+                    nativeStop(created)
+                    nativeConfigure(created, sni, true)
+                    if (tunFd >= 0) nativeSetTun(created, tunFd)
+                }
             }
-            nativeConfigure(retry, sni, true)
-            tunFd = openTun("10.211.254.2", 24, defaultRoute = false)
-            nativeSetTun(retry, tunFd)
-            code = connectWithDeadline(retry, 28_000)
+            code = connectWithDeadline(created, 28_000)
         }
         if (code != 0 || !running.get()) {
             finish(false, "connect code $code")
@@ -243,67 +391,118 @@ class SoftEtherVpnService : VpnService() {
         var mask = 0
         val deadline = android.os.SystemClock.elapsedRealtime() + 20_000
         while (android.os.SystemClock.elapsedRealtime() < deadline && running.get()) {
-            ip = nativeAssignedIp(client)
-            mask = nativeAssignedMask(client)
+            val sample = sampledAddress(client) ?: break
+            ip = sample.first
+            mask = sample.second
             if (ip != 0) break
             Thread.sleep(200)
         }
         if (ip == 0) {
-            finish(false, "no dhcp address")
-            shutdown()
+            if (running.get()) {
+                finish(false, "no dhcp address")
+                shutdown()
+            }
             return
         }
         val tunnelIp = formatIp(ip)
         val prefix = Integer.bitCount(mask).coerceIn(8, 32)
-        Log.i(TAG, "assigned $tunnelIp/$prefix")
-        // The data loop keeps the fd from before connect. Swapping it after
-        // the fact leaves the routed interface unread, so traffic never leaves
-        // the phone. Start a new session on the routed fd instead.
-        retireClient()
-        var handle = connectOnRoutedTun(address, sni, tunnelIp, prefix)
-        if (handle == 0L) {
-            finish(false, "routed connect failed")
+        note("assigned $tunnelIp/$prefix")
+        // The adapter is built during connect() from the fd bound before the
+        // handshake, but that fd predates DHCP and is never readable. Now that
+        // the assigned address is known, recreate the VpnService interface with
+        // the routed config and swap the native client onto it. This is the
+        // documented purpose of softether_replace_tun_fd().
+        val routed = openTun(tunnelIp, prefix, defaultRoute = true)
+        var previous = -1
+        var swapped = -1
+        synchronized(sessionLock) {
+            if (client == created && running.get()) {
+                previous = tunFd
+                swapped = nativeReplaceTun(created, routed)
+                if (swapped == 0) tunFd = routed
+            }
+        }
+        if (swapped != 0) {
+            note("routed tun swap failed code=$swapped")
+            closeFdNow(routed)
+            finish(false, "tun swap failed")
             shutdown()
             return
         }
-        val moved = nativeAssignedIp(handle)
-        val movedMask = nativeAssignedMask(handle)
-        if (moved != 0 && moved != ip) {
-            val movedIp = formatIp(moved)
-            val movedPrefix = Integer.bitCount(movedMask).coerceIn(8, 32)
-            Log.i(TAG, "address moved to $movedIp/$movedPrefix")
-            retireClient()
-            handle = connectOnRoutedTun(address, sni, movedIp, movedPrefix)
-            if (handle == 0L) {
-                finish(false, "routed connect failed")
-                shutdown()
-                return
-            }
-        }
-        val shown = nativeAssignedIp(handle)
-        holdSession(if (shown != 0) formatIp(shown) else tunnelIp)
+        if (previous >= 0 && previous != routed) closeFdLater(previous)
+        note("routed tun fd=$routed replaced=$previous")
+        holdSession(tunnelIp)
     }
 
     private fun holdSession(tunnelIp: String) {
+        if (!running.get()) return
         getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
             .putString(PREF_TUN_IP, tunnelIp)
             .putString(PREF_TUN_HOST, activeHost)
             .apply()
         tunnelUp = true
+        connectedAt = android.os.SystemClock.elapsedRealtime()
+        stopReason = ""
+        effectiveIp = synchronized(sessionLock) {
+            val handle = client
+            if (handle == 0L) {
+                ""
+            } else {
+                try {
+                    val effective = nativeEffectiveServerIp(handle)
+                    if (effective != 0) formatEffectiveIp(effective) else ""
+                } catch (_: Throwable) {
+                    ""
+                }
+            }
+        }
+        if (effectiveIp.isNotEmpty() && effectiveIp != activeHost) {
+            note("effective relay $effectiveIp (dialed $activeHost)")
+        }
+        note("session up tun=$tunnelIp effective=${effectiveIp.ifEmpty { "?" }}")
+        if (!running.get()) {
+            tunnelUp = false
+            return
+        }
         finish(true, tunnelIp)
+        updateNotification("Connected · encrypted tunnel")
         var misses = 0
         while (running.get()) {
-            Thread.sleep(1000)
-            val assigned = try {
-                nativeAssignedIp(client)
-            } catch (_: Throwable) {
-                0
-            }
-            if (assigned == 0) {
+            Thread.sleep(1_000)
+            if (!running.get()) break
+            val probe = synchronized(sessionLock) {
+                val handle = client
+                if (handle == 0L) {
+                    null
+                } else {
+                    val assigned = try {
+                        nativeAssignedIp(handle)
+                    } catch (_: Throwable) {
+                        0
+                    }
+                    val linked = try {
+                        nativeIsConnected(handle)
+                    } catch (_: Throwable) {
+                        false
+                    }
+                    assigned to linked
+                }
+            } ?: break
+            val assigned = probe.first
+            val linked = probe.second
+            val online = carrierUp
+            if (assigned == 0 || !linked || !online) {
                 misses += 1
-                if (misses >= 3) {
-                    Log.w(TAG, "tunnel lost its address")
+                if (misses >= 4) {
+                    stopReason = when {
+                        !online -> "network_lost"
+                        assigned == 0 -> "address_lost"
+                        else -> "link_lost"
+                    }
+                    note(
+                        "tunnel lost (reason=$stopReason assigned=$assigned linked=$linked online=$online)",
+                    )
                     tunnelUp = false
                     break
                 }
@@ -312,24 +511,26 @@ class SoftEtherVpnService : VpnService() {
             }
         }
         if (running.get()) {
-            shutdown()
+            shutdown(stopReason.ifEmpty { "link_lost" })
         }
     }
 
     private fun retireClient() {
-        val handle = client
-        client = 0
-        if (handle != 0L) {
-            try {
-                nativeStop(handle)
-            } catch (_: Throwable) {
+        synchronized(sessionLock) {
+            val handle = client
+            client = 0
+            if (handle != 0L) {
+                try {
+                    nativeStop(handle)
+                } catch (_: Throwable) {
+                }
+                try {
+                    nativeDestroy(handle)
+                } catch (_: Throwable) {
+                }
             }
-            try {
-                nativeDestroy(handle)
-            } catch (_: Throwable) {
-            }
+            closeTunLocked()
         }
-        closeTun()
     }
 
     private fun connectOnRoutedTun(
@@ -338,6 +539,7 @@ class SoftEtherVpnService : VpnService() {
         tunnelIp: String,
         prefix: Int,
     ): Long {
+        if (!running.get()) return 0
         pinCarrier()
         val routed = openTun(tunnelIp, prefix, defaultRoute = true)
         val handle = nativeCreate(address, 443, "VPNGATE", "vpn", "vpn")
@@ -345,17 +547,35 @@ class SoftEtherVpnService : VpnService() {
             ParcelFileDescriptor.adoptFd(routed).close()
             return 0
         }
-        client = handle
-        nativeConfigure(handle, sni, false)
-        tunFd = routed
-        nativeSetTun(handle, routed)
-        Log.i(TAG, "routed session $tunnelIp/$prefix")
+        synchronized(sessionLock) {
+            if (!running.get()) {
+                nativeDestroy(handle)
+                ParcelFileDescriptor.adoptFd(routed).close()
+                return 0
+            }
+            client = handle
+            nativeConfigure(handle, sni, false)
+            tunFd = routed
+            // connect() builds its adapter from the configured fd, so bind it
+            // before the handshake and re-assert it afterwards.
+            nativeSetTun(handle, routed)
+        }
+        note("routed session $tunnelIp/$prefix")
         val code = connectWithDeadline(handle, 28_000)
         if (code != 0 || !running.get()) {
-            Log.w(TAG, "routed session failed code=$code")
+            note("routed session failed code=$code")
             return 0
         }
-        return handle
+        val attached = synchronized(sessionLock) {
+            if (client != handle) {
+                -1
+            } else {
+                nativeSetTun(handle, tunFd)
+                0
+            }
+        }
+        note("routed tun attach fd=$tunFd result=$attached")
+        return if (attached == 0) handle else 0
     }
 
     private fun openTun(address: String, prefix: Int, defaultRoute: Boolean): Int {
@@ -385,13 +605,44 @@ class SoftEtherVpnService : VpnService() {
     fun protectFd(fd: Int): Int {
         val ok = protect(fd)
         if (ok) protectedSockets += 1
+        // protect() binds the socket to the current default network. Binding
+        // explicitly to the carrier is stronger: it survives a default-network
+        // flip while the handshake is in progress and keeps the relay socket
+        // out of the TUN we are about to install.
+        carrier?.let { network ->
+            // Network.bindSocket needs a FileDescriptor object and the platform
+            // does not expose a public constructor. fromFd dups it; closing the
+            // parcel closes only the dup, the native socket keeps its fd.
+            try {
+                ParcelFileDescriptor.fromFd(fd).use { dup ->
+                    network.bindSocket(dup.fileDescriptor)
+                }
+            } catch (error: Throwable) {
+                Log.w(TAG, "bindSocket fd=$fd failed: ${error.message}")
+            }
+        }
         Log.i(TAG, "protect fd=$fd ok=$ok")
         return if (ok) fd else -1
     }
 
+    private fun sampledAddress(handle: Long): Pair<Int, Int>? {
+        synchronized(sessionLock) {
+            if (handle == 0L || client != handle) return null
+            return nativeAssignedIp(handle) to nativeAssignedMask(handle)
+        }
+    }
+
     private fun closeTun() {
+        synchronized(sessionLock) { closeTunLocked() }
+    }
+
+    private fun closeTunLocked() {
         val fd = tunFd
         tunFd = -1
+        closeFdNow(fd)
+    }
+
+    private fun closeFdNow(fd: Int) {
         if (fd < 0) return
         try {
             // fromFd dups. A closed fd throws here instead of aborting in fdsan.
@@ -401,9 +652,61 @@ class SoftEtherVpnService : VpnService() {
         }
     }
 
-    fun isTunnelUp(): Boolean = tunnelUp && client != 0L
+    /**
+     * replace_tun_fd() swaps the descriptor atomically, but a packet thread may
+     * still be holding the previous fd for one poll cycle. Retire it shortly
+     * after the swap instead of closing it under that thread.
+     */
+    private fun closeFdLater(fd: Int) {
+        if (fd < 0) return
+        Thread {
+            try {
+                Thread.sleep(1_500)
+            } catch (_: InterruptedException) {
+            }
+            closeFdNow(fd)
+        }.apply {
+            isDaemon = true
+            name = "tun-fd-retire"
+        }.start()
+    }
 
-    fun shutdown() {
+    fun isTunnelUp(): Boolean = tunnelUp && client != 0L && carrierUp
+
+    fun statusReason(): String = stopReason
+    fun isCarrierUp(): Boolean = carrierUp
+    fun effectiveServerIp(): String = effectiveIp
+
+    /// Snapshot for the in-app diagnostics sheet. Deliberately flag-based: it
+    /// never calls into the native library, so it is safe during a handshake
+    /// or a teardown.
+    fun diagnostics(): Map<String, Any?> {
+        val tail: List<String>
+        synchronized(diag) { tail = diag.toList() }
+        val now = SystemClock.elapsedRealtime()
+        return mapOf(
+            "running" to running.get(),
+            "tunnelUp" to tunnelUp,
+            "host" to activeHost,
+            "reason" to stopReason.ifEmpty { lastReason },
+            "carrierUp" to carrierUp,
+            "effectiveIp" to effectiveIp,
+            "protectedSockets" to protectedSockets,
+            "networkGeneration" to networkGeneration,
+            "connectedForMs" to if (connectedAt > 0 && tunnelUp) now - connectedAt else 0L,
+            "connectInFlight" to connectInFlight,
+            "clientAlive" to (client != 0L),
+            "tunFd" to tunFd,
+            "nativeLog" to tail,
+        )
+    }
+
+    fun shutdown(reason: String = "") {
+        if (reason.isNotEmpty()) {
+            note("shutdown reason=$reason")
+            stopReason = reason
+            lastReason = reason
+        }
         running.set(false)
         tunnelUp = false
         activeHost = ""
@@ -415,38 +718,68 @@ class SoftEtherVpnService : VpnService() {
             }
         }
         networkCallback = null
-        val handle = client
-        if (handle != 0L && !connectInFlight) {
-            try {
-                nativeStop(handle)
-            } catch (_: Throwable) {
+        synchronized(sessionLock) {
+            val handle = client
+            if (handle != 0L && !connectInFlight) {
+                try {
+                    nativeStop(handle)
+                } catch (_: Throwable) {
+                }
+                try {
+                    nativeDestroy(handle)
+                } catch (_: Throwable) {
+                }
+                client = 0
+            } else if (handle != 0L) {
+                try {
+                    nativeRequestStop(handle)
+                } catch (_: Throwable) {
+                }
             }
-            try {
-                nativeDestroy(handle)
-            } catch (_: Throwable) {
-            }
-            client = 0
-        } else if (handle != 0L) {
-            try {
-                nativeRequestStop(handle)
-            } catch (_: Throwable) {
-            }
+            closeTunLocked()
         }
-        closeTun()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
+        // A handshake that blew its deadline is still on the native stack.
+        // shutdown() must not destroy the client underneath it, but the client
+        // must not be leaked either. Wait for nativeConnect to return, then
+        // destroy the handle and its fds on a worker thread.
+        if (connectInFlight) {
+            releaseAfterHandshake()
+        }
     }
 
     override fun onDestroy() {
         running.set(false)
-        instance = null
+        // A newer instance may already have registered itself; never clear it.
+        if (instance === this) {
+            instance = null
+        }
+        synchronized(sessionLock) {
+            val handle = client
+            if (handle != 0L) {
+                try {
+                    if (connectInFlight) {
+                        nativeRequestStop(handle)
+                    } else {
+                        nativeStop(handle)
+                        nativeDestroy(handle)
+                    }
+                } catch (_: Throwable) {
+                }
+                if (!connectInFlight) {
+                    client = 0
+                }
+            }
+            closeTunLocked()
+        }
         super.onDestroy()
     }
 
     override fun onRevoke() {
         forgetRelay()
         finish(false, "revoked")
-        shutdown()
+        shutdown("revoked")
         super.onRevoke()
     }
 
@@ -520,6 +853,21 @@ class SoftEtherVpnService : VpnService() {
                 }
             }
             if (!tunnelUp) {
+                synchronized(sessionLock) {
+                    val handle = client
+                    client = 0
+                    if (handle != 0L) {
+                        try {
+                            nativeStop(handle)
+                        } catch (_: Throwable) {
+                        }
+                        try {
+                            nativeDestroy(handle)
+                        } catch (_: Throwable) {
+                        }
+                    }
+                    closeTunLocked()
+                }
                 running.set(false)
                 try {
                     stopSelf()
@@ -533,6 +881,8 @@ class SoftEtherVpnService : VpnService() {
     }
     private external fun nativeAssignedIp(client: Long): Int
     private external fun nativeAssignedMask(client: Long): Int
+    private external fun nativeIsConnected(client: Long): Boolean
+    private external fun nativeEffectiveServerIp(client: Long): Int
     private external fun nativeReplaceTun(client: Long, fd: Int): Int
     private external fun nativeStop(client: Long)
     private external fun nativeDestroy(client: Long)
@@ -541,12 +891,14 @@ class SoftEtherVpnService : VpnService() {
     fun bytesReceived(): Long {
         // get_stats is not safe while softether_connect is on another thread.
         if (connectInFlight || !tunnelUp) return 0
-        val handle = client
-        if (handle == 0L) return 0
-        return try {
-            nativeBytesDown(handle)
-        } catch (_: Throwable) {
-            0
+        synchronized(sessionLock) {
+            val handle = client
+            if (handle == 0L) return 0
+            return try {
+                nativeBytesDown(handle)
+            } catch (_: Throwable) {
+                0
+            }
         }
     }
 
@@ -565,23 +917,38 @@ class SoftEtherVpnService : VpnService() {
         @Volatile
         var instance: SoftEtherVpnService? = null
 
+        @Volatile
+        var lastReason: String = ""
+
+        @Volatile
         var onDone: ((Boolean, String) -> Unit)? = null
 
         fun finish(ok: Boolean, detail: String) {
             Log.i(TAG, "result ok=$ok detail=$detail")
+            instance?.note("result ok=$ok detail=$detail")
             val callback = onDone
             onDone = null
             callback?.invoke(ok, detail)
         }
 
-        fun requestStop() {
+        fun requestStop(reason: String = "user") {
+            lastReason = reason
             instance?.forgetRelay()
-            instance?.shutdown()
+            instance?.shutdown(reason)
         }
 
         private fun formatIp(hostOrder: Int): String {
             val value = hostOrder.toLong() and 0xffffffffL
             return "${value shr 24 and 255}.${value shr 16 and 255}.${value shr 8 and 255}.${value and 255}"
         }
+
+        /**
+         * The native library exposes the server address as `struct in_addr.s_addr`
+         * (network byte order). On little-endian Android that integer is
+         * byte-swapped relative to the human-readable form, so 219.100.37.195
+         * arrives as 195.37.100.219. Reverse the bytes before formatting.
+         */
+        private fun formatEffectiveIp(networkOrder: Int): String =
+            formatIp(Integer.reverseBytes(networkOrder))
     }
 }
