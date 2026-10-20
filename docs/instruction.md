@@ -553,3 +553,18 @@ Device check the same evening:
   SoftEther auto Connected via `219.100.37.105` in ~9s.
 - Store tree for this pass is **1.0.0 (11)**. See also
   [`vpn-issues.md`](vpn-issues.md).
+
+### Store upload, 20 Oct 2026 23:05
+
+Code on `redesign/production-grade` at `64379d5`.
+
+- **Android.** `1.0.0 (11)` AAB on production track as draft
+  (version code 11, edit `03693625329390010863`, sha256
+  `ff3132d8b549bc28c7a727fc0f11d979089708d0afc5e7e4fb765d249e651989`).
+  Play still refuses `status completed` while the app itself is a
+  draft.
+- **iOS.** IPA `1.0.0 (11)` committed to App Store Connect
+  (upload `4dd2b830-15f9-4013-a1b0-25e8ab64277d`, file
+  `995c33df-4e51-46b3-b9c0-4afa9de821ce`, 36452246 bytes).
+- **macOS / Windows.** Unchanged (no Mac installer cert; no Windows
+  host).
