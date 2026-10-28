@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io' show Platform, Socket;
+import 'dart:io' show Platform, SecureSocket, Socket;
 import 'dart:math' show Random;
 
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
@@ -116,9 +116,13 @@ class VpnController {
   /// Per-candidate TCP reachability probe budget.
   static const _probeTimeout = Duration(milliseconds: 800);
 
-  /// SoftEther's TCP 443 preflight. Mobile RTTs can exceed the OpenVPN
-  /// probe budget; a 2s ceiling avoids skipping a slow but healthy relay.
-  static const _softEtherProbeTimeout = Duration(seconds: 2);
+  /// Relays swept in one TLS-probe wave once a shortlist proves censored.
+  static const _sweepBatch = 20;
+
+  /// SoftEther's TLS 443 preflight. A TCP connect is not evidence on
+  /// carriers that complete the handshake and then drop the payload, so the
+  /// probe performs a full TLS handshake with a mobile-tolerant ceiling.
+  static const _softEtherProbeTimeout = Duration(seconds: 3);
 
   /// How many OpenVPN relays we dial per connect press.
   static const _maxAttempts = 8;
@@ -181,6 +185,7 @@ class VpnController {
   final RelayReachability _reachability = RelayReachability();
   Timer? _warmTimer;
   bool _warming = false;
+  Future<List<RelayTarget>>? _sweepInFlight;
 
   DateTime? _connectDeadline;
   List<Candidate>? _freshCache;
@@ -393,11 +398,27 @@ class VpnController {
       }
       if (cold.isEmpty) return;
       final probes = await _probeSoftEther(cold, network: network);
-      final alive = probes.where((ok) => ok).length;
+      final alive = probes.where((probe) => probe.$1).length;
       _log.addLog(
         '[VpnController] Warm probe on ${network.split('|').first}: '
         '$alive/${cold.length} relays reachable',
       );
+      // A censored carrier usually leaves the shortlist with nothing alive.
+      // Sweeping here, while the user has not pressed connect, turns the first
+      // tap into a cached dial instead of a 20 s scan.
+      if (alive < 2) {
+        if (network != _networkFingerprint) return;
+        final rtt = <String, int>{};
+        for (var i = 0; i < cold.length; i++) {
+          if (probes[i].$1) rtt[cold[i].dial] = probes[i].$2;
+        }
+        await _sweepSoftEther(
+          container,
+          {for (final target in targets) target.dial},
+          _rotationGeneration,
+          rtt,
+        );
+      }
     } finally {
       _warming = false;
     }
@@ -1812,24 +1833,32 @@ class VpnController {
     );
   }
 
-  /// Probe SoftEther TCP 443 before a native connect. Dead country relays
+  /// Probe SoftEther TLS 443 before a native connect. Dead country relays
   /// used to burn the full SoftEther watchdog while the orb stayed on
   /// Connecting.
+  ///
+  /// On carriers that drop the TLS payload after completing TCP, the shortlist
+  /// can come back empty or with a single false friend while a handful of
+  /// relays in the wider catalog still work. [container] lets the caller hand
+  /// in the catalog so this step can sweep it instead of giving up.
   Future<List<RelayTarget>> _reachableSoftEther(
     List<RelayTarget> targets,
-    int generation,
-  ) async {
+    int generation, {
+    ProviderContainer? container,
+  }) async {
     final reachable = <RelayTarget>[];
     final dead = <RelayTarget>[];
     final warm = <RelayTarget>[];
     final untested = <RelayTarget>[];
     final previouslyDead = <RelayTarget>[];
+    final rtt = <String, int>{};
     for (final target in targets) {
       final probe = _reachability.lookup(target.dial);
       if (probe == null) {
         untested.add(target);
       } else if (probe.ok) {
         warm.add(target);
+        rtt[target.dial] = probe.elapsed.inMilliseconds;
       } else {
         previouslyDead.add(target);
       }
@@ -1847,7 +1876,9 @@ class VpnController {
       final probes = await _probeSoftEther(untested);
       if (generation != _rotationGeneration) return const <RelayTarget>[];
       for (var i = 0; i < untested.length; i++) {
-        (probes[i] ? reachable : dead).add(untested[i]);
+        final probe = probes[i];
+        (probe.$1 ? reachable : dead).add(untested[i]);
+        if (probe.$1) rtt[untested[i].dial] = probe.$2;
       }
       _log.addLog(
         '[VpnController] SoftEther probe: ${reachable.length}/${targets.length} '
@@ -1887,7 +1918,9 @@ class VpnController {
         final probes = await _probeSoftEther(freshTargets);
         if (generation != _rotationGeneration) return const <RelayTarget>[];
         for (var i = 0; i < freshTargets.length; i++) {
-          (probes[i] ? reachable : dead).add(freshTargets[i]);
+          final probe = probes[i];
+          (probe.$1 ? reachable : dead).add(freshTargets[i]);
+          if (probe.$1) rtt[freshTargets[i].dial] = probe.$2;
         }
         _log.addLog(
           '[VpnController] Fresh SoftEther probe: '
@@ -1902,7 +1935,11 @@ class VpnController {
       final probes = await _probeSoftEther(previouslyDead);
       if (generation != _rotationGeneration) return const <RelayTarget>[];
       for (var i = 0; i < previouslyDead.length; i++) {
-        if (probes[i]) reachable.add(previouslyDead[i]);
+        final probe = probes[i];
+        if (probe.$1) {
+          reachable.add(previouslyDead[i]);
+          rtt[previouslyDead[i].dial] = probe.$2;
+        }
       }
       _log.addLog(
         '[VpnController] Re-probed ${previouslyDead.length} previously dead '
@@ -1910,21 +1947,47 @@ class VpnController {
       );
     }
 
-    if (reachable.isEmpty) {
+    // Two independent survivors are enough to dial; anything less means the
+    // shortlist is lying about this network and the rest of the catalog has
+    // to be asked. This is the difference between "VPN Gate is blocked" and
+    // "the eight relays we happened to list are blocked".
+    if (reachable.length < 2 && container != null) {
+      final swept = await _sweepSoftEther(
+        container,
+        {for (final target in targets) target.dial, ...dead.map((t) => t.dial)},
+        generation,
+        rtt,
+      );
+      if (generation != _rotationGeneration) return const <RelayTarget>[];
+      for (final target in swept) {
+        if (reachable.any((t) => t.dial == target.dial)) continue;
+        reachable.add(target);
+      }
+    }
+
+    // Order by measured TLS RTT: the handshake already pays the carrier's
+    // round trip, so the tunnel that comes up first is the one closest to us.
+    reachable.sort(
+      (a, b) => (rtt[a.dial] ?? 1 << 20).compareTo(rtt[b.dial] ?? 1 << 20),
+    );
+    final ordered = _foreignFirst(reachable);
+
+    if (ordered.isEmpty) {
       _log.addLog(
         '[VpnController] No reachable SoftEther relay for '
         '${_strictSelection ? _serverLabel : 'auto'}; skipping SoftEther',
       );
     } else if (_strictSelection) {
-      final escape = reachable
+      final escape = ordered
           .where(
             (t) =>
                 t.source == 'escape' ||
                 t.source == 'proven' ||
-                t.source == 'fresh',
+                t.source == 'fresh' ||
+                t.source == 'sweep',
           )
           .toList();
-      final native = reachable
+      final native = ordered
           .where((t) => t.source == 'selected' || t.source == 'same-country')
           .toList();
       if (native.isEmpty && escape.isNotEmpty) {
@@ -1934,14 +1997,104 @@ class VpnController {
         );
       }
     }
-    return reachable;
+    return ordered;
+  }
+
+  /// TLS-probes the whole catalog in waves and returns the survivors.
+  ///
+  /// Runs only when the shortlist produced fewer than two real TLS handshakes.
+  /// Waves stop as soon as two survivors exist, so the common censored-carrier
+  /// case costs one or two waves instead of a full scan.
+  Future<List<RelayTarget>> _sweepSoftEther(
+    ProviderContainer container,
+    Set<String> alreadyProbed,
+    int generation,
+    Map<String, int> rtt,
+  ) {
+    // A background warm sweep and a connect legitimately want the same scan.
+    // Share the in-flight future instead of probing every relay twice and
+    // competing for the carrier's radio.
+    final running = _sweepInFlight;
+    if (running != null) return running;
+    final future = _runSweep(container, alreadyProbed, generation, rtt);
+    _sweepInFlight = future;
+    return future.whenComplete(() {
+      if (identical(_sweepInFlight, future)) _sweepInFlight = null;
+    });
+  }
+
+  Future<List<RelayTarget>> _runSweep(
+    ProviderContainer container,
+    Set<String> alreadyProbed,
+    int generation,
+    Map<String, int> rtt,
+  ) async {
+    final List<VpnServer> servers;
+    try {
+      servers = await container.read(serversProvider.future);
+    } catch (_) {
+      return const [];
+    }
+    if (generation != _rotationGeneration) return const [];
+    final seen = {...alreadyProbed};
+    final pool = <RelayTarget>[];
+    for (final server in servers) {
+      if (server.ip.isEmpty || !seen.add(server.ip)) continue;
+      pool.add(
+        RelayTarget(
+          dial: server.ip,
+          sni: SoftEtherVpn.fqdn(server.hostName),
+          countryCode: server.countryShort.toUpperCase(),
+          countryName: server.displayCountry,
+          pingMs: server.ping,
+          source: 'sweep',
+        ),
+      );
+    }
+    if (pool.isEmpty) return const [];
+    // The merge of bundled + published lists can exceed one useful sweep.
+    // CSV ping is measured against the relay itself, so it is the best
+    // ordering hint available before the first TLS handshake.
+    pool.sort((a, b) {
+      if (a.pingMs <= 0 && b.pingMs > 0) return 1;
+      if (b.pingMs <= 0 && a.pingMs > 0) return -1;
+      return a.pingMs.compareTo(b.pingMs);
+    });
+    final capped = pool.length > 160 ? pool.sublist(0, 160) : pool;
+    _log.addLog(
+      '[VpnController] Censored shortlist; TLS-sweeping ${capped.length} '
+      'catalog relays in waves of $_sweepBatch',
+    );
+    final survivors = <RelayTarget>[];
+    for (var i = 0; i < capped.length; i += _sweepBatch) {
+      if (generation != _rotationGeneration) return const [];
+      final slice = capped.sublist(
+        i,
+        (i + _sweepBatch).clamp(0, capped.length),
+      );
+      final probes = await _probeSoftEther(slice);
+      if (generation != _rotationGeneration) return const [];
+      for (var j = 0; j < slice.length; j++) {
+        final probe = probes[j];
+        if (!probe.$1) continue;
+        survivors.add(slice[j]);
+        rtt[slice[j].dial] = probe.$2;
+      }
+      if (survivors.length >= 2) break;
+    }
+    _log.addLog(
+      '[VpnController] TLS sweep: ${survivors.length} relay(s) alive on this '
+      'network${survivors.isEmpty ? '' : ': '
+                '${survivors.map((t) => '${t.countryCode}:${t.dial}').join(', ')}'}',
+    );
+    return survivors;
   }
 
   /// Probes run in parallel; the result is both a boolean per target and an
   /// RTT for the scoring table. Recorded under the network the probe started
   /// on, and never written into the in-memory cache if the network moved
   /// mid-probe (the cache was cleared for a reason).
-  Future<List<bool>> _probeSoftEther(
+  Future<List<(bool, int)>> _probeSoftEther(
     List<RelayTarget> targets, {
     String? network,
   }) async {
@@ -1978,17 +2131,37 @@ class VpnController {
         ),
       );
     }
-    return [for (final result in results) result.$1];
+    return results;
   }
 
   Future<(bool, int)> _probeOneSoftEther(RelayTarget target) async {
     final watch = Stopwatch()..start();
     try {
-      final socket = await Socket.connect(
+      // Irancell/Hamrah Aval-style middleboxes accept the TCP handshake and
+      // then black-hole everything after it, so a bare connect() reports
+      // blocked relays as healthy. Only a completed TLS handshake proves the
+      // relay can carry the SoftEther session. VPN Gate hubs use self-signed
+      // certificates; the native dial disables verification too.
+      final attempt = SecureSocket.connect(
         target.dial,
         443,
         timeout: _softEtherProbeTimeout,
+        onBadCertificate: (_) => true,
       );
+      // RawSecureSocket.connect applies `timeout` to the TCP connect only.
+      // A relay that accepts the handshake and then stalls TLS would leave
+      // this future pending for minutes, freezing warm probes and the sweep.
+      // Bound the whole handshake, and destroy a socket that arrives late.
+      unawaited(
+        attempt
+            .then((socket) {
+              try {
+                socket.destroy();
+              } catch (_) {}
+            })
+            .catchError((_) {}),
+      );
+      final socket = await attempt.timeout(_softEtherProbeTimeout);
       socket.destroy();
       watch.stop();
       return (true, watch.elapsedMilliseconds);
@@ -2020,7 +2193,11 @@ class VpnController {
     final targets = await _softEtherTargets(container);
     if (targets.isEmpty || generation != _rotationGeneration) return false;
 
-    final reachable = await _reachableSoftEther(targets, generation);
+    final reachable = await _reachableSoftEther(
+      targets,
+      generation,
+      container: container,
+    );
     if (reachable.isEmpty || generation != _rotationGeneration) return false;
 
     for (final target in reachable.take(3)) {
@@ -2094,7 +2271,11 @@ vpn
     final sslGen = _rotationGeneration;
     final targets = await _softEtherTargets(container);
     if (targets.isEmpty || sslGen != _rotationGeneration) return false;
-    final reachable = await _reachableSoftEther(targets, sslGen);
+    final reachable = await _reachableSoftEther(
+      targets,
+      sslGen,
+      container: container,
+    );
     if (reachable.isEmpty || sslGen != _rotationGeneration) return false;
     for (final target in reachable.take(3)) {
       if (sslGen != _rotationGeneration) return false;

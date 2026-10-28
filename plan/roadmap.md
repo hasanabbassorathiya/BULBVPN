@@ -34,10 +34,25 @@ Ads are wired but remote-gated; nothing is served today.
 
 ## 3. IR-resilience follow-ups
 
-- Mobile-data matrix: the test phone has no SIM as of 2026-10-28. Verify
-  MCI/Irancell, CGNAT, and DPI behaviour before trusting the Wi-Fi results.
+- Mobile-data matrix: Irancell LTE verified on 2026-10-28 (Samsung SM-M127G):
+  warm probe 0/8 in 3 s, TLS sweep 99→2 alive in 6 s, JP session up with real
+  traffic, LTE↔Wi-Fi handover redialled automatically. Still to verify: MCI
+  and a second carrier, plus an IPv6-enabled SIM.
+- Persian Gulf / regional relays: only 2–3% of the public catalog survives
+  Irancell's TLS black-holing. Prefer catalogs with more relays in reachable
+  networks and consider a probe-before-ship validation step.
+- Connect latency: a first tap can still spend 28 s on a relay that rejects
+  auth (`-5`). Retry plain password regardless of elapsed time, and treat auth
+  rejection as a relay-level skip in `RelayMemory`.
+- Idle liveness: one LTE session died at 96 s with no traffic. Add a periodic
+  in-tunnel keep-alive request (or a hub-side idle hint) so the session is kept
+  warm instead of reconnected after the fact.
+- Exit-IP measurement on IR carriers: the Cloudflare trace endpoint is blocked;
+  add a second trace host and show the exit from whichever answers.
 - Relay scoring: persist and decay scores across launches; cap probe fan-out
   when on battery.
+- Catalog freshness: merge `.github/workflows/vpngate-servers.yml` to the
+  default branch, or the published list stays frozen at its last manual run.
 - SoftEther: tune the watchdog and rotate hubs when a country's relays die
   together.
 - Apple tunnels: measure extension memory and battery on long sessions;

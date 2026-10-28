@@ -16,6 +16,10 @@ import urllib.request
 from pathlib import Path
 
 SOURCE = "https://www.vpngate.net/api/iphone/"
+# Each call returns a random ~100-server sample of the pool, so one fetch sees
+# a thin slice. Union a few calls so a device that cannot reach VPN Gate itself
+# still gets a catalog wide enough to contain relays its carrier allows.
+SAMPLES = 5
 OUT = Path(__file__).resolve().parents[1] / "data" / "vpngate.json"
 FIELDS = (
     "#HostName",
@@ -75,13 +79,28 @@ def parse(body: str) -> list[dict[str, str]]:
             continue
         row["#HostName"] = fqdn(row.get("HostName", "") or row.get("#HostName", ""))
         rows.append({key: row.get(key, "") for key in FIELDS})
+    by_ip: dict[str, dict[str, str]] = {}
+    for row in rows:
+        by_ip.setdefault(row["IP"], row)
+    rows = list(by_ip.values())
     rows.sort(key=lambda row: int(row["Score"] or "0"), reverse=True)
     return rows
 
 
 def main() -> int:
-    body = fetch_csv()
-    rows = parse(body)
+    rows: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for _ in range(SAMPLES):
+        try:
+            batch = parse(fetch_csv())
+        except Exception as error:  # keep whatever earlier samples returned
+            print(f"sample failed: {error}", file=sys.stderr)
+            continue
+        for row in batch:
+            if row["IP"] in seen:
+                continue
+            seen.add(row["IP"])
+            rows.append(row)
     if len(rows) < 10:
         print(f"refusing to publish a short list ({len(rows)} rows)", file=sys.stderr)
         return 1

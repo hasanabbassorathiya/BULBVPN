@@ -1,13 +1,21 @@
-/// Short-lived, per-network memory of which relays accepted a TCP 443 dial.
+/// Short-lived, per-network memory of which relays completed a TLS handshake.
 ///
 /// Lantern keeps a background URL-test history so a connect starts from a
 /// relay it just measured instead of probing the whole catalog again. This is
 /// the same idea with a much smaller budget: a probe that succeeded a few
-/// seconds ago on this network is trusted, a probe that failed is skipped, and
+/// minutes ago on this network is trusted, a probe that failed is skipped, and
 /// a network handover throws the whole table away because reachability is
 /// network-specific.
+///
+/// The verdict must come from a TLS handshake, not a TCP connect: carriers
+/// like Irancell accept the SYN and then drop everything after it, so a TCP
+/// probe marks blocked relays alive and the native dial then hangs.
 class RelayReachability {
-  RelayReachability({this.ttl = const Duration(seconds: 45)});
+  RelayReachability({this.ttl = const Duration(minutes: 5)});
+
+  /// Large enough to remember a whole censored-network sweep, small enough
+  /// that an app session cannot grow the table without bound.
+  static const int maxEntries = 160;
 
   final Duration ttl;
   final Map<String, RelayProbe> _entries = {};
@@ -45,7 +53,7 @@ class RelayReachability {
       elapsed: elapsed,
       at: at ?? DateTime.now(),
     );
-    if (_entries.length > 64) {
+    if (_entries.length > maxEntries) {
       var oldestKey = '';
       DateTime? oldestAt;
       _entries.forEach((key, value) {

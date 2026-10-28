@@ -4,7 +4,8 @@ Branch: `feat/ir-resilience-lantern`
 Base: `redesign/production-grade` @ `3c98143`
 Started: 2026-10-27
 Last updated: 2026-10-28
-Status: workstreams 1–12 code complete and build-verified; device verification and Phase L decision pending
+Status: workstreams 1–20 code complete and build-verified; IR Wi-Fi and Irancell LTE
+runs pass on device; Phase L decision pending
 
 ## How to read this document
 
@@ -31,13 +32,15 @@ Status: workstreams 1–12 code complete and build-verified; device verification
 | 10 | Apple IPv6 blackhole + packet filter | done | `SoftEtherSession.swift`, `PacketTunnelProvider.swift`; typecheck pass |
 | 11 | Region guard + diagnostic + Google-region explanation | done | `home_region.dart`, `logs_screen.dart`, this document |
 | 12 | Tests + analyzer/build verification | done | analyze clean (1 pre-existing warning); 15/15 tests pass; debug APK built; Apple typecheck pass |
-| 13 | Device verification on an IR SIM / OnePlus | in progress | IR Wi-Fi run done on OnePlus 13R (see log), including a 10.6-min connected monitor with 24/24 HTTP 204; IR mobile-data run still pending |
+| 13 | Device verification on an IR SIM / OnePlus | done | IR Wi-Fi run on OnePlus 13R (10.6-min liveness); Irancell LTE run on Samsung SM-M127G (2026-10-28, see "Irancell LTE mobile-data run") |
 | 14 | Lantern license/ToS decision (L-A/L-B/L-C) | pending | user decision; see Decision 2 and Phase L |
 | 15 | Android fast-path dead data path | done | fast path removed from `SoftEtherVpnService.kt`; same JP relay now cold-connects with HTTP 200 + 0% loss on the OnePlus 13R (IR Wi-Fi) |
 | 16 | App inside TUN + true exit measurement | done | `SoftEtherVpnService.kt` default-route branch (D7); AFTER reports the real exit, distinct from the relay address |
 | 17 | Manual BEFORE/AFTER refresh + forced lookup | done | `main_screen.dart` `_refreshIps`, `ip_info_provider.dart` `force`; second forced lookup 27 s apart re-resolved |
 | 18 | TLS-handshake ping instead of TCP accept | done | `server_ping_provider.dart`; numbers went from 6–8 ms to 600–1400 ms honest RTT |
 | 19 | Multi-server / multi-country matrix | done | US no-DHCP, KR code -5, RU/TH/CH no TLS handshake, JP connects and switches; escapes to JP verified |
+| 20 | Irancell LTE connect fix (TLS-stall probe + full sweep) | done | `_probeOneSoftEther`/`server_ping_provider` hard handshake cap; warm probe 0/8 in 3 s, sweep 99→2 alive in 6 s, session up on JP `115.179.206.241`, real traffic over tun1; see the LTE section |
+| 21 | Fresh on-device catalog (multi-sample union, published list order) | done | `scripts/fetch_vpngate.py` unions 5 API samples (106 rows); `vpngate_source.dart` tries the default-branch list first; hourly Action still not merged to `main` |
 
 ## Problem
 
@@ -116,6 +119,21 @@ D2 and remains an explicit decision, not an accident.
     connect, so the app kept returning to a tunnel that passed nothing until
     the fast path was removed. A traffic-aware success signal (in-service
     data-path probe) is still open — see Phase 4/5.
+15. **The TLS probe had no handshake deadline.** `dart:io` implements
+    `SecureSocket.connect(timeout:)` as
+    `RawSocket.connect(host, port, timeout: timeout).then(secure)`, so the
+    timeout covers only the TCP connect; `secure()` — the handshake — is
+    unbounded. On Irancell the relay accepts TCP and then stalls TLS forever,
+    so the warm probe, the catalog ping sweep, and the pre-connect probe hung
+    for minutes with no log line. Confirmed on 2026-10-28: at app start the
+    plan was computed at 13:51:53 and neither `[Ping] Measured` nor
+    `Warm probe` ever appeared. Fixed by capping the whole future with
+    `.timeout()` in both probe sites and destroying sockets that resolve late.
+16. **The hourly catalog Action never ran.** `.github/workflows/vpngate-servers.yml`
+    exists only on feature branches, so the default-branch published list is
+    frozen at 2026-10-18 and `git cat-file -e origin/main:...yml` fails. The
+    app tolerates this (bundled catalog + disk cache + live API fallback), but
+    the published list cannot be relied on as fresh until the workflow merges.
 
 ## Decisions
 
@@ -164,9 +182,9 @@ Lantern's fast connect comes from a background URL test that keeps a current
 ranking, not from a faster dial. BULBVPN adopts the same shape with a much
 smaller budget:
 
-- a **short-lived TCP 443 probe cache** (`RelayReachability`, 45 s TTL) that is
-  invalidated on every network change, and warm probes that fill it while the
-  user is still on the home screen;
+- a **short-lived per-network probe cache** (`RelayReachability`, 5 min TTL,
+  160 entries) that is invalidated on every network change, and warm probes
+  that fill it while the user is still on the home screen;
 - a **persistent per-network score** (`RelayMemory.recordProbes` /
   `orderByHistory`, 30-day TTL, 128 entries) that reorders targets but never
   removes them, so a wholly blocked country still has an attempt order.
@@ -345,7 +363,7 @@ Mapping from the upstream study to this repo:
 | Network recovery re-polls interfaces, 3s→30s backoff | `_pollNetworkIdentity` + jittered recovery | done |
 | Switch server instead of reconnecting when already up | `_connect` already treats a live session as switchable | done (pre-existing) |
 
-- [x] Add `RelayReachability` (45 s TTL, per-network, bounded at 64 entries).
+- [x] Add `RelayReachability` (5 min TTL, per-network, bounded at 160 entries).
 - [x] Add persistent probe/dial statistics and `orderByHistory` to
   `RelayMemory`.
 - [x] Invalidate the cache and schedule warm probes on network change and app
@@ -408,6 +426,13 @@ Mapping from the upstream study to this repo:
 | 2026-10-28 | OnePlus 13R, IR Wi-Fi: multi-country dials | US `156.239.242.10` failed `no dhcp address` after 30 s; KR `121.136.113.227` failed `connect code -5` after 24 s; both escaped to JP and connected. RU (6 visible), TH (6), CH (1) show "—": no TLS handshake completed. JP connects in ~10 s; explicit JP switch to `219.100.37.9` connected in 10.8 s with exit `219.100.37.233` |
 | 2026-10-28 | OnePlus 13R: screenshots while connected | expected black frame — the app enables FLAG_SECURE only while the tunnel is live (`isSecure=true` in SurfaceFlinger); semantics via uiautomator are unaffected |
 | 2026-10-28 | OnePlus 13R, IR Wi-Fi: connected liveness monitor | pass — 24/24 `generate_204` samples returned HTTP 204 over 10.6 min on JP `219.100.37.9` (typical 0.85–1.3 s, one 5.7 s transient); exit `219.100.37.233` unchanged before and after; exactly one dial, no reconnect or recovery event |
+| 2026-10-28 | Samsung SM-M127G, Irancell LTE: probe deadline bug | **fail before fix** — plan at 13:51:53, then no `[Ping] Measured`, no `Warm probe`; the TLS handshake future never completed (failure 15) |
+| 2026-10-28 | Samsung SM-M127G, Irancell LTE: probe deadline fix | pass — `Warm probe on cell:rmnet0: 0/8 relays reachable` in 3 s; `TLS-sweeping 99 catalog relays in waves of 20`; `TLS sweep: 2 relay(s) alive … JP:106.153.7.87, JP:115.179.206.241` after ~6 s; server sheet then showed "Auto · Japan 780 ms" |
+| 2026-10-28 | Samsung SM-M127G, Irancell LTE: connect | pass — tap 13:52:35; network-memory KR `125.129.197.183` failed auth (`-5`) at 13:53:07 and was forgotten; JP `115.179.206.241` session up at 13:53:37 (`tun 10.211.1.140`), 62 s tap-to-session including the wasted relay |
+| 2026-10-28 | Samsung SM-M127G, Irancell LTE: data path | pass — Chrome page load moved tun1 RX 196,156 → 622,795 B and TX 30,881 → 56,769 B; UI `Connected · secure tunnel · Japan` |
+| 2026-10-28 | Samsung SM-M127G, Irancell LTE: idle liveness | mixed — first session dropped after 96 s (`link_lost`, assigned ok, linked=false, carrier online); recovery redialled at +7 s and was up 18 s later; second session stayed up and carried 3.07 MB before the Wi-Fi handover |
+| 2026-10-28 | Samsung SM-M127G: LTE → Wi-Fi handover | pass — Wi-Fi `SORATHIYAS` at 13:58:04 logged `Network changed: cell:rmnet0 -> cell:rmnet0|wifi:wlan0:192.168.0`; clean redial 13:58:09; plan 3/3 reachable in 1.2 s; JP session up 13:58:35 (`tun 10.211.1.144`) |
+| 2026-10-28 | Samsung SM-M127G, Wi-Fi: data path + stability | pass — Chrome load moved tun1 RX 582,184 → 862,953 B and TX 89,863 → 168,654 B; session stayed up >4 min with no loss |
 
 The build checks prove the code compiles. They do not prove that a blocked
 carrier accepts a relay; that is what the unchecked device items above are for.
@@ -423,9 +448,10 @@ carrier accepts a relay; that is what the unchecked device items above are for.
   relay diversity do. The Phase 5 work must be tested on the target carriers,
   not only on a developer network.
 - Lantern integration is blocked on the licensing/ToS decision, not on code.
-- A warm probe is only a TCP 443 handshake. It can succeed on a relay that
-  later fails TLS/auth; the real dial remains the only proof of a working
-  tunnel, which is why the cache demotes but never removes targets.
+- A warm probe is a full TLS handshake, not a TCP accept, but it can still
+  succeed on a relay that later rejects auth or DHCP; the real dial remains the
+  only proof of a working tunnel, which is why the cache demotes but never
+  removes targets.
 - Google's region signal is partly account-level. Even a perfect tunnel with a
   clean exit IP cannot change the billing country or GPS; the app must say so
   instead of promising a region change it cannot deliver.
@@ -600,3 +626,90 @@ Built signed artifacts from this branch and submitted both stores.
 - Release mechanics, IDs, and tool gotchas: `docs/store-release-runbook.md`.
   Forward-looking work: `plan/roadmap.md`; release record:
   `plan/release-1.1.0.md`.
+
+## Irancell LTE mobile-data run — 2026-10-28
+
+User report: "on mobile data the VPN app fails to connect." Reproduced on a
+Samsung SM-M127G with an Irancell LTE SIM (`rmnet0`, carrier address
+`26.61.251.158`) and a debug build from this branch.
+
+### What the carrier does
+
+Raw probes pushed to `/data/local/tmp` (ClientHello to relay IPs, plus
+`toybox nc`) showed the same picture for every VPN Gate address tested:
+
+- the TCP handshake completes and `ESTABLISHED` appears in `/proc/net/tcp`;
+- the TLS ClientHello is queued (`tx_queue` ~1556 B) and retransmitted;
+- nothing ever comes back, for any SNI and on 443 or other ports;
+- Cloudflare `1.1.1.1:443` completes TLS in the same second, so the SIM is
+  online and TLS itself is not blocked.
+
+Only 2–3 of ~100 catalog relays complete a TLS handshake on this SIM. That is
+the network, not the app: a relay whose IP is black-holed cannot be rescued by
+SNI choice or packet fragmentation.
+
+### Why the app never got that far
+
+Two independent bugs stacked up:
+
+1. Probes trusted a TCP accept. The warm cache, the pre-connect probe, and the
+   server sheet were moved to full TLS handshakes earlier on this branch, so
+   this part was already correct on LTE — the shortlist of 8 relays was simply
+   all censored (0/8).
+2. The handshake deadline did not exist. As documented in failure 15,
+   `SecureSocket.connect(timeout:)` only bounds the TCP connect, so each
+   censored relay left its future pending for minutes. The warm probe never
+   returned, the catalog sweep never started (it is triggered from the warm
+   probe), and the server-sheet sweep never logged `[Ping] Measured`. The orb
+   then dialled the eight known-dead relays from the catalog order.
+
+### The fix
+
+- `VpnController._probeOneSoftEther` and `ServerPingNotifier._probeOne` wrap
+  the whole `SecureSocket.connect` future in `.timeout()` (3 s planning probe,
+  4 s sheet probe) and destroy a socket that resolves after the deadline.
+- The shortlist being censored triggers the full-catalog TLS sweep
+  (`_sweepSoftEther`, waves of 20, stops at two survivors), shared between the
+  warm probe and the connect path so the tap does not repeat it.
+- Survivors are ordered by handshake RTT, and the sweep result is recorded in
+  both `RelayReachability` (5 min, per network) and persistent `RelayMemory`.
+- The bundled catalog was regenerated from five VPN Gate API samples (106
+  rows, deduped by IP) and the published-list order now tries the
+  default-branch list first; the missing hourly Action is recorded as
+  failure 16 rather than assumed to work.
+
+### Result on the device
+
+- Launch → warm probe: `0/8 relays reachable` in 3 s.
+- Sweep: 99 relays in waves of 20 → `2 relay(s) alive`, exactly the two relays
+  that manual TLS probes had found on this SIM: `106.153.7.87` and
+  `115.179.206.241` (both JP).
+- Tap → first relay was a stale network-memory KR entry that answered auth
+  `-5` after ~30 s (and was then forgotten); the second relay connected:
+  `session up tun=10.211.1.140 effective=115.179.206.241` — 62 s end to end.
+- Real traffic: a Chrome page load moved `tun1` RX +426 KB / TX +26 KB; the
+  UI showed `Connected · secure tunnel · Japan`.
+- First idle session died at 96 s with `assigned ok, linked=false, carrier
+  online`; auto-recovery redialled in 7 s and the new session was up 18 s
+  later and carried 3.07 MB.
+- Enabling Wi-Fi triggered a clean handover: `cell:rmnet0 ->
+  cell:rmnet0|wifi:wlan0:192.168.0`, redial at +5 s, session up at +31 s, and
+  a page load moved `tun1` RX +281 KB / TX +79 KB. No manual action was
+  needed.
+
+### Remaining gaps on this carrier
+
+- A relay that will reject auth can still burn its full 28 s dial because the
+  plain-password retry requires a rejection in under 15 s. Candidate change:
+  retry `-5` on the same client regardless of elapsed time, or mark auth
+  failures as instant skips in `RelayMemory`.
+- The first idle session dropped at 96 s. The hub or the carrier's CGNAT may
+  be dropping idle flows even with a 15 s SoftEther keepalive; the recovery
+  path handled it, but a real keep-alive probe (small in-tunnel HTTP request)
+  would prevent the drop instead of reconnecting after it.
+- The exit-IP row shows "measuring through tunnel…" on this SIM because the
+  Cloudflare trace host is blocked; the lookup is honest about not knowing.
+  Adding a second trace endpoint reachable from Iran would close it.
+- The hourly catalog workflow still only exists on feature branches; until it
+  is merged, the published list (and `data/vpngate.json` after each release
+  build) is the only refresh path.

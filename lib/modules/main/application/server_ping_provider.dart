@@ -121,7 +121,7 @@ class ServerPingNotifier extends StateNotifier<ServerPingState> {
     Socket? socket;
     final stopwatch = Stopwatch()..start();
     try {
-      socket = await SecureSocket.connect(
+      final attempt = SecureSocket.connect(
         server.ip,
         443,
         timeout: _timeout,
@@ -129,6 +129,19 @@ class ServerPingNotifier extends StateNotifier<ServerPingState> {
         // the handshake and never sends data.
         onBadCertificate: (_) => true,
       );
+      // The dart:io timeout only covers the TCP connect. Carriers that accept
+      // the handshake and then stall TLS leave this future pending for
+      // minutes, which stalls the whole ping sweep, so cap the handshake too.
+      unawaited(
+        attempt
+            .then((s) {
+              try {
+                s.destroy();
+              } catch (_) {}
+            })
+            .catchError((_) {}),
+      );
+      socket = await attempt.timeout(_timeout);
       stopwatch.stop();
       final ms = stopwatch.elapsedMilliseconds;
       _publish(server.ip, ServerPing.ok(ms));

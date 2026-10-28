@@ -4,10 +4,12 @@
 /// public CSV hourly and commits `data/vpngate.json`; clients read that file
 /// from raw.githubusercontent / jsDelivr.
 const List<String> vpnGatePublishedLists = <String>[
-  // Current production branch (Actions + pushes land here first).
-  'https://cdn.jsdelivr.net/gh/hasanabbassorathiya/BULBVPN@redesign/production-grade/data/vpngate.json',
-  'https://raw.githubusercontent.com/hasanabbassorathiya/BULBVPN/redesign/production-grade/data/vpngate.json',
-  // Default-branch fallback once catalog merges to main.
+  // Default branch is the only branch GitHub runs the hourly cron on, so its
+  // file is the freshest one. (The workflow was never merged here until
+  // 2026-10-28; keep this first so a merged pipeline wins.)
   'https://cdn.jsdelivr.net/gh/hasanabbassorathiya/BULBVPN@main/data/vpngate.json',
   'https://raw.githubusercontent.com/hasanabbassorathiya/BULBVPN/main/data/vpngate.json',
+  // Current production branch fallback while main is stale/absent.
+  'https://cdn.jsdelivr.net/gh/hasanabbassorathiya/BULBVPN@redesign/production-grade/data/vpngate.json',
+  'https://raw.githubusercontent.com/hasanabbassorathiya/BULBVPN/redesign/production-grade/data/vpngate.json',
 ];

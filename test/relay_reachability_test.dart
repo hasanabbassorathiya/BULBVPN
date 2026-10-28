@@ -41,7 +41,8 @@ void main() {
   test('the cache is bounded and evicts the oldest probe', () {
     final cache = RelayReachability();
     final base = DateTime(2026, 10, 28, 12);
-    for (var i = 0; i < 70; i++) {
+    final count = RelayReachability.maxEntries + 10;
+    for (var i = 0; i < count; i++) {
       cache.record(
         '203.0.113.$i',
         ok: true,
@@ -50,11 +51,14 @@ void main() {
     }
 
     expect(
-      cache.lookup('203.0.113.0', now: base.add(const Duration(seconds: 70))),
+      cache.lookup('203.0.113.0', now: base.add(const Duration(seconds: 300))),
       isNull,
     );
     expect(
-      cache.lookup('203.0.113.69', now: base.add(const Duration(seconds: 70))),
+      cache.lookup(
+        '203.0.113.${count - 1}',
+        now: base.add(const Duration(seconds: 300)),
+      ),
       isNotNull,
     );
   });
