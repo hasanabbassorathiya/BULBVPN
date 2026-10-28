@@ -1,4 +1,5 @@
 import 'dart:async';
+
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -29,8 +30,10 @@ extension ConnectionStatusExtension on ConnectionStatus {
 class ConnectionState {
   /// App-level connection status (superset: adds loading/analyzing/error/noInternet).
   final ConnectionStatus status;
+
   /// Engine status from openvpn_dart (connecting/connected/disconnecting/disconnected/unknown).
   final vpn_status.ConnectionStatus? vpnStatus;
+
   /// Cumulative session bytes downloaded (fed to the throughput gauge).
   final int totalDownload;
 
@@ -55,8 +58,8 @@ class ConnectionState {
 
 final connectionStateProvider =
     StateNotifierProvider<ConnectionStateNotifier, ConnectionState>((ref) {
-  return ConnectionStateNotifier(ref);
-});
+      return ConnectionStateNotifier(ref);
+    });
 
 class ConnectionStateNotifier extends StateNotifier<ConnectionState> {
   ConnectionStateNotifier(this._ref) : super(const ConnectionState()) {
@@ -79,6 +82,7 @@ class ConnectionStateNotifier extends StateNotifier<ConnectionState> {
   DateTime? _connectedAt;
   DateTime? _lastEngineCheck;
   int _engineMisses = 0;
+  int _softEtherMisses = 0;
 
   /// The OS tunnel is already up. Ignore a stale `disconnected` replay
   /// from the OpenVPN engine while the UI catches up.
@@ -92,6 +96,7 @@ class ConnectionStateNotifier extends StateNotifier<ConnectionState> {
   /// so a stray `disconnected` does not tear the UI back down.
   void holdEngineEvents(bool hold) {
     _holdEngineEvents = hold;
+    _softEtherMisses = 0;
     if (hold) {
       _connectedAt = DateTime.now();
       _engineMisses = 0;
@@ -103,10 +108,17 @@ class ConnectionStateNotifier extends StateNotifier<ConnectionState> {
       await _vpnService.initialize();
       Log().addLog('[ConnectionStateNotifier] VPN service initialized');
     } catch (e, stackTrace) {
-      Log().addLog('[ConnectionStateNotifier] ERROR initializing VPN service: $e');
+      Log().addLog(
+        '[ConnectionStateNotifier] ERROR initializing VPN service: $e',
+      );
       debugPrint('[ConnectionStateNotifier] Stack trace: $stackTrace');
       try {
-        FirebaseCrashlytics.instance.recordError(e, stackTrace, reason: 'ConnectionStateNotifier init', fatal: false);
+        FirebaseCrashlytics.instance.recordError(
+          e,
+          stackTrace,
+          reason: 'ConnectionStateNotifier init',
+          fatal: false,
+        );
         FirebaseCrashlytics.instance.log('vpn init error: $e');
       } catch (_) {}
       setError();
@@ -115,12 +127,20 @@ class ConnectionStateNotifier extends StateNotifier<ConnectionState> {
 
     // Event-driven: openvpn_dart pushes status transitions instead of the
     // 1s polling the old openvpn_flutter wrapper used.
-    _statusSub = _vpnService.statusStream().listen(_onStatusEvent, onError: (e, s) {
-      debugPrint('[ConnectionStateNotifier] statusStream error: $e');
-      try {
-        FirebaseCrashlytics.instance.recordError(e as Object, s, reason: 'vpn statusStream', fatal: false);
-      } catch (_) {}
-    });
+    _statusSub = _vpnService.statusStream().listen(
+      _onStatusEvent,
+      onError: (e, s) {
+        debugPrint('[ConnectionStateNotifier] statusStream error: $e');
+        try {
+          FirebaseCrashlytics.instance.recordError(
+            e as Object,
+            s,
+            reason: 'vpn statusStream',
+            fatal: false,
+          );
+        } catch (_) {}
+      },
+    );
 
     // Poll cumulative traffic for the throughput gauge (engine reports totals only).
     // The same tick reconciles real tunnel liveness. A stale `connected` state
@@ -133,12 +153,23 @@ class ConnectionStateNotifier extends StateNotifier<ConnectionState> {
           if (_holdEngineEvents) {
             final tunnel = await SoftEtherVpn.status();
             if (!tunnel.isLive) {
-              Log().addLog(
-                '[ConnectionStateNotifier] SoftEther tunnel dropped '
-                '(reason=${tunnel.reason.isEmpty ? 'unknown' : tunnel.reason})',
-              );
-              _dropUnclean();
-              return;
+              // carrierUp briefly drops during a handover while the native
+              // service is still deciding whether to rebuild, and SoftEther
+              // runs its own short reconnects. Six seconds lets both finish;
+              // the native service still tears down a dead link at eight.
+              _softEtherMisses += 1;
+              if (_softEtherMisses >= 6 || tunnel.reason == 'revoked') {
+                Log().addLog(
+                  '[ConnectionStateNotifier] SoftEther tunnel dropped '
+                  '(reason=${tunnel.reason.isEmpty ? 'unknown' : tunnel.reason}, '
+                  'misses=$_softEtherMisses)',
+                );
+                _softEtherMisses = 0;
+                _dropUnclean();
+                return;
+              }
+            } else {
+              _softEtherMisses = 0;
             }
           } else {
             _engineMisses = await _reconcileEngineLiveness(_engineMisses);
@@ -152,7 +183,9 @@ class ConnectionStateNotifier extends StateNotifier<ConnectionState> {
           state = state.copyWith(totalDownload: total);
         }
       } catch (e) {
-        debugPrint('[ConnectionStateNotifier] Error polling tunnel statistics: $e');
+        debugPrint(
+          '[ConnectionStateNotifier] Error polling tunnel statistics: $e',
+        );
       }
     });
   }
@@ -172,7 +205,8 @@ class ConnectionStateNotifier extends StateNotifier<ConnectionState> {
     }
     _lastEngineCheck = now;
     final engine = await _vpnService.getStatus();
-    final alive = engine == vpn_status.ConnectionStatus.connected ||
+    final alive =
+        engine == vpn_status.ConnectionStatus.connected ||
         engine == vpn_status.ConnectionStatus.connecting ||
         engine == vpn_status.ConnectionStatus.disconnecting;
     if (alive) return 0;
@@ -191,10 +225,10 @@ class ConnectionStateNotifier extends StateNotifier<ConnectionState> {
     _ref.read(connectedRelayProvider.notifier).state = null;
     _ref.read(softEtherHostProvider.notifier).state = null;
     _engineMisses = 0;
+    _softEtherMisses = 0;
     _connectedAt = null;
     setDisconnected();
   }
-
 
   Future<int> _openVpnBytes() async {
     await _vpnService.refreshTunnelStatistics();
@@ -244,6 +278,7 @@ class ConnectionStateNotifier extends StateNotifier<ConnectionState> {
     if (newStatus == ConnectionStatus.connected) {
       _connectedAt = DateTime.now();
       _engineMisses = 0;
+      _softEtherMisses = 0;
       ScreenSecurity.enableScreenSecurity();
     } else if (newStatus == ConnectionStatus.disconnected ||
         newStatus == ConnectionStatus.error) {
@@ -257,7 +292,8 @@ class ConnectionStateNotifier extends StateNotifier<ConnectionState> {
       state = state.copyWith(
         status: newStatus,
         vpnStatus: status,
-        totalDownload: newStatus == ConnectionStatus.disconnected ||
+        totalDownload:
+            newStatus == ConnectionStatus.disconnected ||
                 newStatus == ConnectionStatus.error
             ? 0
             : null,
@@ -269,7 +305,9 @@ class ConnectionStateNotifier extends StateNotifier<ConnectionState> {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setInt(_connectionStatusKey, state.status.toInt());
-      debugPrint('[ConnectionStateNotifier] Saved connection state: ${state.status}');
+      debugPrint(
+        '[ConnectionStateNotifier] Saved connection state: ${state.status}',
+      );
     } catch (e) {
       debugPrint('[ConnectionStateNotifier] Error saving connection state: $e');
     }
@@ -288,13 +326,16 @@ class ConnectionStateNotifier extends StateNotifier<ConnectionState> {
     if (status == ConnectionStatus.connected) {
       _connectedAt = DateTime.now();
       _engineMisses = 0;
+      _softEtherMisses = 0;
     }
-    final terminal = status == ConnectionStatus.disconnected ||
+    final terminal =
+        status == ConnectionStatus.disconnected ||
         status == ConnectionStatus.error ||
         status == ConnectionStatus.noInternet;
     if (terminal) {
       _connectedAt = null;
       _engineMisses = 0;
+      _softEtherMisses = 0;
       _ref.read(connectedRelayProvider.notifier).state = null;
       _ref.read(softEtherHostProvider.notifier).state = null;
     }

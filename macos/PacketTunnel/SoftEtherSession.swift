@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import Network
 import NetworkExtension
 import os.log
 
@@ -58,6 +59,35 @@ final class SoftEtherSession {
     private var uploadFd: Int32 = -1
     private var downloadFd: Int32 = -1
     private var packetPump: Thread?
+    private var pathMonitor: NWPathMonitor?
+    private var pathSignature = ""
+
+    /// Cumulative session traffic for the app's DOWN gauge. The extension is
+    /// the only process that sees the SoftEther packets, so these counters
+    /// travel back over the OPENVPN_STATS provider message.
+    private let statsLock = NSLock()
+    private var bytesIn: Int64 = 0
+    private var bytesOut: Int64 = 0
+
+    func statistics() -> (down: Int64, up: Int64) {
+        statsLock.lock()
+        defer { statsLock.unlock() }
+        return (bytesIn, bytesOut)
+    }
+
+    private func addIncoming(_ count: Int) {
+        guard count > 0 else { return }
+        statsLock.lock()
+        bytesIn += Int64(count)
+        statsLock.unlock()
+    }
+
+    private func addOutgoing(_ count: Int) {
+        guard count > 0 else { return }
+        statsLock.lock()
+        bytesOut += Int64(count)
+        statsLock.unlock()
+    }
 
     /// `softether_destroy` while another thread is inside the client (health
     /// probe, DHCP wait, packet pump) aborts the extension. Every handle access
@@ -159,6 +189,7 @@ final class SoftEtherSession {
                 }
                 self.startPacketPump()
                 self.startHealthMonitor()
+                self.startPathMonitor()
                 completion(nil)
             }
         }
@@ -201,7 +232,81 @@ final class SoftEtherSession {
         }
     }
 
+    /// The control connection is bound to the carrier interface it was dialled
+    /// from. Wi-Fi to cellular (or the reverse) leaves it on an address that no
+    /// longer routes; the library then reports dead while the OS still says
+    /// the tunnel is up. Fail the tunnel instead so the app re-dials on the
+    /// new network.
+    private func startPathMonitor() {
+        let monitor = NWPathMonitor()
+        monitor.pathUpdateHandler = { [weak self] path in
+            self?.handlePath(path)
+        }
+        pathMonitor = monitor
+        monitor.start(queue: DispatchQueue(label: "app.bulbvpn.com.softether.path"))
+    }
+
+    private func handlePath(_ path: Network.NWPath) {
+        guard running else { return }
+        // Inside the extension the path can list the tunnel itself. Only the
+        // physical interfaces identify the carrier network.
+        let physical = path.availableInterfaces.filter {
+            !Self.isTunnelInterface($0.name)
+        }
+        // Wi-Fi and cellular can both be available while only one is in use.
+        // A switch between them must count as a change even when the set of
+        // interfaces stayed the same.
+        let active = physical.filter { interface in
+            switch interface.type {
+            case .wifi: return path.usesInterfaceType(.wifi)
+            case .cellular: return path.usesInterfaceType(.cellular)
+            case .wiredEthernet: return path.usesInterfaceType(.wiredEthernet)
+            default: return false
+            }
+        }
+        let chosen = active.isEmpty ? physical : active
+        let signature = chosen
+            .map { $0.name }
+            .sorted()
+            .joined(separator: ",")
+        guard !signature.isEmpty else { return }
+        stateLock.lock()
+        if pathSignature.isEmpty {
+            pathSignature = signature
+            stateLock.unlock()
+            return
+        }
+        let changed = pathSignature != signature
+        stateLock.unlock()
+        guard changed else { return }
+        os_log(
+            "network changed: %{public}@",
+            log: softEtherLog,
+            type: .default,
+            signature
+        )
+        stateLock.lock()
+        let wasRunning = _running
+        _running = false
+        stateLock.unlock()
+        guard wasRunning else { return }
+        provider?.cancelTunnelWithError(
+            NSError(
+                domain: "SoftEther",
+                code: 3,
+                userInfo: [NSLocalizedDescriptionKey: "network changed"]
+            )
+        )
+    }
+
+    private static func isTunnelInterface(_ name: String) -> Bool {
+        if name == "lo0" { return true }
+        return ["utun", "ipsec", "ppp", "tap"].contains { name.hasPrefix($0) }
+    }
+
     func stop() {
+        pathMonitor?.cancel()
+        pathMonitor = nil
         stateLock.lock()
         _running = false
         cancelled = true
@@ -414,6 +519,7 @@ final class SoftEtherSession {
                 if poll(&waited, 1, 200) <= 0 { continue }
                 let count = recv(download, &buffer, buffer.count, 0)
                 if count <= 0 { continue }
+                self.addIncoming(count)
                 let packet = Data(buffer[0..<count])
                 flow.writePackets([packet], withProtocols: [NSNumber(value: AF_INET)])
             }
@@ -427,13 +533,24 @@ final class SoftEtherSession {
         flow.readPackets { [weak self] packets, _ in
             guard let self, self.running else { return }
             for packet in packets {
+                guard Self.isIPv4(packet) else { continue }
                 packet.withUnsafeBytes { raw in
                     guard let base = raw.baseAddress else { return }
-                    _ = send(upload, base, packet.count, 0)
+                    let sent = send(upload, base, packet.count, 0)
+                    self.addOutgoing(Int(sent))
                 }
             }
             self.readPackets(flow: flow, upload: upload)
         }
+    }
+
+    /// The SoftEther library is IPv4-only. The IPv6 settings below exist so
+    /// the carrier's IPv6 traffic enters the tunnel instead of escaping around
+    /// it; forwarding those packets to an IPv4 session would corrupt it, so
+    /// they are dropped here.
+    private static func isIPv4(_ packet: Data) -> Bool {
+        guard let first = packet.first else { return false }
+        return first >> 4 == 4
     }
 
     private func tunnelSettings(
@@ -446,6 +563,15 @@ final class SoftEtherSession {
         let ipv4 = NEIPv4Settings(addresses: [address], subnetMasks: [mask])
         ipv4.includedRoutes = [NEIPv4Route.default()]
         settings.ipv4Settings = ipv4
+        // Capture IPv6 even though this tunnel cannot carry it. Without a
+        // route here a dual-stack carrier sends IPv6 outside the tunnel and
+        // every site, Google included, sees the real country.
+        let ipv6 = NEIPv6Settings(
+            addresses: ["fd00:6275:6c62::1"],
+            networkPrefixLengths: [64]
+        )
+        ipv6.includedRoutes = [NEIPv6Route.default()]
+        settings.ipv6Settings = ipv6
         settings.mtu = 1280
         let dnsSettings = NEDNSSettings(servers: [dns, "1.1.1.1"])
         dnsSettings.matchDomains = [""]

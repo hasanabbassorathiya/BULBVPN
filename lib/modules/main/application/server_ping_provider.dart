@@ -27,63 +27,108 @@ class ServerPingState {
   final bool probing;
   const ServerPingState({this.byIp = const {}, this.probing = false});
 
-  ServerPingState copyWith({
-    Map<String, ServerPing>? byIp,
-    bool? probing,
-  }) {
-    return ServerPingState(byIp: byIp ?? this.byIp, probing: probing ?? this.probing);
+  ServerPingState copyWith({Map<String, ServerPing>? byIp, bool? probing}) {
+    return ServerPingState(
+      byIp: byIp ?? this.byIp,
+      probing: probing ?? this.probing,
+    );
   }
 }
 
-/// Probes every server with a real TCP connect to `ip:443` (a single
-/// round-trip, ~3s cap each), so the values shown are true device latency —
-/// NOT the server-provided `ms`. Results stream in live as each probe lands.
+/// Probes every server with a real TLS handshake to `ip:443` (4s cap each).
+/// A plain TCP connect is not evidence of reachability: Iranian ISPs terminate
+/// TCP locally, so a relay on another continent "answered" in 4.5 ms while the
+/// handshake that SoftEther actually needs took 1.76 s. Timing the TLS
+/// handshake keeps the displayed latency honest. Results stream in live as
+/// each probe lands.
 class ServerPingNotifier extends StateNotifier<ServerPingState> {
   ServerPingNotifier() : super(const ServerPingState());
 
-  static const _timeout = Duration(seconds: 3);
+  static const _timeout = Duration(seconds: 4);
   static const _maxConcurrent = 10;
+  static const _staleAfter = Duration(minutes: 2);
 
   bool _running = false;
+  bool _rerunRequested = false;
+  List<VpnServer> _lastServers = const [];
+  DateTime? _finishedAt;
+
+  /// True when the last completed sweep is old enough to be worth repeating
+  /// (the home screen and the server sheet use this instead of wiping fresh
+  /// values on every visit).
+  bool get isStale =>
+      _finishedAt == null ||
+      DateTime.now().difference(_finishedAt!) > _staleAfter;
+
+  Future<void> ensureFresh(List<VpnServer> servers) async {
+    if (servers.isEmpty || _running || !isStale) return;
+    await pingAll(servers);
+  }
 
   Future<void> pingAll(List<VpnServer> servers) async {
-    if (_running) return;
+    _lastServers = servers;
+    if (_running) {
+      // A carrier switch landed mid-sweep. The timings from the old path are
+      // not evidence for the new one, so run again as soon as it finishes.
+      _rerunRequested = true;
+      return;
+    }
     _running = true;
 
+    try {
+      do {
+        _rerunRequested = false;
+        await _probeAll(_lastServers);
+      } while (_rerunRequested);
+    } finally {
+      _running = false;
+      _finishedAt = DateTime.now();
+      state = state.copyWith(probing: false);
+    }
+  }
+
+  Future<void> _probeAll(List<VpnServer> servers) async {
     final fresh = <String, ServerPing>{
       for (final s in servers) s.ip: ServerPing.pending,
     };
     state = ServerPingState(byIp: fresh, probing: true);
 
-    try {
-      final slots = List<int>.generate(servers.length, (i) => i);
-      var next = 0;
+    final slots = List<int>.generate(servers.length, (i) => i);
+    var next = 0;
 
-      Future<void> worker() async {
-        while (true) {
-          final i = next++;
-          if (i >= slots.length) return;
-          final server = servers[i];
-          await _probeOne(server);
-        }
+    Future<void> worker() async {
+      while (true) {
+        final i = next++;
+        if (i >= slots.length) return;
+        final server = servers[i];
+        await _probeOne(server);
       }
-
-      final workerCount = _maxConcurrent.clamp(1, servers.isEmpty ? 1 : servers.length);
-      final workers = List.generate(workerCount, (_) => worker());
-      await Future.wait(workers);
-
-      Log().addLog('[Ping] Measured ${state.byIp.values.where((p) => p.status == PingStatus.ok).length}/${servers.length} servers');
-    } finally {
-      _running = false;
-      state = state.copyWith(probing: false);
     }
+
+    final workerCount = _maxConcurrent.clamp(
+      1,
+      servers.isEmpty ? 1 : servers.length,
+    );
+    final workers = List.generate(workerCount, (_) => worker());
+    await Future.wait(workers);
+
+    Log().addLog(
+      '[Ping] Measured ${state.byIp.values.where((p) => p.status == PingStatus.ok).length}/${servers.length} servers',
+    );
   }
 
   Future<void> _probeOne(VpnServer server) async {
     Socket? socket;
     final stopwatch = Stopwatch()..start();
     try {
-      socket = await Socket.connect(server.ip, 443, timeout: _timeout);
+      socket = await SecureSocket.connect(
+        server.ip,
+        443,
+        timeout: _timeout,
+        // VPN Gate relays use self-signed certificates; the probe only times
+        // the handshake and never sends data.
+        onBadCertificate: (_) => true,
+      );
       stopwatch.stop();
       final ms = stopwatch.elapsedMilliseconds;
       _publish(server.ip, ServerPing.ok(ms));
@@ -106,19 +151,23 @@ class ServerPingNotifier extends StateNotifier<ServerPingState> {
   void clear() {
     if (_running) return;
     state = const ServerPingState();
+    _finishedAt = null;
   }
 }
 
 final serverPingProvider =
     StateNotifierProvider<ServerPingNotifier, ServerPingState>((ref) {
-  return ServerPingNotifier();
-});
+      return ServerPingNotifier();
+    });
 
 /// Sorts a server list by measured ping (ascending), putting unreachable /
 /// unprobed servers last. Falls back to stable original order when no live
 /// measurement exists for a server so users never see unprobed servers jump
 /// to the top with the unreliable `ms` value.
-List<VpnServer> sortByMeasuredPing(List<VpnServer> servers, Map<String, ServerPing> byIp) {
+List<VpnServer> sortByMeasuredPing(
+  List<VpnServer> servers,
+  Map<String, ServerPing> byIp,
+) {
   final stable = List<VpnServer>.of(servers);
   stable.sort((a, b) {
     final pa = byIp[a.ip];

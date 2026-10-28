@@ -1,30 +1,32 @@
-import 'dart:io';
-
 import 'package:bulbvpn/app/router/app_router.dart';
 import 'package:bulbvpn/core/theme/app_theme.dart';
 import 'package:bulbvpn/modules/core/vpn_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:bulbvpn/shared/services/animation_service.dart';
 import 'package:bulbvpn/shared/services/vibration_service.dart';
 
-class App extends ConsumerWidget {
+class App extends ConsumerStatefulWidget {
   const App({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<App> createState() => _AppState();
+}
+
+class _AppState extends ConsumerState<App> {
+  late final Future<bool> _startup = _initializeApp();
+
+  @override
+  Widget build(BuildContext context) {
     return FutureBuilder<bool>(
-      future: _initializeApp(),
+      future: _startup,
       builder: (context, snapshot) {
         if (!snapshot.hasData) {
           return const MaterialApp(
             home: Scaffold(body: Center(child: CircularProgressIndicator())),
           );
         }
-        
-        _handleAdConfiguration(snapshot);
         return _buildApp(context, ref);
       },
     );
@@ -34,27 +36,6 @@ class App extends ConsumerWidget {
     await VibrationService().init();
     await AnimationService().init();
     return true;
-  }
-
-  void _handleAdConfiguration(AsyncSnapshot<bool> snapshot) {
-    if (!snapshot.hasData) return;
-
-    final shouldUseInternalAds = snapshot.data!;
-    if (shouldUseInternalAds) {
-      debugPrint('Using internal ads');
-    } else {
-      _initializeMobileAds();
-    }
-  }
-
-  Future<void> _initializeMobileAds() async {
-    try {
-      if (!Platform.isMacOS) {
-        await MobileAds.instance.initialize();
-      }
-    } catch (error) {
-      debugPrint('Error initializing Google AdMob: $error');
-    }
   }
 
   Widget _buildApp(BuildContext context, WidgetRef ref) {

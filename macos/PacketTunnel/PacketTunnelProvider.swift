@@ -239,8 +239,13 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             completionHandler(nil)
             return
         }
-        let stats = vpnAdapter.interfaceStatistics
-        let json = "{\"totalDownload\":\(stats.bytesIn),\"totalUpload\":\(stats.bytesOut),\"latestHandshake\":0}"
+        // A SoftEther dial never touches vpnAdapter, so its interface stats
+        // stay at zero for the whole session. Report the tunnel's own counters
+        // instead; without this the app's DOWN gauge is dead on Apple.
+        let softEtherStats = softEther?.statistics()
+        let bytesIn = softEtherStats?.down ?? Int64(vpnAdapter.interfaceStatistics.bytesIn)
+        let bytesOut = softEtherStats?.up ?? Int64(vpnAdapter.interfaceStatistics.bytesOut)
+        let json = "{\"totalDownload\":\(bytesIn),\"totalUpload\":\(bytesOut),\"latestHandshake\":0}"
         completionHandler(json.data(using: .utf8))
     }
 
@@ -440,12 +445,11 @@ extension PacketTunnelProvider {
         _ settings: NEPacketTunnelNetworkSettings?
     ) -> NEPacketTunnelNetworkSettings? {
         guard let settings else { return nil }
-        if let ipv6 = settings.ipv6Settings {
-            let addresses = ipv6.addresses
-            let prefixes = ipv6.networkPrefixLengths
-            if addresses.isEmpty || prefixes.count != addresses.count {
-                settings.ipv6Settings = nil
-            }
+        let ipv6 = settings.ipv6Settings
+        if ipv6 == nil
+            || ipv6!.addresses.isEmpty
+            || ipv6!.networkPrefixLengths.count != ipv6!.addresses.count {
+            settings.ipv6Settings = Self.ipv6Blackhole()
         }
         if let dns = settings.dnsSettings, !dns.servers.isEmpty {
             dns.matchDomains = [""]
@@ -453,5 +457,17 @@ extension PacketTunnelProvider {
             settings.dnsSettings = nil
         }
         return settings
+    }
+
+    /// A tunnel that installs no IPv6 settings lets a dual-stack carrier send
+    /// IPv6 around the VPN. A ULA and a default route capture that traffic so
+    /// it dies inside the tunnel instead of exposing the real address.
+    static func ipv6Blackhole() -> NEIPv6Settings {
+        let ipv6 = NEIPv6Settings(
+            addresses: ["fd00:6275:6c62::1"],
+            networkPrefixLengths: [64]
+        )
+        ipv6.includedRoutes = [NEIPv6Route.default()]
+        return ipv6
     }
 }

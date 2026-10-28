@@ -1,0 +1,6 @@
+source=assets/images/logo.png
+listing=store/listing/icon-512.png
+play_metadata=store/metadata/android/en-US/images/icon.png
+play_graphics=store/graphics/play-icon-512.png
+size=512x512
+format=PNG RGBA fully-opaque

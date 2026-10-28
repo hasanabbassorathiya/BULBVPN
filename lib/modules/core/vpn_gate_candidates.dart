@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io' show Platform;
 
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// One connectable VPN Gate endpoint parsed out of a `.ovpn` config.
 class Candidate {
@@ -12,6 +14,14 @@ class Candidate {
   final String b64;
   final String config;
 
+  /// `.opengw.net` name from the same catalog row. Used as SoftEther SNI when
+  /// this candidate came from a fresh on-device fetch.
+  final String sni;
+
+  /// Country published in the catalog row, when known.
+  final String countryCode;
+  final String countryName;
+
   const Candidate({
     required this.ip,
     required this.port,
@@ -19,10 +29,20 @@ class Candidate {
     required this.csvPing,
     required this.b64,
     required this.config,
+    this.sni = '',
+    this.countryCode = '',
+    this.countryName = '',
   });
 
   /// Parses host/port/proto out of a decoded `.ovpn` body.
-  static Candidate? fromConfig(String config, {String? fallbackIp, int? csvPing = 0}) {
+  static Candidate? fromConfig(
+    String config, {
+    String? fallbackIp,
+    int? csvPing = 0,
+    String sni = '',
+    String countryCode = '',
+    String countryName = '',
+  }) {
     String? ip;
     int? port;
     for (final line in config.split('\n')) {
@@ -34,7 +54,10 @@ class Candidate {
       }
     }
     var proto = 'udp';
-    final protoMatch = RegExp(r'^\s*proto\s+(tcp4?|udp4?)\b', multiLine: true).firstMatch(config);
+    final protoMatch = RegExp(
+      r'^\s*proto\s+(tcp4?|udp4?)\b',
+      multiLine: true,
+    ).firstMatch(config);
     if (protoMatch != null) {
       proto = protoMatch.group(1)!.startsWith('tcp') ? 'tcp' : 'udp';
     }
@@ -49,6 +72,9 @@ class Candidate {
       csvPing: csvPing ?? 0,
       b64: '',
       config: config,
+      sni: sni,
+      countryCode: countryCode,
+      countryName: countryName,
     );
   }
 
@@ -77,6 +103,9 @@ class Candidate {
       csvPing: c.csvPing,
       b64: c.b64,
       config: replaced,
+      sni: c.sni,
+      countryCode: c.countryCode,
+      countryName: c.countryName,
     );
   }
 
@@ -96,6 +125,9 @@ class Candidate {
       csvPing: c.csvPing,
       b64: c.b64,
       config: replaced,
+      sni: c.sni,
+      countryCode: c.countryCode,
+      countryName: c.countryName,
     );
   }
 
@@ -104,7 +136,11 @@ class Candidate {
 }
 
 String _sanitizeBase64(String b64) {
-  var s = b64.trim().replaceAll('\n', '').replaceAll('\r', '').replaceAll(' ', '');
+  var s = b64
+      .trim()
+      .replaceAll('\n', '')
+      .replaceAll('\r', '')
+      .replaceAll(' ', '');
   final mod = s.length % 4;
   if (mod != 0) s += '=' * (4 - mod);
   return s;
@@ -183,8 +219,19 @@ String configForCurrentEngine(String config) {
   return stripIcsOpenVpnCompat(withAuth);
 }
 
-/// Fetches VPN Gate server configs — official CSV first (http + https), then
-/// community JSON mirrors — and returns them TCP-first, lowest CSV ping first.
+String _fqdn(String host) {
+  final value = host.trim();
+  if (value.isEmpty || value.contains('.')) return value;
+  return '$value.opengw.net';
+}
+
+String _displayCountry(String raw) {
+  final cut = raw.indexOf(' (');
+  return cut > 0 ? raw.substring(0, cut) : raw;
+}
+
+/// Fetches VPN Gate server configs from every official/mirror source at once
+/// and returns the first non-empty answer, TCP-first, lowest CSV ping first.
 class VpnGateCandidates {
   static const _officialUrls = <String>[
     'http://www.vpngate.net/api/iphone/',
@@ -194,40 +241,81 @@ class VpnGateCandidates {
     'https://raw.githubusercontent.com/alihusains/apigate/main/response.json',
   ];
 
-  static Future<List<Candidate>> fetchAll({void Function(String message)? onLog}) async {
+  static Future<List<Candidate>> fetchAll({
+    void Function(String message)? onLog,
+  }) async {
     final log = onLog ?? (_) {};
-    // Official http and https together. On networks that blackhole
-    // vpngate.net, waiting for them one after another burns the whole
-    // connect press before the mirror is tried.
-    final official = await Future.wait([
-      for (final url in _officialUrls) _fetchOfficial(url, log),
-    ]);
-    for (final candidates in official) {
-      if (candidates.isNotEmpty) return candidates;
+    var live = await _raceSources(log);
+    if (live.isNotEmpty) {
+      unawaited(VpnGateCatalogCache.save(live));
+      return live;
     }
-    for (final url in _mirrorUrls) {
-      try {
-        log('Fallback JSON mirror $url');
-        final resp = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 12));
-        if (resp.statusCode != 200) {
-          log('Mirror HTTP ${resp.statusCode} ($url)');
-          continue;
-        }
-        final candidates = _fromJsonMirror(resp.body, log);
-        if (candidates.isNotEmpty) return candidates;
-        log('Mirror produced no candidates ($url)');
-      } catch (e) {
-        log('Mirror error ($url): $e');
-      }
-    }
-    return const [];
+    log('Every live VPN Gate source failed; reading the disk catalog');
+    live = await VpnGateCatalogCache.load();
+    if (live.isNotEmpty) log('Disk catalog: ${live.length} endpoints');
+    return live;
   }
 
-  static Future<List<Candidate>> _fetchOfficial(String url, void Function(String) log) async {
+  /// The official CSV and the mirrors answer on different networks: vpngate.net
+  /// is frequently blackholed on Iranian carriers while GitHub raw is not, and
+  /// the reverse happens elsewhere. Waiting for sources in sequence spent most
+  /// of a connect press on the blocked one, so every source starts together and
+  /// the first usable list wins.
+  static Future<List<Candidate>> _raceSources(void Function(String) log) {
+    final completer = Completer<List<Candidate>>();
+    var pending = _officialUrls.length + _mirrorUrls.length;
+    void settle(List<Candidate> candidates) {
+      if (candidates.isNotEmpty && !completer.isCompleted) {
+        completer.complete(candidates);
+      }
+      pending -= 1;
+      if (pending == 0 && !completer.isCompleted) {
+        completer.complete(const []);
+      }
+    }
+
+    for (final url in _officialUrls) {
+      unawaited(_fetchOfficial(url, log).then(settle));
+    }
+    for (final url in _mirrorUrls) {
+      unawaited(_fetchMirror(url, log).then(settle));
+    }
+    return completer.future;
+  }
+
+  static Future<List<Candidate>> _fetchMirror(
+    String url,
+    void Function(String) log,
+  ) async {
+    try {
+      log('Fallback JSON mirror $url');
+      final resp = await http
+          .get(Uri.parse(url))
+          .timeout(const Duration(seconds: 12));
+      if (resp.statusCode != 200) {
+        log('Mirror HTTP ${resp.statusCode} ($url)');
+        return const [];
+      }
+      final candidates = _fromJsonMirror(resp.body, log);
+      if (candidates.isEmpty) log('Mirror produced no candidates ($url)');
+      return candidates;
+    } catch (e) {
+      log('Mirror error ($url): $e');
+      return const [];
+    }
+  }
+
+  static Future<List<Candidate>> _fetchOfficial(
+    String url,
+    void Function(String) log,
+  ) async {
     try {
       log('Fetching VPNGate official CSV $url');
-      final resp = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 8));
-      if (resp.statusCode != 200 || !resp.body.contains('OpenVPN_ConfigData_Base64')) {
+      final resp = await http
+          .get(Uri.parse(url))
+          .timeout(const Duration(seconds: 8));
+      if (resp.statusCode != 200 ||
+          !resp.body.contains('OpenVPN_ConfigData_Base64')) {
         log('Official API unusable ($url): HTTP ${resp.statusCode}');
         return const [];
       }
@@ -253,7 +341,13 @@ class VpnGateCandidates {
     final cols = header.split(',');
     final pingIdx = cols.indexOf('Ping');
     final b64Idx = cols.indexOf('OpenVPN_ConfigData_Base64');
+    final hostIdx = cols.indexOf('HostName');
+    final countryLongIdx = cols.indexOf('CountryLong');
+    final countryShortIdx = cols.indexOf('CountryShort');
     if (b64Idx < 0) return const [];
+
+    String cell(List<String> parts, int index) =>
+        index >= 0 && index < parts.length ? parts[index].trim() : '';
 
     final candidates = <Candidate>[];
     for (final line in lines) {
@@ -263,26 +357,43 @@ class VpnGateCandidates {
       if (parts.length <= b64Idx) continue;
       final b64 = parts[b64Idx].trim();
       if (b64.isEmpty) continue;
-      final csvPing = pingIdx >= 0 && pingIdx < parts.length ? (int.tryParse(parts[pingIdx].trim()) ?? 0) : 0;
+      final csvPing = pingIdx >= 0 && pingIdx < parts.length
+          ? (int.tryParse(parts[pingIdx].trim()) ?? 0)
+          : 0;
       final decoded = decodeOvpn(b64);
       if (decoded == null || !decoded.contains('<ca>')) continue;
-      final c = Candidate.fromConfig(configForCurrentEngine(decoded), fallbackIp: parts[1].trim(), csvPing: csvPing);
+      final c = Candidate.fromConfig(
+        configForCurrentEngine(decoded),
+        fallbackIp: parts[1].trim(),
+        csvPing: csvPing,
+        sni: _fqdn(cell(parts, hostIdx)),
+        countryCode: cell(parts, countryShortIdx).toUpperCase(),
+        countryName: _displayCountry(cell(parts, countryLongIdx)),
+      );
       if (c != null) {
-        candidates.add(Candidate(
-          ip: c.ip,
-          port: c.port,
-          protocol: c.protocol,
-          csvPing: c.csvPing,
-          b64: b64,
-          config: c.config,
-        ));
+        candidates.add(
+          Candidate(
+            ip: c.ip,
+            port: c.port,
+            protocol: c.protocol,
+            csvPing: c.csvPing,
+            b64: b64,
+            config: c.config,
+            sni: c.sni,
+            countryCode: c.countryCode,
+            countryName: c.countryName,
+          ),
+        );
       }
     }
     log('Parsed ${candidates.length} candidate endpoints from CSV');
     return _prioritize(candidates);
   }
 
-  static List<Candidate> _fromJsonMirror(String body, void Function(String) log) {
+  static List<Candidate> _fromJsonMirror(
+    String body,
+    void Function(String) log,
+  ) {
     try {
       final List<dynamic> servers = jsonDecode(body) as List<dynamic>;
       final candidates = <Candidate>[];
@@ -291,18 +402,32 @@ class VpnGateCandidates {
         final b64 = raw['OpenVPN_ConfigData_Base64']?.toString() ?? '';
         if (b64.isEmpty) continue;
         final csvPing = int.tryParse(raw['Ping']?.toString() ?? '') ?? 0;
+        final hostName =
+            raw['#HostName']?.toString() ?? raw['HostName']?.toString() ?? '';
         final decoded = decodeOvpn(b64);
         if (decoded == null || !decoded.contains('<ca>')) continue;
-        final c = Candidate.fromConfig(configForCurrentEngine(decoded), fallbackIp: raw['IP']?.toString(), csvPing: csvPing);
+        final c = Candidate.fromConfig(
+          configForCurrentEngine(decoded),
+          fallbackIp: raw['IP']?.toString(),
+          csvPing: csvPing,
+          sni: _fqdn(hostName),
+          countryCode: (raw['CountryShort']?.toString() ?? '').toUpperCase(),
+          countryName: _displayCountry(raw['CountryLong']?.toString() ?? ''),
+        );
         if (c != null) {
-          candidates.add(Candidate(
-            ip: c.ip,
-            port: c.port,
-            protocol: c.protocol,
-            csvPing: c.csvPing,
-            b64: b64,
-            config: c.config,
-          ));
+          candidates.add(
+            Candidate(
+              ip: c.ip,
+              port: c.port,
+              protocol: c.protocol,
+              csvPing: c.csvPing,
+              b64: b64,
+              config: c.config,
+              sni: c.sni,
+              countryCode: c.countryCode,
+              countryName: c.countryName,
+            ),
+          );
         }
       }
       log('Parsed ${candidates.length} candidate endpoints from mirror');
@@ -331,5 +456,89 @@ class VpnGateCandidates {
       if (c443 != null) withTcpClones.add(c443);
     }
     return withTcpClones;
+  }
+}
+
+/// The last live catalog, on disk.
+///
+/// When every source fails on a filtered carrier the app still has to dial
+/// something after a restart; the bundled asset can be weeks old. The cache
+/// keeps the newest 60 already-prioritised endpoints for a week. Only the
+/// engine-ready config is stored — it is per-platform and the original base64
+/// would double the size for no benefit.
+class VpnGateCatalogCache {
+  VpnGateCatalogCache._();
+
+  static const _key = 'bulb_vpngate_catalog_v1';
+  static const _maxEntries = 60;
+  static const _maxAgeMs = 7 * 24 * 60 * 60 * 1000;
+
+  static Future<void> save(List<Candidate> candidates, {DateTime? now}) async {
+    if (candidates.isEmpty) return;
+    try {
+      final entries = <Map<String, Object>>[];
+      for (final c in candidates) {
+        if (entries.length >= _maxEntries) break;
+        if (c.ip.isEmpty || c.config.isEmpty) continue;
+        entries.add({
+          'ip': c.ip,
+          'port': c.port,
+          'proto': c.protocol,
+          'ping': c.csvPing,
+          'sni': c.sni,
+          'cc': c.countryCode,
+          'cn': c.countryName,
+          'config': c.config,
+        });
+      }
+      if (entries.isEmpty) return;
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        _key,
+        jsonEncode({
+          'at': (now ?? DateTime.now()).millisecondsSinceEpoch,
+          'entries': entries,
+        }),
+      );
+    } catch (_) {}
+  }
+
+  static Future<List<Candidate>> load({DateTime? now}) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_key);
+      if (raw == null || raw.isEmpty) return const [];
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return const [];
+      final at = int.tryParse(decoded['at']?.toString() ?? '') ?? 0;
+      if (at <= 0) return const [];
+      final age = (now ?? DateTime.now()).millisecondsSinceEpoch - at;
+      if (age > _maxAgeMs) return const [];
+      final entries = decoded['entries'];
+      if (entries is! List) return const [];
+      final candidates = <Candidate>[];
+      for (final entry in entries) {
+        if (entry is! Map) continue;
+        final ip = entry['ip']?.toString() ?? '';
+        final config = entry['config']?.toString() ?? '';
+        if (ip.isEmpty || config.isEmpty) continue;
+        candidates.add(
+          Candidate(
+            ip: ip,
+            port: int.tryParse(entry['port']?.toString() ?? '') ?? 1194,
+            protocol: entry['proto']?.toString() == 'tcp' ? 'tcp' : 'udp',
+            csvPing: int.tryParse(entry['ping']?.toString() ?? '') ?? 0,
+            b64: '',
+            config: config,
+            sni: entry['sni']?.toString() ?? '',
+            countryCode: (entry['cc']?.toString() ?? '').toUpperCase(),
+            countryName: entry['cn']?.toString() ?? '',
+          ),
+        );
+      }
+      return candidates;
+    } catch (_) {
+      return const [];
+    }
   }
 }

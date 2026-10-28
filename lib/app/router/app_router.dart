@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../modules/main/presentation/screens/main_screen.dart';
+import '../../modules/legal/legal_screen.dart';
 import '../../modules/splash/presentation/splash_screen.dart';
 import '../../modules/settings/presentation/screens/settings_screen.dart';
 import '../../modules/speed_test/presentation/screens/speed_test_screen.dart';
@@ -12,6 +13,7 @@ enum SlideDirection { leftToRight, rightToLeft }
 
 enum DefyxVPNRoutes {
   splash("/splash"),
+  legal("/legal"),
   main("/main"),
   settings("/settings"),
   speedTest("/speedTest");
@@ -42,27 +44,19 @@ Widget _buildSlideTransition(
   }
 
   final slideAnimation = animation.drive(
-    Tween(begin: beginOffset, end: Offset.zero).chain(
-      CurveTween(curve: curve),
-    ),
+    Tween(begin: beginOffset, end: Offset.zero).chain(CurveTween(curve: curve)),
   );
 
   final slideOutAnimation = secondaryAnimation.drive(
-    Tween(begin: Offset.zero, end: endOffset).chain(
-      CurveTween(curve: curve),
-    ),
+    Tween(begin: Offset.zero, end: endOffset).chain(CurveTween(curve: curve)),
   );
 
   final fadeAnimation = animation.drive(
-    Tween(begin: 0.0, end: 1.0).chain(
-      CurveTween(curve: curve),
-    ),
+    Tween(begin: 0.0, end: 1.0).chain(CurveTween(curve: curve)),
   );
 
   final fadeOutAnimation = secondaryAnimation.drive(
-    Tween(begin: 1.0, end: 0.0).chain(
-      CurveTween(curve: curve),
-    ),
+    Tween(begin: 1.0, end: 0.0).chain(CurveTween(curve: curve)),
   );
 
   return Stack(
@@ -76,10 +70,7 @@ Widget _buildSlideTransition(
       ),
       Transform.translate(
         offset: slideAnimation.value,
-        child: Opacity(
-          opacity: fadeAnimation.value,
-          child: child,
-        ),
+        child: Opacity(opacity: fadeAnimation.value, child: child),
       ),
     ],
   );
@@ -97,12 +88,12 @@ CustomTransitionPage<void> _createPageAnimation(
     reverseTransitionDuration: const Duration(milliseconds: 280),
     transitionsBuilder: (context, animation, secondaryAnimation, child) =>
         _buildSlideTransition(
-      context,
-      animation,
-      secondaryAnimation,
-      child,
-      direction,
-    ),
+          context,
+          animation,
+          secondaryAnimation,
+          child,
+          direction,
+        ),
   );
 }
 
@@ -113,6 +104,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: DefyxVPNRoutes.splash.route,
         builder: (context, state) => const SplashScreen(),
+      ),
+      GoRoute(
+        path: DefyxVPNRoutes.legal.route,
+        builder: (context, state) => const LegalScreen(),
       ),
       ShellRoute(
         builder: (context, state, child) {
@@ -164,7 +159,9 @@ final routerProvider = Provider<GoRouter>((ref) {
 
 final routeInformationProvider =
     ChangeNotifierProvider<GoRouteInformationProvider>(
-        (ref) => ref.watch(routerProvider).routeInformationProvider);
+      (ref) => ref.watch(routerProvider).routeInformationProvider,
+    );
 
-final currentRouteProvider =
-    Provider((ref) => ref.watch(routeInformationProvider).value.uri.toString());
+final currentRouteProvider = Provider(
+  (ref) => ref.watch(routeInformationProvider).value.uri.toString(),
+);

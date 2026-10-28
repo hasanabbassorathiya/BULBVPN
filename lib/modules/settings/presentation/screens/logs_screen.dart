@@ -2,6 +2,7 @@ import 'dart:io' show Platform;
 
 import 'package:bulbvpn/core/theme/app_colors.dart';
 import 'package:bulbvpn/core/theme/app_text_styles.dart';
+import 'package:bulbvpn/modules/core/home_region.dart';
 import 'package:bulbvpn/modules/core/log.dart';
 import 'package:bulbvpn/modules/core/relay_target.dart';
 import 'package:bulbvpn/modules/core/softether_vpn.dart';
@@ -57,7 +58,11 @@ class LogsScreen extends ConsumerWidget {
                 child: Text(
                   'No tunnel logs yet.\nConnect once, then come back here.',
                   textAlign: TextAlign.center,
-                  style: TextStyle(color: AppColors.mute, fontSize: 14, height: 1.5),
+                  style: TextStyle(
+                    color: AppColors.mute,
+                    fontSize: 14,
+                    height: 1.5,
+                  ),
                 ),
               ),
             );
@@ -74,7 +79,11 @@ class LogsScreen extends ConsumerWidget {
                     padding: EdgeInsets.only(top: 18, bottom: 8),
                     child: Text(
                       'Copied logs are chronological and include a device/relay header. Select any line to copy part of it.',
-                      style: TextStyle(color: AppColors.mute, fontSize: 11, height: 1.5),
+                      style: TextStyle(
+                        color: AppColors.mute,
+                        fontSize: 11,
+                        height: 1.5,
+                      ),
                     ),
                   );
                 }
@@ -138,7 +147,10 @@ class LogsScreen extends ConsumerWidget {
       context: context,
       builder: (dialogContext) => AlertDialog(
         backgroundColor: AppColors.surface,
-        title: const Text('Clear logs?', style: TextStyle(color: AppColors.ink)),
+        title: const Text(
+          'Clear logs?',
+          style: TextStyle(color: AppColors.ink),
+        ),
         content: const Text(
           'This removes the current tunnel log from this device.',
           style: TextStyle(color: AppColors.steel),
@@ -174,6 +186,11 @@ Future<void> copyLogs(
   final relay = ref.read(connectedRelayProvider);
   final app = await _appVersion();
   final native = await _nativeSnapshot();
+  final relayRegion = relay?.countryCode ?? '';
+  final home = HomeRegion.countryCode ?? 'unknown';
+  final ipv6 = Platform.isAndroid
+      ? 'blocked (VpnService IPv4-only tunnel)'
+      : 'captured and dropped (no IPv6 leak)';
   final int count;
   final String body;
   if (recentOnly) {
@@ -191,6 +208,13 @@ Future<void> copyLogs(
     'platform: ${Platform.operatingSystem} ${Platform.operatingSystemVersion}',
     'status: ${connection.status.name}',
     'relay: ${relay == null ? 'none' : '${relay.displayName} (${relay.code.isEmpty ? '??' : relay.code}) ${relay.dial}'}',
+    'region: device-locale=${HomeRegion.locale} tz=${HomeRegion.timezone} '
+        'home=$home relay=${relayRegion.isEmpty ? 'unknown' : relayRegion} '
+        'same-country-exit=${relayRegion.isNotEmpty && HomeRegion.isHome(relayRegion)}',
+    'dns: resolved inside the tunnel (all-traffic match domain)',
+    'region-note: tunnel DNS, IPv6 and exit country are controlled here '
+        '(ipv6=$ipv6); Google can also use account country, GPS and timezone, '
+        'which no VPN changes',
     if (native.isNotEmpty) native,
     '--- logs ($count lines${recentOnly ? ', newest 200' : ''}) ---',
   ];
@@ -248,7 +272,8 @@ Future<String> _nativeSnapshot() async {
             'connectedForMs=${diag['connectedForMs']} protected=${diag['protectedSockets']} '
             'client=${diag['clientAlive']} tunFd=${diag['tunFd']}',
       ];
-      final native = (diag['nativeLog'] as List?)
+      final native =
+          (diag['nativeLog'] as List?)
               ?.map((line) => line.toString())
               .toList() ??
           const <String>[];

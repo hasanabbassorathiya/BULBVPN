@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:bulbvpn/core/theme/app_colors.dart';
+import 'package:bulbvpn/modules/main/application/server_grouping.dart';
 import 'package:bulbvpn/modules/main/application/server_ping_provider.dart';
 import 'package:bulbvpn/modules/main/presentation/screens/main_screen.dart';
 import 'package:bulbvpn/shared/widgets/staggered_in.dart';
@@ -47,9 +50,24 @@ class _ServerSheetState extends ConsumerState<ServerSheet> {
   String _query = '';
 
   @override
+  void initState() {
+    super.initState();
+    // Opening the sheet is a fresh look at the relay list; re-measure if the
+    // last sweep is old enough. Runs post-frame so the catalog has loaded.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _refreshPings());
+  }
+
+  @override
   void dispose() {
     _search.dispose();
     super.dispose();
+  }
+
+  void _refreshPings() {
+    if (!mounted) return;
+    final servers = ref.read(serversProvider).valueOrNull;
+    if (servers == null || servers.isEmpty) return;
+    unawaited(ref.read(serverPingProvider.notifier).ensureFresh(servers));
   }
 
   @override
@@ -57,6 +75,10 @@ class _ServerSheetState extends ConsumerState<ServerSheet> {
     final serversAsync = ref.watch(serversProvider);
     final selected = ref.watch(selectedServerProvider);
     final pingState = ref.watch(serverPingProvider);
+
+    ref.listen(serversProvider, (_, next) {
+      if (next.valueOrNull?.isNotEmpty == true) _refreshPings();
+    });
 
     return Column(
       children: [
@@ -96,13 +118,17 @@ class _ServerSheetState extends ConsumerState<ServerSheet> {
                       serversAsync.maybeWhen(
                         data: (servers) => servers.isEmpty
                             ? 'Loading catalog'
-                            : '${servers.length} relays · lowest ping first',
+                            : '${servers.length} relays · '
+                                  '${_countryLabel(_countryCount(servers))} · '
+                                  'lowest ping first',
                         orElse: () => 'Loading catalog',
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style:
-                          const TextStyle(color: AppColors.mute, fontSize: 12),
+                      style: const TextStyle(
+                        color: AppColors.mute,
+                        fontSize: 12,
+                      ),
                     ),
                   ],
                 ),
@@ -131,7 +157,11 @@ class _ServerSheetState extends ConsumerState<ServerSheet> {
                             color: AppColors.amber,
                           ),
                         )
-                      : const Icon(Icons.speed, size: 20, color: AppColors.amber),
+                      : const Icon(
+                          Icons.speed,
+                          size: 20,
+                          color: AppColors.amber,
+                        ),
                 )
               else
                 TextButton.icon(
@@ -154,7 +184,11 @@ class _ServerSheetState extends ConsumerState<ServerSheet> {
                             color: AppColors.amber,
                           ),
                         )
-                      : const Icon(Icons.speed, size: 18, color: AppColors.amber),
+                      : const Icon(
+                          Icons.speed,
+                          size: 18,
+                          color: AppColors.amber,
+                        ),
                   label: Text(
                     pingState.probing ? 'Pinging…' : 'Ping all',
                     style: const TextStyle(
@@ -182,8 +216,11 @@ class _ServerSheetState extends ConsumerState<ServerSheet> {
             decoration: InputDecoration(
               hintText: 'Search country',
               hintStyle: const TextStyle(color: AppColors.mute, fontSize: 14),
-              prefixIcon:
-                  const Icon(Icons.search, color: AppColors.mute, size: 20),
+              prefixIcon: const Icon(
+                Icons.search,
+                color: AppColors.mute,
+                size: 20,
+              ),
               filled: true,
               fillColor: AppColors.raised,
               contentPadding: const EdgeInsets.symmetric(vertical: 12),
@@ -245,8 +282,7 @@ class _ServerSheetState extends ConsumerState<ServerSheet> {
                           'Fastest relay measured from this device',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style:
-                              TextStyle(color: AppColors.mute, fontSize: 11),
+                          style: TextStyle(color: AppColors.mute, fontSize: 11),
                         ),
                       ],
                     ),
@@ -277,16 +313,6 @@ class _ServerSheetState extends ConsumerState<ServerSheet> {
               ),
             ),
             data: (servers) {
-              final measuredByIp = pingState.byIp;
-              final sorted = sortByMeasuredPing(servers, measuredByIp);
-              final filtered = _query.isEmpty
-                  ? sorted
-                  : sorted
-                      .where((s) =>
-                          s.countryLong.toLowerCase().contains(_query) ||
-                          s.countryShort.toLowerCase().contains(_query) ||
-                          s.displayCountry.toLowerCase().contains(_query))
-                      .toList();
               if (servers.isEmpty) {
                 return const Center(
                   child: Text(
@@ -295,48 +321,79 @@ class _ServerSheetState extends ConsumerState<ServerSheet> {
                   ),
                 );
               }
-              if (filtered.isEmpty) {
+              final measuredByIp = pingState.byIp;
+              final matching = _query.isEmpty
+                  ? servers
+                  : servers
+                        .where(
+                          (s) =>
+                              s.countryLong.toLowerCase().contains(_query) ||
+                              s.countryShort.toLowerCase().contains(_query) ||
+                              s.displayCountry.toLowerCase().contains(_query),
+                        )
+                        .toList();
+              if (matching.isEmpty) {
                 return const Center(
-                  child: Text('No servers match.',
-                      style: TextStyle(color: AppColors.mute, fontSize: 13)),
+                  child: Text(
+                    'No servers match.',
+                    style: TextStyle(color: AppColors.mute, fontSize: 13),
+                  ),
                 );
               }
-              final okPings = filtered
-                  .map((s) => measuredByIp[s.ip])
-                  .whereType<ServerPing>()
-                  .where((p) => p.status == PingStatus.ok)
-                  .map((p) => p.ms)
-                  .toList();
-              final minPing = okPings.isEmpty
-                  ? 0
-                  : okPings.reduce((a, b) => a < b ? a : b);
-              return ListView.separated(
+              // Grouping is the ordering promise: countries themselves are
+              // ranked by their fastest measured relay, so the country with
+              // the lowest ping sits on top.
+              final groups = groupServersByCountry(matching, measuredByIp);
+              final minPing = groups
+                  .map((g) => g.bestPing?.ms)
+                  .whereType<int>()
+                  .fold<int>(
+                    0,
+                    (best, ms) => best == 0 || ms < best ? ms : best,
+                  );
+              final entries = <_Entry>[
+                for (final group in groups) ...[
+                  _CountryEntry(group),
+                  for (var i = 0; i < group.servers.length; i++)
+                    _ServerEntry(group.servers[i], i + 1),
+                ],
+              ];
+              return ListView.builder(
                 padding: const EdgeInsets.fromLTRB(20, 0, 20, 32),
-                itemCount: filtered.length,
-                separatorBuilder: (_, __) =>
-                    const Divider(height: 1, color: AppColors.hairline),
-                itemBuilder: (context, i) => StaggeredIn(
-                  delayMs: (i * 40).clamp(0, 400),
-                  offset: 8,
-                  child: _ServerRow(
-                    server: filtered[i],
-                    ping: measuredByIp[filtered[i].ip],
-                    pingProbing: pingState.probing,
-                    minPing: minPing,
-                    isSelected: selected?.ip == filtered[i].ip,
-                    onTap: () {
-                      final notifier =
-                          ref.read(selectedServerProvider.notifier);
-                      // Go back to auto when tapping the current selection.
-                      if (selected?.ip == filtered[i].ip) {
-                        notifier.state = null;
-                      } else {
-                        notifier.state = filtered[i];
-                      }
-                      Navigator.pop(context);
+                itemCount: entries.length,
+                itemBuilder: (context, i) {
+                  final entry = entries[i];
+                  return StaggeredIn(
+                    delayMs: (i * 24).clamp(0, 320),
+                    offset: 8,
+                    child: switch (entry) {
+                      _CountryEntry(:final group) => _CountryHeader(
+                        group: group,
+                        minPing: minPing,
+                      ),
+                      _ServerEntry(:final server, :final number) => _ServerRow(
+                        server: server,
+                        number: number,
+                        ping: measuredByIp[server.ip],
+                        pingProbing: pingState.probing,
+                        minPing: minPing,
+                        isSelected: selected?.ip == server.ip,
+                        onTap: () {
+                          final notifier = ref.read(
+                            selectedServerProvider.notifier,
+                          );
+                          // Go back to auto when tapping the current pick.
+                          if (selected?.ip == server.ip) {
+                            notifier.state = null;
+                          } else {
+                            notifier.state = server;
+                          }
+                          Navigator.pop(context);
+                        },
+                      ),
                     },
-                  ),
-                ),
+                  );
+                },
               );
             },
           ),
@@ -346,9 +403,111 @@ class _ServerSheetState extends ConsumerState<ServerSheet> {
   }
 }
 
+int _countryCount(List<VpnServer> servers) {
+  final names = servers.map(
+    (s) => s.displayCountry.isEmpty
+        ? 'Private relays'
+        : s.displayCountry.toLowerCase(),
+  );
+  final unique = names.toSet().length;
+  return unique;
+}
+
+String _countryLabel(int count) =>
+    count == 1 ? '1 country' : '$count countries';
+
+sealed class _Entry {
+  const _Entry();
+}
+
+class _CountryEntry extends _Entry {
+  const _CountryEntry(this.group);
+  final ServerGroup group;
+}
+
+class _ServerEntry extends _Entry {
+  const _ServerEntry(this.server, this.number);
+  final VpnServer server;
+  final int number;
+}
+
+class _CountryHeader extends StatelessWidget {
+  const _CountryHeader({required this.group, required this.minPing});
+
+  final ServerGroup group;
+  final int minPing;
+
+  @override
+  Widget build(BuildContext context) {
+    final best = group.bestPing;
+    final isFastestCountry = best != null && minPing > 0 && best.ms == minPing;
+    final code = group.countryCode;
+    final flagCode = code.length == 2 ? code : 'xx';
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 18, 4, 4),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 26,
+            height: 19,
+            child: SvgPicture.asset(
+              'assets/flags/$flagCode.svg',
+              fit: BoxFit.contain,
+              placeholderBuilder: (_) =>
+                  const Icon(Icons.public, size: 18, color: AppColors.steel),
+              errorBuilder: (_, __, ___) =>
+                  const Icon(Icons.public, size: 18, color: AppColors.steel),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              group.countryName,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: isFastestCountry ? AppColors.amber : AppColors.ink,
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.2,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            '${group.servers.length} '
+            '${group.servers.length == 1 ? 'relay' : 'relays'}',
+            style: const TextStyle(color: AppColors.mute, fontSize: 11),
+          ),
+          const SizedBox(width: 10),
+          SizedBox(
+            width: 52,
+            child: Text(
+              best == null ? '—' : '${best.ms} ms',
+              textAlign: TextAlign.right,
+              style: TextStyle(
+                color: best == null
+                    ? AppColors.mute
+                    : isFastestCountry
+                    ? AppColors.amber
+                    : AppColors.steel,
+                fontSize: 11,
+                fontFamily: 'GeistMono',
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+            ),
+          ),
+          const SizedBox(width: 22),
+        ],
+      ),
+    );
+  }
+}
+
 class _ServerRow extends StatelessWidget {
   const _ServerRow({
     required this.server,
+    required this.number,
     required this.ping,
     required this.pingProbing,
     required this.minPing,
@@ -357,16 +516,12 @@ class _ServerRow extends StatelessWidget {
   });
 
   final VpnServer server;
+  final int number;
   final ServerPing? ping;
   final bool pingProbing;
   final int minPing;
   final bool isSelected;
   final VoidCallback onTap;
-
-  String get _flagCode {
-    final code = server.countryShort.toLowerCase();
-    return code.length == 2 ? code : 'xx';
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -375,30 +530,32 @@ class _ServerRow extends StatelessWidget {
     // Fall back to the server's own reported ms only when we haven't measured
     // yet — after "Ping all", the measured value takes over (per user: "don't
     // use server's ms info").
-    final effectivePing = measured ?? (server.ping > 0 && p == null ? server.ping : 0);
+    final effectivePing =
+        measured ?? (server.ping > 0 && p == null ? server.ping : 0);
     final pingLabel = p == null
         ? (effectivePing > 0 ? '$effectivePing ms' : '—')
         : pingProbing
-            ? '…'
-            : switch (p.status) {
-                PingStatus.ok => '${p.ms} ms',
-                PingStatus.timeout => '—',
-                PingStatus.pending => '…',
-              };
+        ? '…'
+        : switch (p.status) {
+            PingStatus.ok => '${p.ms} ms',
+            PingStatus.timeout => '—',
+            PingStatus.pending => '…',
+          };
     final bars = effectivePing <= 0 || (p?.status == PingStatus.timeout)
         ? 0
         : effectivePing < 100
-            ? 3
-            : effectivePing < 200
-                ? 2
-                : 1;
+        ? 3
+        : effectivePing < 200
+        ? 2
+        : 1;
     final isBest = measured != null && minPing > 0 && measured == minPing;
     final pingColor = switch (p?.status) {
-      PingStatus.ok => p!.ms < 100
-          ? AppColors.amber
-          : p.ms < 250
-              ? AppColors.steel
-              : AppColors.mute,
+      PingStatus.ok =>
+        p!.ms < 100
+            ? AppColors.amber
+            : p.ms < 250
+            ? AppColors.steel
+            : AppColors.mute,
       PingStatus.timeout => AppColors.red,
       _ => AppColors.steel,
     };
@@ -406,7 +563,7 @@ class _ServerRow extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 4),
+        padding: const EdgeInsets.fromLTRB(44, 10, 4, 10),
         decoration: isSelected
             ? BoxDecoration(
                 color: AppColors.amberTint,
@@ -415,26 +572,12 @@ class _ServerRow extends StatelessWidget {
             : null,
         child: Row(
           children: [
-            const SizedBox(width: 8),
-            SizedBox(
-              width: 30,
-              height: 22,
-              child: SvgPicture.asset(
-                'assets/flags/$_flagCode.svg',
-                fit: BoxFit.contain,
-                placeholderBuilder: (_) =>
-                    const Icon(Icons.public, size: 20, color: AppColors.steel),
-                errorBuilder: (_, __, ___) => const Icon(Icons.public,
-                    size: 20, color: AppColors.steel),
-              ),
-            ),
-            const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    server.publicLabel,
+                    'Relay $number',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
@@ -445,15 +588,11 @@ class _ServerRow extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    server.countryLong.isEmpty
-                        ? 'Private relay'
-                        : '${server.countryLong} · relay',
+                    '${server.speedMbps} Mbps · '
+                    '${server.numVpnSessions} sessions',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: AppColors.mute,
-                      fontSize: 11,
-                    ),
+                    style: const TextStyle(color: AppColors.mute, fontSize: 11),
                   ),
                 ],
               ),
@@ -537,11 +676,7 @@ class _ServerSkeletons extends StatelessWidget {
                     color: AppColors.raised,
                   ),
                   const SizedBox(height: 6),
-                  Container(
-                    width: 90,
-                    height: 9,
-                    color: AppColors.raised,
-                  ),
+                  Container(width: 90, height: 9, color: AppColors.raised),
                 ],
               ),
             ),

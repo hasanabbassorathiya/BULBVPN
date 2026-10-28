@@ -47,7 +47,7 @@
           routes your traffic through community-run VPN servers.
         </p>
         <div class="doc-meta">
-          <span>Effective · 13 October 2026</span>
+          <span>Effective · 28 October 2026</span>
           <span>Applies to · BULBVPN Android app &amp; this website</span>
         </div>
       </div>
@@ -59,6 +59,7 @@
         <a href="#scope">Scope</a>
         <a href="#collect">What we collect</a>
         <a href="#analytics">Analytics events</a>
+        <a href="#ads">Advertising</a>
         <a href="#network">Remote services</a>
         <a href="#endpoints">Community endpoints</a>
         <a href="#logs">Session logs</a>
@@ -89,6 +90,13 @@
             connection features are used, described in section 3.
           </li>
           <li>
+            <strong>Advertising data via Google AdMob</strong> — advertising
+            identifiers, IP address, device and app information, approximate
+            location derived from the IP address, and ad interaction data,
+            described in section 4. This applies to the free, ad-supported
+            build.
+          </li>
+          <li>
             <strong>Standard Google Play / Firebase technical data</strong> —
             such as app version, device model, operating system version, and
             crash diagnostics that Google processes on our behalf under the
@@ -96,7 +104,7 @@
           </li>
           <li>
             <strong>Your public IP address, transiently</strong> — when the app
-            looks up your post-connection exit IP (section 4), that lookup is
+            looks up your post-connection exit IP (section 5), that lookup is
             performed by Cloudflare; we store no result beyond rendering it on
             your screen.
           </li>
@@ -151,7 +159,34 @@
           Ads Settings and My Activity controls.
         </p>
 
-        <h2 id="network">4. Remote services the app contacts</h2>
+        <h2 id="ads">4. Advertising (Google AdMob)</h2>
+        <p>
+          The free build of the app shows banner ads served by
+          <strong>Google AdMob</strong> (Google Ireland Limited / Google LLC).
+          To serve and measure ads, the Google Mobile Ads SDK may collect and
+          process: advertising identifiers (the Android Advertising ID; on iOS
+          the identifier for advertisers, only if tracking permission is
+          granted), IP address, device and app information, approximate
+          location derived from the IP address, ad interaction data
+          (impressions, clicks), and diagnostics. We do not receive your name,
+          accounts, or browsing history from Google; we receive aggregate
+          performance reports.
+        </p>
+        <p>
+          Where the law requires it (EEA, UK, Switzerland), a Google-certified
+          consent form asks whether personalised advertising is allowed before
+          any ad is requested. You can reopen that choice from
+          <em>Settings → Ad privacy options</em>. Declining personalised ads
+          does not remove ads; it makes them non-personalised.
+        </p>
+        <p>
+          Google's handling of this data is governed by the
+          <a href="https://policies.google.com/privacy">Google Privacy Policy</a>
+          and AdMob's data policies. Ads are not directed at children; the app
+          requires users to be 18 or older.
+        </p>
+
+        <h2 id="network">5. Remote services the app contacts</h2>
         <p>Beyond the VPN tunnel itself, the app makes outbound requests to exactly these kinds of services:</p>
         <ul>
           <li>
@@ -181,11 +216,11 @@
           </li>
           <li>
             <strong>VPN endpoints</strong> — the community servers you connect
-            through; see section 5.
+            through; see section 6.
           </li>
         </ul>
 
-        <h2 id="endpoints">5. Community VPN endpoints</h2>
+        <h2 id="endpoints">6. Community VPN endpoints</h2>
         <div class="callout">
           BULBVPN connects you to <strong>third-party community servers</strong>
           from the VPN Gate project. These operators are independent of us and
@@ -217,7 +252,7 @@
           </li>
         </ul>
 
-        <h2 id="logs">6. Session logs</h2>
+        <h2 id="logs">7. Session logs</h2>
         <p>
           Debug builds can keep a plain-text log of connection events
           (initialization, server selection, handshake progress, state changes,
@@ -227,7 +262,7 @@
           connected through — review it before posting.
         </p>
 
-        <h2 id="website">7. This website</h2>
+        <h2 id="website">8. This website</h2>
         <ul>
           <li>
             <strong>No tracking cookies.</strong> Firebase Hosting serves these
@@ -246,14 +281,14 @@
           </li>
         </ul>
 
-        <h2 id="children">8. Children</h2>
+        <h2 id="children">9. Children</h2>
         <p>
           The app and this site are not directed at children under 13 (or the
           equivalent minimum age in your jurisdiction), and we do not
           knowingly collect data from them.
         </p>
 
-        <h2 id="changes">9. Changes</h2>
+        <h2 id="changes">10. Changes</h2>
         <p>
           If the app's data practices change — new events, new remote
           services, new SDKs — this policy will be updated and the effective
@@ -261,7 +296,7 @@
           updated policy.
         </p>
 
-        <h2 id="contact">10. Contact</h2>
+        <h2 id="contact">11. Contact</h2>
         <p>
           Questions about this policy can be sent to
           <a href="mailto:hasanabbassorathiya12@gmail.com">hasanabbassorathiya12@gmail.com</a>.

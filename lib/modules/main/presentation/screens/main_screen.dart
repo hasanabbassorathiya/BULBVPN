@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -11,6 +10,7 @@ import 'package:openvpn_dart/vpn_status.dart' as vpn_status;
 import 'package:bulbvpn/core/theme/app_colors.dart';
 import 'package:bulbvpn/core/theme/app_text_styles.dart';
 import 'package:bulbvpn/modules/core/log.dart';
+import 'package:bulbvpn/modules/core/network_watch.dart';
 import 'package:bulbvpn/modules/core/relay_target.dart';
 import 'package:bulbvpn/modules/core/server_catalog.dart';
 import 'package:bulbvpn/modules/core/softether_vpn.dart';
@@ -21,6 +21,9 @@ import 'package:bulbvpn/modules/core/vpn_session_store.dart';
 import 'package:bulbvpn/modules/main/application/server_ping_provider.dart';
 import 'package:bulbvpn/modules/main/presentation/widgets/bulb_orb.dart';
 import 'package:bulbvpn/modules/main/presentation/widgets/server_sheet.dart';
+import 'package:bulbvpn/modules/monetization/ad_banner.dart';
+import 'package:bulbvpn/modules/monetization/ad_config.dart';
+import 'package:bulbvpn/modules/monetization/ads_remote_config.dart';
 import 'package:bulbvpn/shared/layout/main_screen_background.dart';
 import 'package:bulbvpn/shared/providers/connection_state_provider.dart';
 import 'package:bulbvpn/shared/providers/ip_info_provider.dart';
@@ -39,7 +42,8 @@ class MainScreen extends ConsumerStatefulWidget {
   ConsumerState<MainScreen> createState() => _MainScreenState();
 }
 
-class _MainScreenState extends ConsumerState<MainScreen> with WidgetsBindingObserver {
+class _MainScreenState extends ConsumerState<MainScreen>
+    with WidgetsBindingObserver {
   VpnController? _vpnController;
   bool _vpnInitialized = false;
   Timer? _ticker;
@@ -48,6 +52,7 @@ class _MainScreenState extends ConsumerState<MainScreen> with WidgetsBindingObse
   int? _prevByteIn;
   String _sessionLabel = '00:00:00';
   String _rateLabel = '—';
+  bool _refreshingIps = false;
 
   @override
   void initState() {
@@ -59,9 +64,30 @@ class _MainScreenState extends ConsumerState<MainScreen> with WidgetsBindingObse
   }
 
   Future<void> _warmServers() async {
-    final servers = await ref.read(serversProvider.future).catchError((_) => <VpnServer>[]);
+    final servers = await ref
+        .read(serversProvider.future)
+        .catchError((_) => <VpnServer>[]);
     if (!mounted || servers.isEmpty) return;
+    // Tabs are rebuilt on every visit; only re-probe when the last sweep is
+    // stale so the latency column stops blinking back to "…" each time.
+    await ref.read(serverPingProvider.notifier).ensureFresh(servers);
+  }
+
+  /// Carrier switched Wi-Fi ⇄ cellular while the app was open. Old latency
+  /// numbers describe the previous path, so measure again on this one.
+  Future<void> _onNetworkChanged() async {
+    log.addLog('[MainScreen] Network changed; re-measuring latency');
+    final servers =
+        ref.read(serversProvider).valueOrNull ?? const <VpnServer>[];
+    if (servers.isEmpty) return;
     await ref.read(serverPingProvider.notifier).pingAll(servers);
+  }
+
+  void _refreshPingsIfStale() {
+    final servers =
+        ref.read(serversProvider).valueOrNull ?? const <VpnServer>[];
+    if (servers.isEmpty) return;
+    unawaited(ref.read(serverPingProvider.notifier).ensureFresh(servers));
   }
 
   @override
@@ -77,6 +103,14 @@ class _MainScreenState extends ConsumerState<MainScreen> with WidgetsBindingObse
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _restoreLiveTunnel();
+      // The network usually changed while the phone slept. Refresh relay
+      // reachability in the background so the next tap does not pay for it.
+      _vpnController?.warmProbes(delay: const Duration(seconds: 2));
+      _refreshPingsIfStale();
+      if (ref.read(connectionStateProvider).status !=
+          ConnectionStatus.connected) {
+        unawaited(ref.read(ipWhoProvider.notifier).refresh(before: true));
+      }
     }
   }
 
@@ -148,7 +182,8 @@ class _MainScreenState extends ConsumerState<MainScreen> with WidgetsBindingObse
       }
       return;
     }
-    if (ref.read(connectionStateProvider).status == ConnectionStatus.disconnecting) {
+    if (ref.read(connectionStateProvider).status ==
+        ConnectionStatus.disconnecting) {
       return;
     }
     final session = await VpnSessionStore.read();
@@ -271,7 +306,11 @@ class _MainScreenState extends ConsumerState<MainScreen> with WidgetsBindingObse
   }
 
   String _ipLocationLabel(PublicIpInfo info) {
-    final parts = [info.city, info.region, info.country].where((s) => s.trim().isNotEmpty);
+    final parts = [
+      info.city,
+      info.region,
+      info.country,
+    ].where((s) => s.trim().isNotEmpty);
     if (parts.isEmpty) return info.isp;
     return info.isp.trim().isEmpty
         ? parts.join(', ')
@@ -283,6 +322,7 @@ class _MainScreenState extends ConsumerState<MainScreen> with WidgetsBindingObse
     required String? ip,
     required String location,
     bool copyable = false,
+    Widget? trailing,
   }) {
     return Semantics(
       button: copyable && ip != null,
@@ -333,8 +373,50 @@ class _MainScreenState extends ConsumerState<MainScreen> with WidgetsBindingObse
               const SizedBox(width: 6),
               const Icon(Icons.copy_rounded, size: 12, color: AppColors.mute),
             ],
+            if (trailing != null) ...[const SizedBox(width: 2), trailing],
           ],
         ),
+      ),
+    );
+  }
+
+  Future<void> _refreshIps({required bool live}) async {
+    if (_refreshingIps) return;
+    setState(() => _refreshingIps = true);
+    try {
+      if (live) {
+        // Re-resolve the exit through the tunnel first, then enrich it. The
+        // user asked for this lookup, so skip ipwho.is' one-per-minute window.
+        await ref.read(exitIpProvider.notifier).refresh();
+        await ref
+            .read(ipWhoProvider.notifier)
+            .refresh(after: true, force: true);
+      } else {
+        await ref
+            .read(ipWhoProvider.notifier)
+            .refresh(before: true, force: true);
+      }
+    } finally {
+      if (mounted) setState(() => _refreshingIps = false);
+    }
+  }
+
+  Widget _refreshIpsButton({required bool live}) {
+    return SizedBox(
+      width: 28,
+      height: 28,
+      child: IconButton(
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+        tooltip: live ? 'Refresh exit IP' : 'Refresh IP',
+        onPressed: _refreshingIps ? null : () => _refreshIps(live: live),
+        icon: _refreshingIps
+            ? const SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(strokeWidth: 1.6),
+              )
+            : const Icon(Icons.refresh, size: 16, color: AppColors.steel),
       ),
     );
   }
@@ -378,7 +460,9 @@ class _MainScreenState extends ConsumerState<MainScreen> with WidgetsBindingObse
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (sheetContext) => Padding(
-        padding: EdgeInsets.only(bottom: MediaQuery.of(sheetContext).viewInsets.bottom),
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
+        ),
         child: DraggableScrollableSheet(
           initialChildSize: 0.72,
           minChildSize: 0.4,
@@ -415,7 +499,10 @@ class _MainScreenState extends ConsumerState<MainScreen> with WidgetsBindingObse
                           ),
                         ),
                         const SizedBox(width: 10),
-                        Text('${lines.length}', style: AppTextStyles.microLabel()),
+                        Text(
+                          '${lines.length}',
+                          style: AppTextStyles.microLabel(),
+                        ),
                         const Spacer(),
                         TextButton(
                           onPressed: () => Log().clearLogs(),
@@ -430,7 +517,11 @@ class _MainScreenState extends ConsumerState<MainScreen> with WidgetsBindingObse
                         ),
                         IconButton(
                           onPressed: () => Navigator.pop(sheetContext),
-                          icon: const Icon(Icons.close, color: AppColors.steel, size: 20),
+                          icon: const Icon(
+                            Icons.close,
+                            color: AppColors.steel,
+                            size: 20,
+                          ),
                         ),
                       ],
                     ),
@@ -440,7 +531,10 @@ class _MainScreenState extends ConsumerState<MainScreen> with WidgetsBindingObse
                         ? const Center(
                             child: Text(
                               'No logs yet — tap the bulb to connect.',
-                              style: TextStyle(color: AppColors.mute, fontSize: 13),
+                              style: TextStyle(
+                                color: AppColors.mute,
+                                fontSize: 13,
+                              ),
                             ),
                           )
                         : ListView.builder(
@@ -450,10 +544,14 @@ class _MainScreenState extends ConsumerState<MainScreen> with WidgetsBindingObse
                             itemBuilder: (_, i) {
                               final line = redactRelayDetail(lines[i]);
                               return Padding(
-                                padding: const EdgeInsets.symmetric(vertical: 2),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 2,
+                                ),
                                 child: Text(
                                   line,
-                                  style: AppTextStyles.logLine(color: _logColor(line)),
+                                  style: AppTextStyles.logLine(
+                                    color: _logColor(line),
+                                  ),
                                 ),
                               );
                             },
@@ -560,21 +658,22 @@ class _MainScreenState extends ConsumerState<MainScreen> with WidgetsBindingObse
     final cs = ref.watch(connectionStateProvider);
     final selected = ref.watch(selectedServerProvider);
     final pingState = ref.watch(serverPingProvider);
-    final catalog = ref.watch(serversProvider).valueOrNull ?? const <VpnServer>[];
+    // Watching also boots the Remote Config fetch; ads stay off by default.
+    final adsEnabled = ref.watch(adsEnabledProvider);
+    final catalog =
+        ref.watch(serversProvider).valueOrNull ?? const <VpnServer>[];
     final fastest = _fastestServer(catalog, pingState.byIp);
     final connectedRelay = ref.watch(connectedRelayProvider);
     final exitIp = ref.watch(exitIpProvider);
-    final beforeIp = ref.watch(ipWhoProvider.select((state) => state.before?.ip));
-    // On Android the app is deliberately excluded from its own TUN so the
-    // SoftEther TLS socket survives the default route. An in-app exit-IP
-    // lookup therefore leaves via the carrier and would report the wrong
-    // country. The authoritative relay is shown instead; never label the
-    // carrier address as the tunnel exit.
-    final canMeasureExit = !Platform.isAndroid;
-    final visibleExit = canMeasureExit &&
-            exitIp != null &&
-            exitIp.ip.isNotEmpty &&
-            exitIp.ip != beforeIp
+    final beforeIp = ref.watch(
+      ipWhoProvider.select((state) => state.before?.ip),
+    );
+    // Both engines keep this app inside its own TUN (the SoftEther session
+    // socket is exempted through protect()), so the in-app lookup travels
+    // through the tunnel and reports the real exit. The pre-tunnel address
+    // must never be labelled as the exit.
+    final visibleExit =
+        exitIp != null && exitIp.ip.isNotEmpty && exitIp.ip != beforeIp
         ? exitIp
         : null;
     final ipWho = ref.watch(ipWhoProvider);
@@ -582,7 +681,9 @@ class _MainScreenState extends ConsumerState<MainScreen> with WidgetsBindingObse
     final live = status == ConnectionStatus.connected;
     final afterInfo = ipWho.after;
     final afterMatches =
-        visibleExit != null && afterInfo != null && afterInfo.ip == visibleExit.ip;
+        visibleExit != null &&
+        afterInfo != null &&
+        afterInfo.ip == visibleExit.ip;
     // While live, only the relay that the native session reports may be shown.
     // The picker and the "fastest" hint are not evidence of where traffic exits.
     // If the relay is momentarily unknown, say so instead of substituting the
@@ -590,7 +691,9 @@ class _MainScreenState extends ConsumerState<MainScreen> with WidgetsBindingObse
     final endpointLabel = status == ConnectionStatus.connected
         ? (connectedRelay?.displayName ?? 'Connected relay')
         : (selected?.publicLabel ??
-            (fastest != null ? 'Auto · ${fastest.publicLabel}' : 'Auto · finding fastest'));
+              (fastest != null
+                  ? 'Auto · ${fastest.publicLabel}'
+                  : 'Auto · finding fastest'));
 
     // Push server picks into the controller.
     ref.listen(selectedServerProvider, (prev, next) {
@@ -622,6 +725,13 @@ class _MainScreenState extends ConsumerState<MainScreen> with WidgetsBindingObse
         });
       }
     });
+    // Latency belongs to the carrier path, not to the app session.
+    ref.listen(networkFingerprintProvider, (prev, next) {
+      final before = prev?.valueOrNull;
+      final after = next.valueOrNull;
+      if (before == null || after == null || before == after) return;
+      unawaited(_onNetworkChanged());
+    });
 
     final (statusTitle, statusColor) = _statusPresentation(status);
     final phase = _bulbPhase(status);
@@ -636,244 +746,268 @@ class _MainScreenState extends ConsumerState<MainScreen> with WidgetsBindingObse
               padding: const EdgeInsets.fromLTRB(20, 6, 20, 0),
               child: LayoutBuilder(
                 builder: (context, constraints) {
-                  final bounded = constraints.hasBoundedHeight &&
+                  final bounded =
+                      constraints.hasBoundedHeight &&
                       constraints.maxHeight.isFinite;
                   // iPad landscape and the iPhone-on-iPad window are shorter
                   // than the phone column. Expanded inside an unbounded
                   // height throws; scroll instead.
                   final tight = !bounded || constraints.maxHeight < 740;
                   final column = Column(
-                mainAxisSize: tight ? MainAxisSize.min : MainAxisSize.max,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  // ---- Top bar: brand (+ debug logs only) ------------
-                  StaggeredIn(
-                    child: Row(
-                      children: [
-                        Flexible(child: _brandWordmark()),
-                        const Spacer(),
-                        if (kDebugMode)
-                          IconButton(
-                            onPressed: _showLogs,
-                            tooltip: 'Logs',
-                            icon: const Icon(
-                              Icons.terminal,
-                              color: AppColors.steel,
-                              size: 22,
-                            ),
-                            constraints: const BoxConstraints(
-                              minWidth: 44,
-                              minHeight: 44,
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // ---- Status rail ------------------------------------
-                  StaggeredIn(
-                    delayMs: 60,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('STATUS', style: AppTextStyles.microLabel()),
-                        const SizedBox(height: 6),
-                        Row(
+                    mainAxisSize: tight ? MainAxisSize.min : MainAxisSize.max,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      // ---- Top bar: brand (+ debug logs only) ------------
+                      StaggeredIn(
+                        child: Row(
                           children: [
-                            AnimatedContainer(
-                              duration: const Duration(milliseconds: 400),
-                              width: 9,
-                              height: 9,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: statusColor,
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Flexible(
-                              child: Text(
-                                statusTitle,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  color: statusColor,
-                                  fontSize: 26,
-                                  fontWeight: FontWeight.w600,
-                                  letterSpacing: -0.5,
+                            Flexible(child: _brandWordmark()),
+                            const Spacer(),
+                            if (kDebugMode)
+                              IconButton(
+                                onPressed: _showLogs,
+                                tooltip: 'Logs',
+                                icon: const Icon(
+                                  Icons.terminal,
+                                  color: AppColors.steel,
+                                  size: 22,
+                                ),
+                                constraints: const BoxConstraints(
+                                  minWidth: 44,
+                                  minHeight: 44,
                                 ),
                               ),
-                            ),
                           ],
                         ),
-                        const SizedBox(height: 5),
-                        Text(
-                          '${_stageLabel(status)} · '
-                          '${live ? endpointLabel : (selected != null ? '${selected.displayCountry} picked' : 'auto')}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: AppTextStyles.monoValue(
-                            size: 11,
-                            color: AppColors.steel,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                      ),
+                      const SizedBox(height: 16),
 
-                  // ---- Orb zone (optical center) ---------------------
-                  if (tight)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      child: _orbBlock(
-                        ref,
-                        phase,
-                        tight: true,
-                        label: _orbLabel(status),
-                      ),
-                    )
-                  else
-                    Expanded(
-                      child: Align(
-                        alignment: const Alignment(0, -0.18),
-                        child: _orbBlock(
-                          ref,
-                          phase,
-                          tight: false,
-                          label: _orbLabel(status),
-                        ),
-                      ),
-                    ),
-
-                  // ---- Metric rail: SESSION + DOWN (1.6fr / 1fr) ------
-                  StaggeredIn(
-                    delayMs: 140,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 14,
-                      ),
-                      decoration: BoxDecoration(
-                        color: AppColors.surface.withValues(alpha: 0.85),
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: AppColors.hairline),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          IntrinsicHeight(
-                            child: Row(
+                      // ---- Status rail ------------------------------------
+                      StaggeredIn(
+                        delayMs: 60,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('STATUS', style: AppTextStyles.microLabel()),
+                            const SizedBox(height: 6),
+                            Row(
                               children: [
-                                Expanded(
-                                  flex: 16,
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        'SESSION',
-                                        style: AppTextStyles.microLabel(),
-                                      ),
-                                      const SizedBox(height: 6),
-                                      Text(
-                                        _sessionLabel,
-                                        style: AppTextStyles.metric(size: 20),
-                                      ),
-                                    ],
+                                AnimatedContainer(
+                                  duration: const Duration(milliseconds: 400),
+                                  width: 9,
+                                  height: 9,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: statusColor,
                                   ),
                                 ),
-                                Container(width: 1, color: AppColors.hairline),
-                                Expanded(
-                                  flex: 10,
-                                  child: Padding(
-                                    padding: const EdgeInsets.only(left: 16),
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          'DOWN',
-                                          style: AppTextStyles.microLabel(),
-                                        ),
-                                        const SizedBox(height: 6),
-                                        Row(
-                                          children: [
-                                            const Icon(
-                                              Icons.arrow_downward,
-                                              size: 14,
-                                              color: AppColors.emerald,
-                                            ),
-                                            const SizedBox(width: 5),
-                                            Flexible(
-                                              child: Text(
-                                                _rateLabel,
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                                style: AppTextStyles.metric(
-                                                  size: 20,
-                                                  color: AppColors.emerald,
-                                                ),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ],
+                                const SizedBox(width: 10),
+                                Flexible(
+                                  child: Text(
+                                    statusTitle,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: statusColor,
+                                      fontSize: 26,
+                                      fontWeight: FontWeight.w600,
+                                      letterSpacing: -0.5,
                                     ),
                                   ),
                                 ),
                               ],
                             ),
-                          ),
-                          const SizedBox(height: 12),
-                          Container(height: 1, color: AppColors.hairline),
-                          const SizedBox(height: 12),
-                          // BEFORE / AFTER IP with ipwho.is enrichment.
-                          _buildIpRow(
-                            label: 'BEFORE',
-                            ip: ipWho.before?.ip,
-                            location: ipWho.before == null
-                                ? ''
-                                : _ipLocationLabel(ipWho.before!),
-                          ),
-                          const SizedBox(height: 10),
-                          Container(height: 1, color: AppColors.hairline),
-                          const SizedBox(height: 10),
-                          _buildIpRow(
-                            label: visibleExit == null ? 'EXIT IP' : 'AFTER',
-                            ip: visibleExit?.ip,
-                            location: visibleExit == null &&
-                                    Platform.isAndroid &&
-                                    live
-                                ? 'not measured on this device'
-                                : (afterMatches
-                                    ? _ipLocationLabel(afterInfo)
-                                    : (visibleExit?.loc ?? '')),
-                            copyable: true,
-                          ),
-                        ],
+                            const SizedBox(height: 5),
+                            Text(
+                              '${_stageLabel(status)} · '
+                              '${live ? endpointLabel : (selected != null ? '${selected.displayCountry} picked' : 'auto')}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppTextStyles.monoValue(
+                                size: 11,
+                                color: AppColors.steel,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
 
-                  // ---- Server pill ------------------------------------
-                  StaggeredIn(
-                    delayMs: 200,
-                    child: _serverPill(
-                      selected,
-                      catalog: catalog,
-                      connectedRelay: connectedRelay,
-                      live: live,
-                      fastest: fastest,
-                      ping: fastest == null ? null : pingState.byIp[fastest.ip],
-                      probing: pingState.probing && selected == null,
-                    ),
-                  ),
+                      // ---- Orb zone (optical center) ---------------------
+                      if (tight)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          child: _orbBlock(
+                            ref,
+                            phase,
+                            tight: true,
+                            label: _orbLabel(status),
+                          ),
+                        )
+                      else
+                        Expanded(
+                          child: Align(
+                            alignment: const Alignment(0, -0.18),
+                            child: _orbBlock(
+                              ref,
+                              phase,
+                              tight: false,
+                              label: _orbLabel(status),
+                            ),
+                          ),
+                        ),
 
-                  // ---- Nav clearance ----------------------------------
-                  SizedBox(height: tight ? 72 : 96),
-                ],
-              );
+                      // ---- Metric rail: SESSION + DOWN (1.6fr / 1fr) ------
+                      StaggeredIn(
+                        delayMs: 140,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 14,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppColors.surface.withValues(alpha: 0.85),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: AppColors.hairline),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              IntrinsicHeight(
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      flex: 16,
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            'SESSION',
+                                            style: AppTextStyles.microLabel(),
+                                          ),
+                                          const SizedBox(height: 6),
+                                          Text(
+                                            _sessionLabel,
+                                            style: AppTextStyles.metric(
+                                              size: 20,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    Container(
+                                      width: 1,
+                                      color: AppColors.hairline,
+                                    ),
+                                    Expanded(
+                                      flex: 10,
+                                      child: Padding(
+                                        padding: const EdgeInsets.only(
+                                          left: 16,
+                                        ),
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              'DOWN',
+                                              style: AppTextStyles.microLabel(),
+                                            ),
+                                            const SizedBox(height: 6),
+                                            Row(
+                                              children: [
+                                                const Icon(
+                                                  Icons.arrow_downward,
+                                                  size: 14,
+                                                  color: AppColors.emerald,
+                                                ),
+                                                const SizedBox(width: 5),
+                                                Flexible(
+                                                  child: Text(
+                                                    _rateLabel,
+                                                    maxLines: 1,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                    style: AppTextStyles.metric(
+                                                      size: 20,
+                                                      color: AppColors.emerald,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              Container(height: 1, color: AppColors.hairline),
+                              const SizedBox(height: 12),
+                              // BEFORE / AFTER IP with ipwho.is enrichment.
+                              _buildIpRow(
+                                label: 'BEFORE',
+                                ip: ipWho.before?.ip,
+                                location: ipWho.before == null
+                                    ? ''
+                                    : _ipLocationLabel(ipWho.before!),
+                              ),
+                              const SizedBox(height: 10),
+                              Container(height: 1, color: AppColors.hairline),
+                              const SizedBox(height: 10),
+                              _buildIpRow(
+                                label: visibleExit == null
+                                    ? 'EXIT IP'
+                                    : 'AFTER',
+                                ip: visibleExit?.ip,
+                                location: visibleExit == null
+                                    ? (live ? 'measuring through tunnel…' : '')
+                                    : (afterMatches
+                                          ? _ipLocationLabel(afterInfo)
+                                          : visibleExit.loc),
+                                copyable: true,
+                                trailing: _refreshIpsButton(live: live),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+
+                      // ---- Sponsored slot (kept clear of the connect
+                      // control so an orb tap cannot become an ad click).
+                      // Iranian ISPs blackhole Google's ad hosts, so the
+                      // request is retried whenever the tunnel goes live. ----
+                      if (adsEnabled && AdConfig.canRequestAds) ...[
+                        AdBanner(
+                          key: ValueKey('ad-$live'),
+                          horizontalInset: 40,
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+
+                      // ---- Server pill ------------------------------------
+                      StaggeredIn(
+                        delayMs: 200,
+                        child: _serverPill(
+                          selected,
+                          catalog: catalog,
+                          connectedRelay: connectedRelay,
+                          live: live,
+                          fastest: fastest,
+                          ping: fastest == null
+                              ? null
+                              : pingState.byIp[fastest.ip],
+                          probing: pingState.probing && selected == null,
+                        ),
+                      ),
+
+                      // ---- Nav clearance ----------------------------------
+                      SizedBox(height: tight ? 72 : 96),
+                    ],
+                  );
                   if (tight) {
                     return SingleChildScrollView(child: column);
                   }
@@ -896,18 +1030,20 @@ class _MainScreenState extends ConsumerState<MainScreen> with WidgetsBindingObse
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Builder(builder: (context) {
-          final total = ref.watch(
-            connectionStateProvider.select((s) => s.totalDownload),
-          );
-          final delta = total - (_prevByteIn ?? total);
-          return BulbOrb(
-            phase: phase,
-            onTap: _onConnectPressed,
-            size: tight ? 156 : 210,
-            byteDelta: delta.clamp(0, 1 << 30),
-          );
-        }),
+        Builder(
+          builder: (context) {
+            final total = ref.watch(
+              connectionStateProvider.select((s) => s.totalDownload),
+            );
+            final delta = total - (_prevByteIn ?? total);
+            return BulbOrb(
+              phase: phase,
+              onTap: _onConnectPressed,
+              size: tight ? 156 : 210,
+              byteDelta: delta.clamp(0, 1 << 30),
+            );
+          },
+        ),
         const SizedBox(height: 20),
         StaggeredIn(
           delayMs: 100,
@@ -915,9 +1051,7 @@ class _MainScreenState extends ConsumerState<MainScreen> with WidgetsBindingObse
           child: Text(
             label,
             style: AppTextStyles.microLabel(
-              color: phase == BulbPhase.idle
-                  ? AppColors.steel
-                  : AppColors.ink,
+              color: phase == BulbPhase.idle ? AppColors.steel : AppColors.ink,
             ),
           ),
         ),
@@ -960,7 +1094,10 @@ class _MainScreenState extends ConsumerState<MainScreen> with WidgetsBindingObse
     );
   }
 
-  VpnServer? _fastestServer(List<VpnServer> servers, Map<String, ServerPing> byIp) {
+  VpnServer? _fastestServer(
+    List<VpnServer> servers,
+    Map<String, ServerPing> byIp,
+  ) {
     final ranked = sortByMeasuredPing(servers, byIp);
     for (final server in ranked) {
       final ping = byIp[server.ip];
@@ -983,29 +1120,30 @@ class _MainScreenState extends ConsumerState<MainScreen> with WidgetsBindingObse
     // of the old JP fallback overriding the selected server.
     final liveRelay = live ? connectedRelay : null;
     final flagCode = live
-        ? (liveRelay == null || liveRelay.code.isEmpty
-            ? null
-            : liveRelay.code)
+        ? (liveRelay == null || liveRelay.code.isEmpty ? null : liveRelay.code)
         : (selected != null
-            ? (selected.countryShort.toLowerCase().length == 2
-                ? selected.countryShort.toLowerCase()
-                : null)
-            : (fastest != null && fastest.countryShort.toLowerCase().length == 2
-                ? fastest.countryShort.toLowerCase()
-                : null));
+              ? (selected.countryShort.toLowerCase().length == 2
+                    ? selected.countryShort.toLowerCase()
+                    : null)
+              : (fastest != null &&
+                        fastest.countryShort.toLowerCase().length == 2
+                    ? fastest.countryShort.toLowerCase()
+                    : null));
     final title = live
         ? (liveRelay?.displayName ?? 'Connected relay')
         : (selected?.publicLabel ??
-            (fastest != null ? 'Auto · ${fastest.publicLabel}' : 'Choose a server'));
+              (fastest != null
+                  ? 'Auto · ${fastest.publicLabel}'
+                  : 'Choose a server'));
     final subtitle = live
         ? (liveRelay == null
-            ? 'Connected · relay details unavailable'
-            : 'Connected · ${liveRelay.code.isEmpty ? 'private relay' : liveRelay.code}')
+              ? 'Connected · relay details unavailable'
+              : 'Connected · ${liveRelay.code.isEmpty ? 'private relay' : liveRelay.code}')
         : (selected != null
-            ? 'Selected relay'
-            : (probing && ping == null
-                ? 'Measuring from this device'
-                : 'Auto · fastest measured'));
+              ? 'Selected relay'
+              : (probing && ping == null
+                    ? 'Measuring from this device'
+                    : 'Auto · fastest measured'));
     final liveMs = !live && selected == null ? ping : null;
     return GestureDetector(
       onTap: () => showServerSheet(context),
@@ -1080,13 +1218,18 @@ class _MainScreenState extends ConsumerState<MainScreen> with WidgetsBindingObse
               const SizedBox(
                 width: 14,
                 height: 14,
-                child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.amber),
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: AppColors.amber,
+                ),
               )
             else
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
                 decoration: BoxDecoration(
-                  color: live ? AppColors.emerald.withValues(alpha: 0.14) : AppColors.amberTint,
+                  color: live
+                      ? AppColors.emerald.withValues(alpha: 0.14)
+                      : AppColors.amberTint,
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Text(

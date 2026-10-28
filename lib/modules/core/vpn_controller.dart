@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io' show Platform, Socket;
+import 'dart:math' show Random;
+
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:openvpn_dart/vpn_status.dart' as engine;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -17,6 +19,10 @@ import 'package:bulbvpn/modules/core/network.dart';
 import 'package:bulbvpn/modules/core/log.dart';
 import 'package:bulbvpn/modules/core/softether_vpn.dart';
 import 'package:bulbvpn/modules/core/doh_resolver.dart';
+import 'package:bulbvpn/modules/core/network_identity.dart';
+import 'package:bulbvpn/modules/core/relay_memory.dart';
+import 'package:bulbvpn/modules/core/home_region.dart';
+import 'package:bulbvpn/modules/core/relay_reachability.dart';
 import 'package:bulbvpn/modules/core/vpn_gate_candidates.dart';
 import 'package:bulbvpn/modules/core/vpn_session_store.dart';
 import 'package:bulbvpn/modules/core/relay_target.dart';
@@ -75,7 +81,6 @@ class VpnController {
 
   bool get _strictSelection =>
       _serverIp != null || _serverHost != null || _serverConfig != null;
-
 
   VpnService get vpnService => _vpnService;
 
@@ -146,13 +151,40 @@ class VpnController {
   /// User pressed disconnect / stop. Recovery must never fight that.
   bool _manualDisconnect = false;
 
-  /// Bounded automatic recovery after an unexpected tunnel drop.
-  static const _maxAutoReconnects = 3;
+  /// True once a press got past the network/permission gates and actually
+  /// dialled. A permission denial is not retryable; a failed dial is.
+  bool _attemptedDial = false;
+
+  /// Bounded automatic recovery after an unexpected tunnel drop. The first
+  /// three attempts are fast; the rest slow down to five-minute probes so a
+  /// carrier outage that lasts minutes does not leave the user unprotected
+  /// for the rest of the day.
+  static const _maxAutoReconnects = 10;
   int _autoReconnects = 0;
   Timer? _recoveryTimer;
   Timer? _connectBudgetTimer;
   int _recoveryGeneration = 0;
   bool _dropListenerAttached = false;
+  final Random _recoveryJitter = Random();
+
+  /// Watches the physical network beneath the tunnel. A handover invalidates
+  /// every relay socket, so it must reset the recovery budget and force a
+  /// redial instead of waiting for the old session to time out.
+  Timer? _networkWatchTimer;
+  Timer? _networkReconnectTimer;
+  String? _networkFingerprint;
+  int _networkRedialAttempts = 0;
+
+  /// Reachability measured moments ago on the current network. Turning a
+  /// three-second tap into a cached decision is the main Lantern fast-connect
+  /// lesson: probe before the user asks, not after.
+  final RelayReachability _reachability = RelayReachability();
+  Timer? _warmTimer;
+  bool _warming = false;
+
+  DateTime? _connectDeadline;
+  List<Candidate>? _freshCache;
+  DateTime? _freshCandidatesAt;
 
   Future<void> initialize(ProviderContainer container) async {
     if (_initialized) return;
@@ -162,11 +194,16 @@ class VpnController {
     final now = DateTime.now();
     final offset = now.timeZoneOffset;
     _log.addLog(
+      '[VpnController] Device region: locale=${HomeRegion.locale} '
+      'tz=${HomeRegion.timezone} home=${HomeRegion.countryCode ?? 'unknown'}',
+    );
+    _log.addLog(
       '[VpnController] Timezone offset: ${offset.inMinutes / 60.0} hours',
     );
     try {
       await _vpnService.initialize();
       _initialized = true;
+      await _primeNetworkWatcher();
       _log.addLog('[VpnController] VpnController initialized successfully');
     } catch (e, stackTrace) {
       _log.addLog('[VpnController] ERROR initializing: $e');
@@ -188,27 +225,26 @@ class VpnController {
   void _attachDropListener(ProviderContainer container) {
     if (_dropListenerAttached) return;
     _dropListenerAttached = true;
-    container.listen<ConnectionState>(
-      connectionStateProvider,
-      (previous, next) {
-        if (next.status == ConnectionStatus.connected) {
-          _autoReconnects = 0;
-          _recoveryGeneration++;
-          _recoveryTimer?.cancel();
-          _recoveryTimer = null;
-          return;
-        }
-        if (previous?.status == ConnectionStatus.connected &&
-            next.status == ConnectionStatus.disconnected &&
-            !_manualDisconnect) {
-          _log.addLog(
-            '[VpnController] Tunnel dropped unexpectedly; scheduling recovery',
-          );
-          _scheduleRecovery();
-        }
-      },
-      fireImmediately: false,
-    );
+    container.listen<ConnectionState>(connectionStateProvider, (
+      previous,
+      next,
+    ) {
+      if (next.status == ConnectionStatus.connected) {
+        _autoReconnects = 0;
+        _recoveryGeneration++;
+        _recoveryTimer?.cancel();
+        _recoveryTimer = null;
+        return;
+      }
+      if (previous?.status == ConnectionStatus.connected &&
+          next.status == ConnectionStatus.disconnected &&
+          !_manualDisconnect) {
+        _log.addLog(
+          '[VpnController] Tunnel dropped unexpectedly; scheduling recovery',
+        );
+        _scheduleRecovery();
+      }
+    }, fireImmediately: false);
   }
 
   /// Reads native tunnel state without letting a transient platform-channel
@@ -221,8 +257,10 @@ class VpnController {
     }
   }
 
-  /// Bounded exponential recovery: 2s, 8s, 20s. It never runs after a manual
-  /// disconnect, after the OS revokes the VPN, or while another dial is busy.
+  /// Bounded recovery. The first three attempts are quick (2s, 8s, 20s); the
+  /// rest stretch out to five minutes with ±20% jitter. A multi-minute carrier
+  /// outage must not end recovery for the day, and jitter keeps a fleet of
+  /// phones from redialling the same relay in lockstep.
   void _scheduleRecovery() {
     if (_manualDisconnect || _connectInFlight) return;
     if (_autoReconnects >= _maxAutoReconnects) {
@@ -231,11 +269,18 @@ class VpnController {
     }
     if (_recoveryTimer != null) return;
     final attempt = ++_autoReconnects;
-    final seconds = switch (attempt) {
+    final base = switch (attempt) {
       1 => 2,
       2 => 8,
-      _ => 20,
+      3 => 20,
+      4 => 45,
+      5 => 90,
+      6 => 180,
+      _ => 300,
     };
+    final seconds = (base * (0.8 + _recoveryJitter.nextDouble() * 0.4))
+        .round()
+        .clamp(1, 420);
     final generation = ++_recoveryGeneration;
     _recoveryTimer = Timer(Duration(seconds: seconds), () async {
       _recoveryTimer = null;
@@ -250,7 +295,9 @@ class VpnController {
       }
       final tunnel = await _softEtherStatusSafe();
       if (tunnel.reason == 'revoked') {
-        _log.addLog('[VpnController] VPN was revoked by the system; not retrying');
+        _log.addLog(
+          '[VpnController] VPN was revoked by the system; not retrying',
+        );
         return;
       }
       var online = true;
@@ -277,6 +324,211 @@ class VpnController {
         '[VpnController] Auto-reconnect $attempt/$_maxAutoReconnects',
       );
       await _connect(auto: true);
+    });
+  }
+
+  Future<void> _primeNetworkWatcher() async {
+    _networkFingerprint = await NetworkIdentity.current(fresh: true);
+    _adoptNetwork(_networkFingerprint!);
+    _networkWatchTimer?.cancel();
+    _networkWatchTimer = Timer.periodic(
+      const Duration(seconds: 4),
+      (_) => unawaited(_pollNetworkIdentity()),
+    );
+  }
+
+  /// Reachability is a property of the physical network. Every handover throws
+  /// the table away, and a freshly discovered network is warmed before the
+  /// user presses the orb.
+  void _adoptNetwork(String network) {
+    if (network == 'offline' || network == 'unknown') return;
+    final changed = _reachability.network != network;
+    _reachability.useNetwork(network);
+    if (!changed) return;
+    _scheduleWarmProbes(delay: const Duration(seconds: 1));
+  }
+
+  static const _warmProbeLimit = 10;
+
+  /// Tops the reachability cache up while the user is still deciding. The home
+  /// screen also calls this on resume, since a phone that slept for hours has
+  /// a cache from before the carrier changed.
+  void warmProbes({Duration delay = Duration.zero}) {
+    _scheduleWarmProbes(delay: delay);
+  }
+
+  void _scheduleWarmProbes({Duration delay = Duration.zero}) {
+    if (_manualDisconnect || _warmTimer != null) return;
+    final network = _networkFingerprint;
+    if (network == null || network == 'offline' || network == 'unknown') return;
+    _warmTimer = Timer(delay, () {
+      _warmTimer = null;
+      unawaited(_warmRelayProbes());
+    });
+  }
+
+  Future<void> _warmRelayProbes() async {
+    final container = _container;
+    final network = _networkFingerprint;
+    if (container == null || _warming || _manualDisconnect) return;
+    if (network == null || network == 'offline' || network == 'unknown') return;
+    // A real dial always wins: probing in parallel competes for the same
+    // carrier sockets and could delay the handshake that matters.
+    final status = container.read(connectionStateProvider).status;
+    if (_connectInFlight ||
+        status == ConnectionStatus.connected ||
+        status == ConnectionStatus.connecting ||
+        status == ConnectionStatus.loading) {
+      return;
+    }
+    _warming = true;
+    try {
+      final targets = await _softEtherTargets(container);
+      if (network != _networkFingerprint) return;
+      final cold = <RelayTarget>[];
+      for (final target in targets) {
+        if (cold.length >= _warmProbeLimit) break;
+        if (_reachability.lookup(target.dial) != null) continue;
+        cold.add(target);
+      }
+      if (cold.isEmpty) return;
+      final probes = await _probeSoftEther(cold, network: network);
+      final alive = probes.where((ok) => ok).length;
+      _log.addLog(
+        '[VpnController] Warm probe on ${network.split('|').first}: '
+        '$alive/${cold.length} relays reachable',
+      );
+    } finally {
+      _warming = false;
+    }
+  }
+
+  Future<String> _networkForMemory() async {
+    final cached = _networkFingerprint;
+    if (cached != null && cached != 'offline' && cached != 'unknown') {
+      return cached;
+    }
+    final fresh = await NetworkIdentity.current(fresh: true);
+    _networkFingerprint = fresh;
+    return fresh;
+  }
+
+  static String? _wifiPart(String fingerprint) {
+    for (final part in fingerprint.split('|')) {
+      if (part.startsWith('wifi:')) return part;
+    }
+    return null;
+  }
+
+  /// A physical handover invalidates the relay socket even when the native
+  /// session still claims to be connected. Reset the recovery budget for the
+  /// new network and redial instead of waiting for a 30s read timeout.
+  Future<void> _pollNetworkIdentity() async {
+    final container = _container;
+    if (container == null) return;
+    final next = await NetworkIdentity.current(fresh: true);
+    final previous = _networkFingerprint;
+    if (next == 'unknown') return;
+    if (previous == null || previous == next) {
+      _networkFingerprint = next;
+      _adoptNetwork(next);
+      return;
+    }
+    _networkFingerprint = next;
+    _adoptNetwork(next);
+    // Losing every interface is a gap, not a handover. Keep it as the last
+    // known value and act when a real network appears again.
+    if (next == 'offline') return;
+    // Mobile data appearing or disappearing while the same Wi-Fi carries the
+    // traffic is not a handover; redialling would drop a healthy tunnel.
+    final oldWifi = _wifiPart(previous);
+    final newWifi = _wifiPart(next);
+    if (oldWifi != null && newWifi != null && oldWifi == newWifi) {
+      return;
+    }
+    // The user stopped the tunnel. A handover must not resurrect it.
+    if (_manualDisconnect) return;
+    final status = container.read(connectionStateProvider).status;
+    _log.addLog(
+      '[VpnController] Network changed: $previous -> $next '
+      '(status=${status.name})',
+    );
+    final recovering = _autoReconnects > 0;
+    _autoReconnects = 0;
+    _recoveryGeneration++;
+    _recoveryTimer?.cancel();
+    _recoveryTimer = null;
+    _networkReconnectTimer?.cancel();
+    _networkRedialAttempts = 0;
+
+    if (status == ConnectionStatus.connected) {
+      _scheduleNetworkRedial();
+      return;
+    }
+    if (status == ConnectionStatus.connecting ||
+        status == ConnectionStatus.loading) {
+      if (_connectInFlight) {
+        _log.addLog('[VpnController] Aborting dial bound to the old network');
+        _rotationGeneration++;
+        _connectQueued = true;
+        unawaited(SoftEtherVpn.disconnect());
+        unawaited(_vpnService.disconnect());
+      }
+      return;
+    }
+    // The handover can arrive while a recovery timer is already pending (or
+    // just after the tunnel dropped). That timer was cancelled above, so a
+    // disconnected tunnel must be rescheduled on the new network.
+    if (recovering && !_manualDisconnect && !_connectInFlight) {
+      _scheduleRecovery();
+    }
+  }
+
+  void _scheduleNetworkRedial({Duration delay = const Duration(seconds: 2)}) {
+    if (_manualDisconnect) return;
+    _networkReconnectTimer?.cancel();
+    _networkReconnectTimer = Timer(delay, () async {
+      _networkReconnectTimer = null;
+      if (_manualDisconnect) return;
+      final container = _container;
+      if (container == null) return;
+      if (container.read(connectionStateProvider).status !=
+              ConnectionStatus.connected ||
+          _connectInFlight) {
+        return;
+      }
+      final online = await NetworkStatus.checkConnectivity();
+      if (!online) {
+        _log.addLog('[VpnController] New network has no internet yet; waiting');
+        if (!_manualDisconnect &&
+            container.read(connectionStateProvider).status ==
+                ConnectionStatus.connected) {
+          _scheduleNetworkRedial(delay: const Duration(seconds: 5));
+        }
+        return;
+      }
+      if (_networkRedialAttempts >= 3) {
+        _log.addLog('[VpnController] Network redial budget exhausted');
+        return;
+      }
+      final attempt = ++_networkRedialAttempts;
+      _log.addLog(
+        '[VpnController] Forcing a clean redial after network change '
+        '(attempt $attempt)',
+      );
+      _rotationGeneration++;
+      try {
+        await SoftEtherVpn.disconnect();
+      } catch (_) {}
+      try {
+        await _vpnService.disconnect();
+      } catch (_) {}
+      if (_manualDisconnect) return;
+      container.read(connectionStateProvider.notifier).holdEngineEvents(false);
+      container.read(connectedRelayProvider.notifier).state = null;
+      container.read(softEtherHostProvider.notifier).state = null;
+      container.read(connectionStateProvider.notifier).setDisconnected();
+      _scheduleRecovery();
     });
   }
 
@@ -317,7 +569,14 @@ class VpnController {
   // ---------------------------------------------------------------------------
 
   /// Decoded config for one candidate server, with inline `auth-user-pass`.
-  Candidate? _candidateFromB64(String b64, {String? fallbackIp, int? csvPing}) {
+  Candidate? _candidateFromB64(
+    String b64, {
+    String? fallbackIp,
+    int? csvPing,
+    String sni = '',
+    String countryCode = '',
+    String countryName = '',
+  }) {
     final decoded = decodeOvpn(b64);
     if (decoded == null || !decoded.contains('<ca>')) return null;
     final withAuth = configForCurrentEngine(decoded);
@@ -325,6 +584,9 @@ class VpnController {
       withAuth,
       fallbackIp: fallbackIp,
       csvPing: csvPing,
+      sni: sni,
+      countryCode: countryCode,
+      countryName: countryName,
     );
   }
 
@@ -507,14 +769,13 @@ class VpnController {
 
       if (_strictSelection) {
         final selected = byIp[_serverIp] ?? _findByHost(servers, _serverHost);
-        final dial = _serverIp ??
-            selected?.ip ??
-            _remoteHostFromSelectedConfig();
+        final dial =
+            _serverIp ?? selected?.ip ?? _remoteHostFromSelectedConfig();
         final sni = SoftEtherVpn.fqdn(
           selected?.hostName ?? _serverHost ?? dial ?? '',
         );
-        final code =
-            (selected?.countryShort ?? _serverCountryCode).toUpperCase();
+        final code = (selected?.countryShort ?? _serverCountryCode)
+            .toUpperCase();
         final name = selected?.displayCountry ?? _serverCountryName;
         if (dial != null && dial.isNotEmpty) {
           add(
@@ -558,8 +819,7 @@ class VpnController {
             .where((s) => measured[s.ip]?.status == PingStatus.ok)
             .toList();
         for (final server in measuredOk) {
-          if (code.length == 2 &&
-              server.countryShort.toUpperCase() == code) {
+          if (code.length == 2 && server.countryShort.toUpperCase() == code) {
             continue;
           }
           final ping = measured[server.ip];
@@ -582,6 +842,27 @@ class VpnController {
         return picked;
       }
 
+      final network = await _networkForMemory();
+      final networkRelay = await RelayMemory.recall(network: network);
+      if (networkRelay != null) {
+        final live = byIp[networkRelay.dial];
+        final liveSni = live == null ? '' : SoftEtherVpn.fqdn(live.hostName);
+        final added = add(
+          networkRelay.copyWith(
+            sni: liveSni.isEmpty ? networkRelay.sni : liveSni,
+            countryCode: (live?.countryShort ?? networkRelay.countryCode)
+                .toUpperCase(),
+            countryName: live?.displayCountry ?? networkRelay.countryName,
+          ),
+          dedupeSubnet: false,
+        );
+        if (added) {
+          _log.addLog(
+            '[VpnController] Network-memory relay ${networkRelay.dial}',
+          );
+        }
+      }
+
       final remembered = await _readLastSsl();
       if (remembered != null) {
         final live = byIp[remembered.dial];
@@ -601,8 +882,8 @@ class VpnController {
           add(
             remembered.copyWith(
               sni: liveSni.isEmpty ? remembered.sni : liveSni,
-              countryCode:
-                  (live?.countryShort ?? remembered.countryCode).toUpperCase(),
+              countryCode: (live?.countryShort ?? remembered.countryCode)
+                  .toUpperCase(),
               countryName: live?.displayCountry ?? remembered.countryName,
             ),
             dedupeSubnet: false,
@@ -644,11 +925,30 @@ class VpnController {
         }
       }
       if (picked.isNotEmpty) {
+        // Network memory and the global last-good stay at the head: they are
+        // this network's strongest evidence. Everything else is ordered by
+        // probe/dial history so a relay that just failed sinks instead of
+        // being redialled first on every reconnect.
+        final anchored = <RelayTarget>[];
+        final scored = <RelayTarget>[];
+        for (final target in picked) {
+          if (target.source == 'network-memory' ||
+              target.source == 'last-good') {
+            anchored.add(target);
+          } else {
+            scored.add(target);
+          }
+        }
+        final byHistory = await RelayMemory.orderByHistory(
+          scored,
+          network: network,
+        );
+        final plan = _foreignFirst([...anchored, ...byHistory]);
         _log.addLog(
           '[VpnController] SoftEther plan (auto): '
-          '${picked.map((t) => '${t.countryCode}:${t.dial}').join(', ')}',
+          '${plan.map((t) => '${t.countryCode}:${t.dial}').join(', ')}',
         );
-        return picked;
+        return plan;
       }
     } catch (e) {
       _log.addLog('[VpnController] SoftEther target list failed: $e');
@@ -660,6 +960,72 @@ class VpnController {
     ];
   }
 
+  /// Region-locked services read the exit IP's country, so a plan that starts
+  /// with a relay inside the device's own country gives them the same answer
+  /// as no VPN. Foreign exits go first, but local ones stay in the list: when
+  /// a carrier blocks every foreign relay, the local exit is still a tunnel.
+  List<RelayTarget> _foreignFirst(List<RelayTarget> targets) {
+    if (HomeRegion.countryCode == null) return targets;
+    final away = <RelayTarget>[];
+    final home = <RelayTarget>[];
+    for (final target in targets) {
+      (HomeRegion.isHome(target.countryCode) ? home : away).add(target);
+    }
+    if (home.isEmpty || away.isEmpty) return targets;
+    _log.addLog(
+      '[VpnController] ${home.length} same-country exits moved behind '
+      '${away.length} foreign exits',
+    );
+    return [...away, ...home];
+  }
+
+  /// Fetches the official/mirror VPN Gate list on demand. The published
+  /// catalog can be hours stale and GitHub is blocked on some IR networks, so
+  /// an all-dead probe result must be able to ask for a newer list.
+  Future<List<Candidate>> _freshCandidates() async {
+    final cached = _freshCache;
+    final at = _freshCandidatesAt;
+    if (cached != null && at != null) {
+      final age = DateTime.now().difference(at);
+      final ttl = cached.isEmpty
+          ? const Duration(seconds: 30)
+          : const Duration(seconds: 90);
+      if (age < ttl) return cached;
+    }
+    final remaining = _budgetRemaining;
+    if (remaining < const Duration(seconds: 12)) {
+      final cached = await VpnGateCatalogCache.load();
+      _freshCache = cached;
+      _freshCandidatesAt = DateTime.now();
+      _log.addLog(
+        '[VpnController] Skipping catalog refresh; '
+        '${remaining.inSeconds}s of connect budget left'
+        '${cached.isEmpty ? '' : '; using ${cached.length} cached endpoints'}',
+      );
+      return cached;
+    }
+    _log.addLog('[VpnController] Refreshing VPN Gate catalog on-device');
+    List<Candidate> fetched;
+    try {
+      fetched = await VpnGateCandidates.fetchAll(onLog: _log.addLog).timeout(
+        const Duration(seconds: 12),
+        onTimeout: () => const <Candidate>[],
+      );
+    } catch (_) {
+      fetched = const [];
+    }
+    _freshCache = fetched;
+    _freshCandidatesAt = DateTime.now();
+    _log.addLog('[VpnController] Fresh catalog: ${fetched.length} endpoints');
+    return fetched;
+  }
+
+  Duration get _budgetRemaining {
+    final deadline = _connectDeadline;
+    if (deadline == null) return _connectBudget;
+    final remaining = deadline.difference(DateTime.now());
+    return remaining.isNegative ? Duration.zero : remaining;
+  }
 
   /// Builds the full candidate list: last-good first, then the on-device
   /// catalog, then a network fetch when the catalog is empty.
@@ -702,7 +1068,8 @@ class VpnController {
       final fromCache = <Candidate>[];
       for (final s in ordered) {
         if (_strictSelection) {
-          final sameCountry = _serverCountryCode.isNotEmpty &&
+          final sameCountry =
+              _serverCountryCode.isNotEmpty &&
               s.countryShort.toUpperCase() == _serverCountryCode;
           final sameServer = _serverIp != null && s.ip == _serverIp;
           if (!sameCountry && !sameServer) continue;
@@ -716,12 +1083,19 @@ class VpnController {
           s.openVpnConfigBase64,
           fallbackIp: s.ip,
           csvPing: ping,
+          sni: SoftEtherVpn.fqdn(s.hostName),
+          countryCode: s.countryShort.toUpperCase(),
+          countryName: s.displayCountry,
         );
         if (c != null) fromCache.add(c);
       }
       addAll(fromCache);
     } catch (e) {
       _log.addLog('[VpnController] Cached server list unavailable: $e');
+    }
+
+    if (candidates.isEmpty) {
+      addAll(await _freshCandidates());
     }
 
     return candidates;
@@ -751,8 +1125,13 @@ class VpnController {
     // Non-443 ports accept TCP and then never finish. The relays that
     // reach CONNECTED are TCP 443 inside [_provenSubnet].
     final provenBias = _isProven(c) ? 0 : 50000;
+    // An exit in the device's own country keeps the region-locked answer the
+    // user is trying to leave, so it ranks behind an equally reachable
+    // foreign exit. It is never removed: a local relay can still be the only
+    // tunnel a carrier allows.
+    final homeBias = HomeRegion.isHome(c.countryCode) ? 200000 : 0;
     final portBias = c.port == 443 ? 0 : 800;
-    return tcp + provenBias + portBias + ping;
+    return tcp + provenBias + homeBias + portBias + ping;
   }
 
   /// One TCP 443 profile per relay. SoftEther listens there even when the
@@ -772,8 +1151,7 @@ class VpnController {
     );
     if (!_strictSelection &&
         donor != null &&
-        !byIp.containsKey(_provenFirstIp)
-    ) {
+        !byIp.containsKey(_provenFirstIp)) {
       final pinned = _rewriteRemote(donor, _provenFirstIp);
       if (pinned != null) byIp[_provenFirstIp] = pinned;
     }
@@ -802,6 +1180,9 @@ class VpnController {
       csvPing: 0,
       b64: donor.b64,
       config: replaced,
+      sni: donor.sni,
+      countryCode: donor.countryCode,
+      countryName: donor.countryName,
     );
   }
 
@@ -864,8 +1245,8 @@ class VpnController {
       return [...proven, ...rest];
     }
 
-    final orderedReachable = provenFirst(results);
-    final orderedDead = provenFirst(dead);
+    var orderedReachable = provenFirst(results);
+    var orderedDead = provenFirst(dead);
     _log.addLog(
       '[VpnController] Probe results: ${orderedReachable.length} reachable, ${orderedDead.length} dead',
     );
@@ -874,6 +1255,52 @@ class VpnController {
         '[VpnController]   reachable: ${c.ip}:${c.port} (ping ${c.csvPing})',
       );
     }
+
+    if (orderedReachable.isEmpty) {
+      final fresh = await _freshCandidates();
+      final freshSorted = [...fresh]
+        ..sort((a, b) => _endpointRank(a).compareTo(_endpointRank(b)));
+      final seen = input.map((c) => '${c.ip}:${c.port}').toSet();
+      final extra = <Candidate>[];
+      for (final candidate in freshSorted) {
+        if (extra.length >= _maxProbe) break;
+        final on443 = candidate.protocol == 'tcp' && candidate.port == 443
+            ? candidate
+            : Candidate.withPort(candidate, 443);
+        if (on443 == null) continue;
+        if (!seen.add('${on443.ip}:${on443.port}')) continue;
+        if (_strictSelection && _serverCountryCode.isNotEmpty) {
+          final sameServer = _serverIp != null && on443.ip == _serverIp;
+          final sameCountry =
+              on443.countryCode.toUpperCase() == _serverCountryCode;
+          if (!sameServer && !sameCountry) continue;
+        }
+        extra.add(on443);
+      }
+      if (extra.isNotEmpty) {
+        _log.addLog('[VpnController] Probing ${extra.length} fresh endpoints');
+        final freshReachable = <Candidate>[];
+        final freshDead = <Candidate>[];
+        for (var i = 0; i < extra.length; i += 10) {
+          final batch = extra.sublist(i, (i + 10).clamp(0, extra.length));
+          final probes = await Future.wait([
+            for (final c in batch) _probe(c.ip, c.port),
+          ]);
+          for (var j = 0; j < batch.length; j++) {
+            (probes[j] ? freshReachable : freshDead).add(batch[j]);
+          }
+        }
+        _log.addLog(
+          '[VpnController] Fresh probe: ${freshReachable.length} reachable, '
+          '${freshDead.length} dead',
+        );
+        orderedReachable = provenFirst(freshReachable);
+        // The fresh list is newer than the bundled catalog, but a blocked TCP
+        // probe still does not prove the dial is dead. Keep both as fallback.
+        orderedDead = [...provenFirst(freshDead), ...orderedDead];
+      }
+    }
+
     if (orderedReachable.isEmpty) {
       // A picked country whose every SoftEther and OpenVPN listener is dead
       // used to keep dialling "unprobed" hosts until the connect budget
@@ -925,6 +1352,10 @@ class VpnController {
       _recoveryGeneration++;
       _recoveryTimer?.cancel();
       _recoveryTimer = null;
+      // A manual press asks for the freshest list; a retry within one press
+      // reuses the fetch so rotation does not spend the budget twice.
+      _freshCache = null;
+      _freshCandidatesAt = null;
     }
     // Never let the previous session's country survive a new dial.
     container.read(connectedRelayProvider.notifier).state = null;
@@ -949,6 +1380,10 @@ class VpnController {
     }
     if (_connectQueued) {
       _connectQueued = false;
+      if (_manualDisconnect) {
+        _log.addLog('[VpnController] Queued relay change dropped (stopped)');
+        return;
+      }
       _log.addLog('[VpnController] Running queued relay change');
       await _connect();
       return;
@@ -961,7 +1396,10 @@ class VpnController {
       _recoveryTimer = null;
       return;
     }
-    if (auto && !_manualDisconnect) {
+    // A failed manual press must keep trying too: the user asked for a tunnel.
+    // A permission denial or a missing network returns before any dial and is
+    // deliberately excluded, since retrying it would loop a system prompt.
+    if (!_manualDisconnect && (_attemptedDial || auto)) {
       _scheduleRecovery();
     }
   }
@@ -971,6 +1409,7 @@ class VpnController {
   /// a chain of dead relays can never leave the UI on "Connecting".
   void _startConnectBudget() {
     _connectBudgetTimer?.cancel();
+    _connectDeadline = DateTime.now().add(_connectBudget);
     _connectBudgetTimer = Timer(_connectBudget, () {
       unawaited(_abortConnectBudget());
     });
@@ -979,6 +1418,7 @@ class VpnController {
   void _cancelConnectBudget() {
     _connectBudgetTimer?.cancel();
     _connectBudgetTimer = null;
+    _connectDeadline = null;
   }
 
   Future<void> _abortConnectBudget() async {
@@ -1008,6 +1448,7 @@ class VpnController {
     if (container == null) return;
     final connectionNotifier = container.read(connectionStateProvider.notifier);
     final loggerNotifier = container.read(loggerStateProvider.notifier);
+    _attemptedDial = false;
     _log.addLog('[VpnController] Starting connection process...');
     connectionNotifier.setLoading();
     loggerNotifier.setLoading();
@@ -1061,6 +1502,7 @@ class VpnController {
     // to 219.100.37.105. iPhone, iPad, and Android spent the whole attempt
     // on OpenVPN timeouts and never reached that session. Dial SoftEther
     // first on every platform. OpenVPN stays as the backup.
+    _attemptedDial = true;
     _startConnectBudget();
     if (Platform.isIOS || Platform.isMacOS) {
       if (await _tryAppleSoftEther(container, connectionNotifier)) {
@@ -1209,6 +1651,14 @@ class VpnController {
         connectionNotifier.holdEngineEvents(false);
         connectionNotifier.setConnected();
         await _saveLastGood(candidate);
+        await RelayMemory.remember(relay, network: await _networkForMemory());
+        if (HomeRegion.isHome(relay.countryCode)) {
+          _log.addLog(
+            '[VpnController] Exit ${relay.dial} is in the device home country '
+            '(${HomeRegion.countryCode}); region-locked services will still '
+            'see it',
+          );
+        }
         await VpnSessionStore.save(
           label: relay.label,
           host: candidate.ip,
@@ -1313,6 +1763,14 @@ class VpnController {
       countryName: target.countryName,
     );
     await _saveLastSsl(target);
+    _reachability.markAlive(target.dial);
+    await RelayMemory.remember(target, network: await _networkForMemory());
+    if (HomeRegion.isHome(target.countryCode)) {
+      _log.addLog(
+        '[VpnController] Exit ${target.dial} is in the device home country '
+        '(${HomeRegion.countryCode}); region-locked services will still see it',
+      );
+    }
     connectionNotifier.holdEngineEvents(holdEngine);
     connectionNotifier.setConnected();
   }
@@ -1323,9 +1781,9 @@ class VpnController {
     Candidate candidate,
     ProviderContainer container,
   ) async {
-    var code = _serverCountryCode;
-    var name = _serverCountryName;
-    var sni = '';
+    var code = candidate.countryCode.toUpperCase();
+    var name = candidate.countryName;
+    var sni = candidate.sni;
     var ping = candidate.csvPing;
     try {
       final servers = await container.read(serversProvider.future);
@@ -1338,6 +1796,12 @@ class VpnController {
         break;
       }
     } catch (_) {}
+    // Only an explicitly picked country may fill a gap. In auto mode an
+    // unknown exit stays unknown instead of inheriting the picker's label.
+    if (code.isEmpty && _strictSelection) {
+      code = _serverCountryCode;
+      name = _serverCountryName;
+    }
     return RelayTarget(
       dial: candidate.ip,
       sni: sni,
@@ -1355,37 +1819,114 @@ class VpnController {
     List<RelayTarget> targets,
     int generation,
   ) async {
-    if (targets.isEmpty) return const <RelayTarget>[];
-    final probes = await Future.wait([
-      for (final target in targets)
-        Socket.connect(
-          target.dial,
-          443,
-          timeout: _softEtherProbeTimeout,
-        ).then((socket) {
-          socket.destroy();
-          return true;
-        }).catchError((_) => false),
-    ]);
-    if (generation != _rotationGeneration) return const <RelayTarget>[];
     final reachable = <RelayTarget>[];
     final dead = <RelayTarget>[];
-    for (var i = 0; i < targets.length; i++) {
-      (probes[i] ? reachable : dead).add(targets[i]);
+    final warm = <RelayTarget>[];
+    final untested = <RelayTarget>[];
+    final previouslyDead = <RelayTarget>[];
+    for (final target in targets) {
+      final probe = _reachability.lookup(target.dial);
+      if (probe == null) {
+        untested.add(target);
+      } else if (probe.ok) {
+        warm.add(target);
+      } else {
+        previouslyDead.add(target);
+      }
     }
-    _log.addLog(
-      '[VpnController] SoftEther probe: ${reachable.length}/${targets.length} '
-      'reachable'
-      '${dead.isEmpty ? '' : '; unreachable: ${dead.map((t) => t.dial).join(', ')}'}',
-    );
+    if (warm.isNotEmpty) {
+      // The whole fast-connect win: a relay measured moments ago goes straight
+      // to the native dial instead of waiting in the probe queue.
+      _log.addLog(
+        '[VpnController] Warm relays, skipping the probe: '
+        '${warm.map((t) => t.dial).join(', ')}',
+      );
+      reachable.addAll(warm);
+    }
+    if (untested.isNotEmpty) {
+      final probes = await _probeSoftEther(untested);
+      if (generation != _rotationGeneration) return const <RelayTarget>[];
+      for (var i = 0; i < untested.length; i++) {
+        (probes[i] ? reachable : dead).add(untested[i]);
+      }
+      _log.addLog(
+        '[VpnController] SoftEther probe: ${reachable.length}/${targets.length} '
+        'reachable'
+        '${dead.isEmpty ? '' : '; unreachable: ${dead.map((t) => t.dial).join(', ')}'}',
+      );
+    }
+
+    if (reachable.isEmpty) {
+      // Every bundled relay is dead: ask the source for a newer list before
+      // giving up on SoftEther and spending the rest of the budget on OpenVPN.
+      final fresh = await _freshCandidates();
+      if (generation != _rotationGeneration) return const <RelayTarget>[];
+      final seen = targets.map((t) => t.dial).toSet();
+      final freshTargets = <RelayTarget>[];
+      for (final candidate in fresh) {
+        if (freshTargets.length >= 8) break;
+        if (candidate.ip.isEmpty || !seen.add(candidate.ip)) continue;
+        if (_strictSelection && _serverCountryCode.isNotEmpty) {
+          final sameServer = _serverIp != null && candidate.ip == _serverIp;
+          final sameCountry =
+              candidate.countryCode.toUpperCase() == _serverCountryCode;
+          if (!sameServer && !sameCountry) continue;
+        }
+        freshTargets.add(
+          RelayTarget(
+            dial: candidate.ip,
+            sni: candidate.sni.isEmpty ? candidate.ip : candidate.sni,
+            countryCode: candidate.countryCode,
+            countryName: candidate.countryName,
+            pingMs: candidate.csvPing,
+            source: 'fresh',
+          ),
+        );
+      }
+      if (freshTargets.isNotEmpty) {
+        final probes = await _probeSoftEther(freshTargets);
+        if (generation != _rotationGeneration) return const <RelayTarget>[];
+        for (var i = 0; i < freshTargets.length; i++) {
+          (probes[i] ? reachable : dead).add(freshTargets[i]);
+        }
+        _log.addLog(
+          '[VpnController] Fresh SoftEther probe: '
+          '${reachable.length}/${freshTargets.length} reachable',
+        );
+      }
+    }
+
+    // A cached failure is not a verdict. When the fresh list is dead too, the
+    // relays that failed earlier on this network get one more real probe.
+    if (reachable.isEmpty && previouslyDead.isNotEmpty) {
+      final probes = await _probeSoftEther(previouslyDead);
+      if (generation != _rotationGeneration) return const <RelayTarget>[];
+      for (var i = 0; i < previouslyDead.length; i++) {
+        if (probes[i]) reachable.add(previouslyDead[i]);
+      }
+      _log.addLog(
+        '[VpnController] Re-probed ${previouslyDead.length} previously dead '
+        'SoftEther relays: ${reachable.length} reachable',
+      );
+    }
+
     if (reachable.isEmpty) {
       _log.addLog(
         '[VpnController] No reachable SoftEther relay for '
         '${_strictSelection ? _serverLabel : 'auto'}; skipping SoftEther',
       );
     } else if (_strictSelection) {
-      final escape = reachable.where((t) => t.source == 'escape' || t.source == 'proven');
-      final native = reachable.where((t) => t.source == 'selected' || t.source == 'same-country');
+      final escape = reachable
+          .where(
+            (t) =>
+                t.source == 'escape' ||
+                t.source == 'proven' ||
+                t.source == 'fresh',
+          )
+          .toList();
+      final native = reachable
+          .where((t) => t.source == 'selected' || t.source == 'same-country')
+          .toList();
       if (native.isEmpty && escape.isNotEmpty) {
         _log.addLog(
           '[VpnController] Selected country SoftEther unreachable; '
@@ -1394,6 +1935,79 @@ class VpnController {
       }
     }
     return reachable;
+  }
+
+  /// Probes run in parallel; the result is both a boolean per target and an
+  /// RTT for the scoring table. Recorded under the network the probe started
+  /// on, and never written into the in-memory cache if the network moved
+  /// mid-probe (the cache was cleared for a reason).
+  Future<List<bool>> _probeSoftEther(
+    List<RelayTarget> targets, {
+    String? network,
+  }) async {
+    if (targets.isEmpty) return const [];
+    final cacheNetwork = _reachability.network;
+    final fingerprint = network ?? _networkFingerprint;
+    final results = await Future.wait([
+      for (final target in targets) _probeOneSoftEther(target),
+    ]);
+    if (cacheNetwork == _reachability.network) {
+      for (var i = 0; i < targets.length; i++) {
+        final result = results[i];
+        _reachability.record(
+          targets[i].dial,
+          ok: result.$1,
+          elapsed: Duration(milliseconds: result.$2),
+        );
+      }
+    }
+    if (fingerprint != null &&
+        fingerprint != 'offline' &&
+        fingerprint != 'unknown') {
+      unawaited(
+        RelayMemory.recordProbes(
+          {
+            for (var i = 0; i < targets.length; i++)
+              targets[i].dial: results[i].$1,
+          },
+          network: fingerprint,
+          rttMs: {
+            for (var i = 0; i < targets.length; i++)
+              if (results[i].$2 > 0) targets[i].dial: results[i].$2,
+          },
+        ),
+      );
+    }
+    return [for (final result in results) result.$1];
+  }
+
+  Future<(bool, int)> _probeOneSoftEther(RelayTarget target) async {
+    final watch = Stopwatch()..start();
+    try {
+      final socket = await Socket.connect(
+        target.dial,
+        443,
+        timeout: _softEtherProbeTimeout,
+      );
+      socket.destroy();
+      watch.stop();
+      return (true, watch.elapsedMilliseconds);
+    } catch (_) {
+      watch.stop();
+      return (false, 0);
+    }
+  }
+
+  /// A TCP probe can pass and the real dial still fail (TLS, hub, auth).
+  /// Record it as a relay-level failure and stop trusting network memory for
+  /// this relay on this network.
+  Future<void> _recordSoftEtherFailure(RelayTarget target) async {
+    final network = await _networkForMemory();
+    _reachability.markDead(target.dial);
+    await RelayMemory.recordDialFailure(target.dial, network: network);
+    if (target.source == 'network-memory') {
+      await RelayMemory.forget(target.dial, network: network);
+    }
   }
 
   /// SoftEther inside the Apple packet tunnel. The profile is a marker the
@@ -1467,6 +2081,7 @@ vpn
         return true;
       }
       _log.addLog('[VpnController] Apple SoftEther failed ${target.dial}');
+      await _recordSoftEtherFailure(target);
     }
     return false;
   }
@@ -1532,9 +2147,8 @@ vpn
         );
         return true;
       }
-      _log.addLog(
-        '[VpnController] SoftEther dial failed: ${result.detail}',
-      );
+      _log.addLog('[VpnController] SoftEther dial failed: ${result.detail}');
+      await _recordSoftEtherFailure(target);
       try {
         await SoftEtherVpn.disconnect();
       } catch (_) {}
@@ -1665,6 +2279,9 @@ vpn
       csvPing: candidate.csvPing,
       b64: candidate.b64,
       config: DohResolver.rewriteRemoteHost(candidate.config, ip),
+      sni: candidate.sni,
+      countryCode: candidate.countryCode,
+      countryName: candidate.countryName,
     );
   }
 
@@ -1762,6 +2379,8 @@ vpn
     _log.addLog('[VpnController] Disposing...');
     _rotationGeneration++;
     _recoveryTimer?.cancel();
+    _networkWatchTimer?.cancel();
+    _networkReconnectTimer?.cancel();
     _vpnService.dispose();
     _initialized = false;
   }

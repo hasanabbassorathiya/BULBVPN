@@ -4,10 +4,15 @@ import 'package:bulbvpn/core/theme/app_text_styles.dart';
 import 'package:bulbvpn/modules/core/log.dart';
 import 'package:bulbvpn/modules/core/relay_target.dart';
 import 'package:bulbvpn/modules/main/presentation/widgets/server_sheet.dart';
+import 'package:bulbvpn/modules/monetization/ad_banner.dart';
+import 'package:bulbvpn/modules/monetization/ad_config.dart';
+import 'package:bulbvpn/modules/monetization/ad_service.dart';
+import 'package:bulbvpn/modules/monetization/ads_remote_config.dart';
 import 'package:bulbvpn/modules/monetization/private_app.dart';
 import 'package:bulbvpn/modules/settings/presentation/screens/logs_screen.dart';
 import 'package:bulbvpn/shared/layout/main_screen_background.dart';
 import 'package:bulbvpn/shared/providers/connection_state_provider.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -23,6 +28,7 @@ class SettingsScreen extends ConsumerWidget {
     final connectedRelay = ref.watch(connectedRelayProvider);
     final picked = ref.watch(selectedServerProvider);
     final live = connection.status == ConnectionStatus.connected;
+    final adsEnabled = ref.watch(adsEnabledProvider) && AdConfig.canRequestAds;
 
     return MainScreenBackground(
       connectionStatus: connection.status,
@@ -63,72 +69,81 @@ class SettingsScreen extends ConsumerWidget {
               ),
             ),
             const SizedBox(height: 18),
-            Text('DIAGNOSTICS', style: AppTextStyles.microLabel()),
-            const SizedBox(height: 8),
-            _Card(
-              child: InkWell(
-                onTap: () => _openLogs(context),
-                child: ValueListenableBuilder<int>(
-                  valueListenable: Log().version,
-                  builder: (_, __, ___) {
-                    final count = Log().lines.length;
-                    return Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 13, 6, 13),
-                      child: Row(
-                        children: [
-                          const Icon(
-                            Icons.receipt_long_rounded,
-                            size: 20,
-                            color: AppColors.amber,
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text(
-                                  'Connection logs',
-                                  style: TextStyle(
-                                    color: AppColors.ink,
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  count == 0
-                                      ? 'No entries yet · tap to open'
-                                      : '$count lines · newest first',
-                                  style: const TextStyle(
-                                    color: AppColors.mute,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ],
+            // Logs are a debugging tool; store builds ship without them.
+            if (kDebugMode) ...[
+              Text('DIAGNOSTICS', style: AppTextStyles.microLabel()),
+              const SizedBox(height: 8),
+              _Card(
+                child: InkWell(
+                  onTap: () => _openLogs(context),
+                  child: ValueListenableBuilder<int>(
+                    valueListenable: Log().version,
+                    builder: (_, __, ___) {
+                      final count = Log().lines.length;
+                      return Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 13, 6, 13),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.receipt_long_rounded,
+                              size: 20,
+                              color: AppColors.amber,
                             ),
-                          ),
-                          IconButton(
-                            tooltip: 'Copy logs',
-                            onPressed: () => copyLogs(context, ref),
-                            icon: const Icon(
-                              Icons.copy_rounded,
-                              size: 19,
-                              color: AppColors.steel,
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'Connection logs',
+                                    style: TextStyle(
+                                      color: AppColors.ink,
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    count == 0
+                                        ? 'No entries yet · tap to open'
+                                        : '$count lines · newest first',
+                                    style: const TextStyle(
+                                      color: AppColors.mute,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
-                          ),
-                          const Icon(
-                            Icons.chevron_right_rounded,
-                            size: 20,
-                            color: AppColors.mute,
-                          ),
-                        ],
-                      ),
-                    );
-                  },
+                            IconButton(
+                              tooltip: 'Copy logs',
+                              onPressed: () => copyLogs(context, ref),
+                              icon: const Icon(
+                                Icons.copy_rounded,
+                                size: 19,
+                                color: AppColors.steel,
+                              ),
+                            ),
+                            const Icon(
+                              Icons.chevron_right_rounded,
+                              size: 20,
+                              color: AppColors.mute,
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 18),
+              const SizedBox(height: 18),
+            ],
+            if (adsEnabled) ...[
+              Text('SPONSORED', style: AppTextStyles.microLabel()),
+              const SizedBox(height: 8),
+              const AdBanner(horizontalInset: 40),
+              const SizedBox(height: 18),
+            ],
             Text('ABOUT', style: AppTextStyles.microLabel()),
             const SizedBox(height: 8),
             const _Card(
@@ -136,7 +151,11 @@ class SettingsScreen extends ConsumerWidget {
                 padding: EdgeInsets.all(16),
                 child: Text(
                   'BULBVPN opens a private tunnel and picks the lowest latency from this device. We do not inspect traffic through the tunnel, and we are not responsible for how it is used or for any loss that follows from using it.',
-                  style: TextStyle(color: AppColors.steel, fontSize: 13, height: 1.45),
+                  style: TextStyle(
+                    color: AppColors.steel,
+                    fontSize: 13,
+                    height: 1.45,
+                  ),
                 ),
               ),
             ),
@@ -146,7 +165,11 @@ class SettingsScreen extends ConsumerWidget {
                 children: [
                   _Link(title: 'Privacy', url: AppLinks.privacy),
                   _Link(title: 'Terms', url: AppLinks.terms),
-                  _Link(title: 'Support', url: 'mailto:${AppLinks.contactEmail}'),
+                  if (adsEnabled) const _AdPrivacyLink(),
+                  _Link(
+                    title: 'Support',
+                    url: 'mailto:${AppLinks.contactEmail}',
+                  ),
                   const _VersionRow(),
                 ],
               ),
@@ -165,9 +188,9 @@ class SettingsScreen extends ConsumerWidget {
   }
 
   void _openLogs(BuildContext context) {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => const LogsScreen()),
-    );
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute<void>(builder: (_) => const LogsScreen()));
   }
 
   String _statusLabel(ConnectionStatus status) {
@@ -238,22 +261,55 @@ class _Row extends StatelessWidget {
 
 class _Link extends StatelessWidget {
   final String title;
-  final String url;
-  const _Link({required this.title, required this.url});
+  final String? url;
+  final VoidCallback? onTap;
+  const _Link({required this.title, this.url, this.onTap});
 
   @override
   Widget build(BuildContext context) {
     return InkWell(
-      onTap: () => launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication),
+      onTap:
+          onTap ??
+          () =>
+              launchUrl(Uri.parse(url!), mode: LaunchMode.externalApplication),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         child: Row(
           children: [
-            Expanded(child: Text(title, style: const TextStyle(color: AppColors.ink, fontSize: 16))),
-            const Icon(Icons.open_in_new_rounded, size: 16, color: AppColors.mute),
+            Expanded(
+              child: Text(
+                title,
+                style: const TextStyle(color: AppColors.ink, fontSize: 16),
+              ),
+            ),
+            Icon(
+              onTap == null ? Icons.open_in_new_rounded : Icons.tune_rounded,
+              size: 16,
+              color: AppColors.mute,
+            ),
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Shown only where Google requires a privacy options entry point (EEA, UK,
+/// Switzerland). Tapping it reopens the consent form.
+class _AdPrivacyLink extends StatelessWidget {
+  const _AdPrivacyLink();
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<bool>(
+      future: AdService.needsPrivacyOptions(),
+      builder: (context, snapshot) {
+        if (snapshot.data != true) return const SizedBox.shrink();
+        return _Link(
+          title: 'Ad privacy options',
+          onTap: AdService.showPrivacyOptions,
+        );
+      },
     );
   }
 }
@@ -267,7 +323,9 @@ class _VersionRow extends StatelessWidget {
       future: PackageInfo.fromPlatform(),
       builder: (context, snapshot) {
         final info = snapshot.data;
-        final version = info == null ? '—' : '${info.version} (${info.buildNumber})';
+        final version = info == null
+            ? '—'
+            : '${info.version} (${info.buildNumber})';
         return _Row(label: 'Version', value: version);
       },
     );

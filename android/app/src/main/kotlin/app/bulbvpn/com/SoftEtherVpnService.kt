@@ -258,16 +258,7 @@ class SoftEtherVpnService : VpnService() {
     }
 
     private fun forgetRelay() {
-        val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val tunIp = prefs.getString(PREF_TUN_IP, "")
-        val tunHost = prefs.getString(PREF_TUN_HOST, "")
-        prefs.edit().clear().apply()
-        if (!tunIp.isNullOrEmpty()) {
-            prefs.edit()
-                .putString(PREF_TUN_IP, tunIp)
-                .putString(PREF_TUN_HOST, tunHost)
-                .apply()
-        }
+        getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().clear().apply()
     }
 
     private fun pinCarrier() {
@@ -298,38 +289,11 @@ class SoftEtherVpnService : VpnService() {
         note("dial $host -> $address sni=$sni")
         System.loadLibrary("softether_jni")
         nativeSetProtect()
-        val relayPrefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val remembered = relayPrefs.getString(PREF_TUN_IP, "").orEmpty()
-        val rememberedHost = relayPrefs.getString(PREF_TUN_HOST, "").orEmpty()
-        if (remembered.isNotEmpty() && rememberedHost == address) {
-            note("fast path $remembered")
-            var handle = connectOnRoutedTun(address, sni, remembered, 16)
-            if (!running.get()) return
-            if (handle != 0L) {
-                val got = sampledAddress(handle)
-                if (got != null && got.first != 0 && formatIp(got.first) != remembered) {
-                    val movedIp = formatIp(got.first)
-                    val movedPrefix = Integer.bitCount(got.second).coerceIn(8, 32)
-                    note("address moved to $movedIp/$movedPrefix")
-                    retireClient()
-                    handle = connectOnRoutedTun(address, sni, movedIp, movedPrefix)
-                    if (!running.get()) return
-                }
-                if (handle != 0L) {
-                    val shown = sampledAddress(handle)?.first ?: 0
-                    if (!running.get()) return
-                    holdSession(if (shown != 0) formatIp(shown) else remembered)
-                    return
-                }
-            }
-            if (connectInFlight) {
-                finish(false, "connect code -100")
-                releaseAfterHandshake()
-                return
-            }
-            retireClient()
-            note("fast path missed, probing")
-        }
+        // Always connect through the placeholder → DHCP → routed TUN swap
+        // sequence. The remembered-IP shortcut (10.239.x reused before DHCP)
+        // authenticated, logged "session up", and then read nothing from the
+        // TUN (libsoftether DIAG nread=0, zero throughput) while the UI showed
+        // Connected. The cold path takes ~12 s and actually passes traffic.
         val created = nativeCreate(address, 443, "VPNGATE", "vpn", "vpn")
         if (created == 0L) {
             finish(false, "create failed")
@@ -412,7 +376,18 @@ class SoftEtherVpnService : VpnService() {
         // the assigned address is known, recreate the VpnService interface with
         // the routed config and swap the native client onto it. This is the
         // documented purpose of softether_replace_tun_fd().
-        val routed = openTun(tunnelIp, prefix, defaultRoute = true)
+        val gateway = synchronized(sessionLock) {
+            if (client == created) {
+                try {
+                    nativeGatewayIp(created)
+                } catch (_: Throwable) {
+                    0
+                }
+            } else {
+                0
+            }
+        }
+        val routed = openTun(tunnelIp, prefix, defaultRoute = true, dns = gateway)
         var previous = -1
         var swapped = -1
         synchronized(sessionLock) {
@@ -436,11 +411,6 @@ class SoftEtherVpnService : VpnService() {
 
     private fun holdSession(tunnelIp: String) {
         if (!running.get()) return
-        getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit()
-            .putString(PREF_TUN_IP, tunnelIp)
-            .putString(PREF_TUN_HOST, activeHost)
-            .apply()
         tunnelUp = true
         connectedAt = android.os.SystemClock.elapsedRealtime()
         stopReason = ""
@@ -494,7 +464,12 @@ class SoftEtherVpnService : VpnService() {
             val online = carrierUp
             if (assigned == 0 || !linked || !online) {
                 misses += 1
-                if (misses >= 4) {
+                // SoftEther performs its own short reconnects (the native layer
+                // is configured with a 3s retry). Tearing the TUN down on the
+                // first few misses turned a two-second library hiccup into a
+                // full app-level disconnect. Eight seconds still surfaces a
+                // genuinely dead link well before the read timeout.
+                if (misses >= 8) {
                     stopReason = when {
                         !online -> "network_lost"
                         assigned == 0 -> "address_lost"
@@ -533,69 +508,34 @@ class SoftEtherVpnService : VpnService() {
         }
     }
 
-    private fun connectOnRoutedTun(
+    private fun openTun(
         address: String,
-        sni: String,
-        tunnelIp: String,
         prefix: Int,
-    ): Long {
-        if (!running.get()) return 0
-        pinCarrier()
-        val routed = openTun(tunnelIp, prefix, defaultRoute = true)
-        val handle = nativeCreate(address, 443, "VPNGATE", "vpn", "vpn")
-        if (handle == 0L) {
-            ParcelFileDescriptor.adoptFd(routed).close()
-            return 0
-        }
-        synchronized(sessionLock) {
-            if (!running.get()) {
-                nativeDestroy(handle)
-                ParcelFileDescriptor.adoptFd(routed).close()
-                return 0
-            }
-            client = handle
-            nativeConfigure(handle, sni, false)
-            tunFd = routed
-            // connect() builds its adapter from the configured fd, so bind it
-            // before the handshake and re-assert it afterwards.
-            nativeSetTun(handle, routed)
-        }
-        note("routed session $tunnelIp/$prefix")
-        val code = connectWithDeadline(handle, 28_000)
-        if (code != 0 || !running.get()) {
-            note("routed session failed code=$code")
-            return 0
-        }
-        val attached = synchronized(sessionLock) {
-            if (client != handle) {
-                -1
-            } else {
-                nativeSetTun(handle, tunFd)
-                0
-            }
-        }
-        note("routed tun attach fd=$tunFd result=$attached")
-        return if (attached == 0) handle else 0
-    }
-
-    private fun openTun(address: String, prefix: Int, defaultRoute: Boolean): Int {
+        defaultRoute: Boolean,
+        dns: Int = 0,
+    ): Int {
         val builder = Builder()
             .setSession("BULBVPN")
             .addAddress(address, prefix)
+        // The DHCP gateway is the resolver the hub expects; public DNS is a
+        // fallback for hubs that do not answer on the gateway address.
+        val gatewayDns = if (dns != 0) formatIp(dns) else ""
+        if (gatewayDns.isNotEmpty() && gatewayDns != "0.0.0.0") {
+            builder.addDnsServer(gatewayDns)
+            note("dns gateway=$gatewayDns")
+        }
+        builder
             .addDnsServer("1.1.1.1")
             .addDnsServer("8.8.8.8")
             .setMtu(1200)
             .allowFamily(android.system.OsConstants.AF_INET)
         if (defaultRoute) {
             builder.addRoute("0.0.0.0", 0)
-            // The process that owns the tunnel cannot send its own TLS through
-            // that tunnel. Leaving this app on the carrier keeps the session
-            // socket alive once the default route is installed.
-            try {
-                builder.addDisallowedApplication(packageName)
-            } catch (error: Exception) {
-                Log.w(TAG, "could not exclude tunnel process", error)
-            }
+            // The app must stay inside its own TUN: the in-app exit-IP lookup
+            // is the only on-device proof of where traffic egresses, and an
+            // excluded app would report the carrier address while every other
+            // app uses the tunnel. The SoftEther session socket stays out of
+            // the tunnel through protect() (nativeSetProtect → protectFd).
         }
         val pfd: ParcelFileDescriptor = builder.establish()
             ?: throw IllegalStateException("VpnService.establish returned null")
@@ -881,6 +821,7 @@ class SoftEtherVpnService : VpnService() {
     }
     private external fun nativeAssignedIp(client: Long): Int
     private external fun nativeAssignedMask(client: Long): Int
+    private external fun nativeGatewayIp(client: Long): Int
     private external fun nativeIsConnected(client: Long): Boolean
     private external fun nativeEffectiveServerIp(client: Long): Int
     private external fun nativeReplaceTun(client: Long, fd: Int): Int
@@ -909,8 +850,6 @@ class SoftEtherVpnService : VpnService() {
         private const val PREFS = "bulb_vpn_relay"
         private const val PREF_HOST = "host"
         private const val PREF_SNI = "sni"
-        private const val PREF_TUN_IP = "tun_ip"
-        private const val PREF_TUN_HOST = "tun_host"
         const val EXTRA_HOST = "host"
         const val EXTRA_SNI = "sni"
 

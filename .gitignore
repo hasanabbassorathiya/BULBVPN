@@ -69,3 +69,18 @@ app.*.map.json
 /signing/
 # Local Playwright CLI snapshots (may include session URLs)
 .playwright-cli/
+
+# Release signing material. Never commit.
+/app-keys/
+
+# Local agent and tooling artifacts
+/.agents/skills/brag/
+/.firecrawl/
+/.qwen/
+/.blitz/screenshots/
+/skills-lock.json
+/brag-output/
+/brag-output-*/
+/pending.md
+/android_test_01_idle.jpg
+/-

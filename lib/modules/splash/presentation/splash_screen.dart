@@ -1,6 +1,7 @@
 import 'package:bulbvpn/core/theme/app_colors.dart';
 import 'package:bulbvpn/core/theme/app_icons.dart';
 import 'package:bulbvpn/core/theme/app_text_styles.dart';
+import 'package:bulbvpn/modules/legal/legal_acceptance.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -23,6 +24,11 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
 
   Future<void> _navigateToMain() async {
     final vpnData = await ref.read(vpnDataProvider.future);
+    final accepted = await LegalAcceptance.isAccepted();
+    if (!accepted && mounted) {
+      context.go('/legal');
+      return;
+    }
     if (vpnData.isVPNEnabled && mounted) {
       context.go('/main');
       return;
@@ -43,11 +49,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
               // Logo entrance: settle on a spring.
               StaggeredIn(
                 offset: 24,
-                child: AppIcons.logo(
-                  width: 116,
-                  height: 116,
-                  radius: 28,
-                ),
+                child: AppIcons.logo(width: 116, height: 116, radius: 28),
               ),
               const SizedBox(height: 26),
               StaggeredIn(

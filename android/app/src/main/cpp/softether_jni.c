@@ -25,6 +25,7 @@ extern void softether_set_tunnel_fd(softether_client_t client, int32_t fd);
 extern int softether_replace_tun_fd(softether_client_t client, int32_t fd);
 extern uint32_t softether_get_assigned_ip(const softether_client_t client);
 extern uint32_t softether_get_assigned_mask(const softether_client_t client);
+extern uint32_t softether_get_gateway_ip(const softether_client_t client);
 extern bool softether_is_connected(const softether_client_t client);
 extern uint32_t softether_get_effective_server_ip(const softether_client_t client);
 extern void softether_set_android_protect(int (*cb)(int fd));
@@ -159,6 +160,14 @@ Java_app_bulbvpn_com_SoftEtherVpnService_nativeAssignedMask(
     (void)env;
     (void)thiz;
     return (jint)softether_get_assigned_mask((softether_client_t)client);
+}
+
+JNIEXPORT jint JNICALL
+Java_app_bulbvpn_com_SoftEtherVpnService_nativeGatewayIp(
+    JNIEnv *env, jobject thiz, jlong client) {
+    (void)env;
+    (void)thiz;
+    return (jint)softether_get_gateway_ip((softether_client_t)client);
 }
 
 JNIEXPORT jboolean JNICALL
