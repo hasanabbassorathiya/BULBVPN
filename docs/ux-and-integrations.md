@@ -165,5 +165,6 @@ changes stop being decorative, not informative.
   `project.pbxproj` entries.
 - Release notes: tunnels that keep trying, honest connect states, support via
   Teleform when configured, ads off by default.
-- No store build in this round adds a permission, a tracker, or a new data
-  category; Analytics/Crashlytics/AdMob were already declared.
+- No new permission is added in this round. Analytics, Crashlytics, and the
+  AdMob SDK were already dependencies; re-check Play Data Safety and App
+  Privacy before `ads_enabled` is flipped to true.
