@@ -1,11 +1,12 @@
 import 'dart:io' show Platform;
 
-import 'package:bulbvpn/core/theme/app_colors.dart';
+import 'package:bulbvpn/core/theme/air_colors.dart';
 import 'package:bulbvpn/core/theme/app_text_styles.dart';
 import 'package:bulbvpn/modules/core/home_region.dart';
 import 'package:bulbvpn/modules/core/log.dart';
 import 'package:bulbvpn/modules/core/relay_target.dart';
 import 'package:bulbvpn/modules/core/softether_vpn.dart';
+import 'package:bulbvpn/shared/air/air_layout.dart';
 import 'package:bulbvpn/shared/providers/connection_state_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -20,122 +21,114 @@ class LogsScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final air = context.air;
     return Scaffold(
-      backgroundColor: AppColors.canvas,
-      appBar: AppBar(
-        backgroundColor: AppColors.surface,
-        foregroundColor: AppColors.ink,
-        elevation: 0,
-        title: const Text(
-          'Connection logs',
-          style: TextStyle(
-            fontSize: 17,
-            fontWeight: FontWeight.w600,
-            letterSpacing: -0.2,
-          ),
-        ),
-        actions: [
-          IconButton(
-            tooltip: 'Copy all logs',
-            onPressed: () => copyLogs(context, ref),
-            icon: const Icon(Icons.copy_all_rounded, size: 21),
-          ),
-          IconButton(
-            tooltip: 'Clear logs',
-            onPressed: () => _confirmClear(context),
-            icon: const Icon(Icons.delete_outline_rounded, size: 21),
-          ),
-        ],
-      ),
-      body: ValueListenableBuilder<int>(
-        valueListenable: Log().version,
-        builder: (context, _, __) {
-          final lines = Log().lines;
-          if (lines.isEmpty) {
-            return const Center(
-              child: Padding(
-                padding: EdgeInsets.all(32),
-                child: Text(
-                  'No tunnel logs yet.\nConnect once, then come back here.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: AppColors.mute,
-                    fontSize: 14,
-                    height: 1.5,
-                  ),
-                ),
-              ),
-            );
-          }
-          return SelectionArea(
-            child: ListView.builder(
-              padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
-              // Newest first: the reason a connection just failed is the line
-              // the user needs, without scrolling through a long session.
-              itemCount: lines.length + 1,
-              itemBuilder: (context, index) {
-                if (index == lines.length) {
-                  return const Padding(
-                    padding: EdgeInsets.only(top: 18, bottom: 8),
-                    child: Text(
-                      'Copied logs are chronological and include a device/relay header. Select any line to copy part of it.',
-                      style: TextStyle(
-                        color: AppColors.mute,
-                        fontSize: 11,
-                        height: 1.5,
+      backgroundColor: air.ground,
+      body: SafeArea(
+        bottom: false,
+        child: Align(
+          alignment: Alignment.topCenter,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: AirLayout.wideRail),
+            child: ValueListenableBuilder<int>(
+              valueListenable: Log().version,
+              builder: (context, _, __) {
+                final lines = Log().lines;
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(8, 8, 8, 10),
+                      child: Row(
+                        children: [
+                          IconButton(
+                            tooltip: 'Back',
+                            onPressed: () => Navigator.of(context).maybePop(),
+                            icon: const Icon(Icons.arrow_back),
+                          ),
+                          Expanded(
+                            child: Text(
+                              'Connection logs',
+                              style: AppTextStyles.title(
+                                color: air.ink,
+                                size: 19,
+                              ),
+                            ),
+                          ),
+                          if (lines.isNotEmpty) ...[
+                            SizedBox(
+                              width: 44,
+                              height: 44,
+                              child: IconButton(
+                                tooltip: 'Copy all logs',
+                                onPressed: () => copyLogs(context, ref),
+                                icon: const Icon(Icons.copy_all, size: 20),
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: () => _confirmClear(context),
+                              child: const Text('Clear'),
+                            ),
+                          ],
+                        ],
                       ),
                     ),
-                  );
-                }
-                final line = lines[lines.length - 1 - index];
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 7),
-                  child: Text(
-                    line,
-                    style: AppTextStyles.logLine(color: AppColors.steel),
-                  ),
+                    Expanded(
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: air.surface,
+                          border: Border(
+                            top: BorderSide(color: air.hairline),
+                          ),
+                        ),
+                        child: lines.isEmpty
+                            ? Center(
+                                child: Text(
+                                  'No events yet.',
+                                  style: AppTextStyles.body(
+                                    color: air.steel,
+                                    size: 14,
+                                  ),
+                                ),
+                              )
+                            : SelectionArea(
+                                child: ListView.builder(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    AirLayout.gutter,
+                                    16,
+                                    AirLayout.gutter,
+                                    28,
+                                  ),
+                                  itemCount: lines.length + 1,
+                                  itemBuilder: (context, index) {
+                                    if (index == lines.length) {
+                                      return Padding(
+                                        padding: const EdgeInsets.only(
+                                          top: 18,
+                                        ),
+                                        child: Text(
+                                          'Newest first. Copied logs are '
+                                          'chronological and include a '
+                                          'device/relay header.',
+                                          style: AppTextStyles.monoValue(
+                                            color: air.mute,
+                                            size: 11,
+                                          ),
+                                        ),
+                                      );
+                                    }
+                                    return _LogLine(
+                                      line: lines[lines.length - 1 - index],
+                                    );
+                                  },
+                                ),
+                              ),
+                      ),
+                    ),
+                  ],
                 );
               },
             ),
-          );
-        },
-      ),
-      bottomNavigationBar: SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 14),
-          child: Row(
-            children: [
-              Expanded(
-                child: FilledButton.icon(
-                  style: FilledButton.styleFrom(
-                    backgroundColor: AppColors.amber,
-                    foregroundColor: AppColors.canvas,
-                    minimumSize: const Size.fromHeight(46),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                  ),
-                  onPressed: () => copyLogs(context, ref),
-                  icon: const Icon(Icons.copy_rounded, size: 18),
-                  label: const Text(
-                    'Copy all logs',
-                    style: TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              IconButton(
-                tooltip: 'Copy the last 200 lines',
-                style: IconButton.styleFrom(
-                  backgroundColor: AppColors.raised,
-                  foregroundColor: AppColors.steel,
-                  minimumSize: const Size(46, 46),
-                ),
-                onPressed: () => copyLogs(context, ref, recentOnly: true),
-                icon: const Icon(Icons.history_rounded, size: 20),
-              ),
-            ],
           ),
         ),
       ),
@@ -143,31 +136,92 @@ class LogsScreen extends ConsumerWidget {
   }
 
   Future<void> _confirmClear(BuildContext context) async {
+    final air = context.air;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        backgroundColor: AppColors.surface,
-        title: const Text(
+        title: Text(
           'Clear logs?',
-          style: TextStyle(color: AppColors.ink),
+          style: AppTextStyles.title(color: air.ink, size: 18),
         ),
-        content: const Text(
+        content: Text(
           'This removes the current tunnel log from this device.',
-          style: TextStyle(color: AppColors.steel),
+          style: AppTextStyles.body(color: air.steel, size: 14),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Keep', style: TextStyle(color: AppColors.steel)),
+            child: const Text('Keep'),
           ),
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Clear', style: TextStyle(color: AppColors.red)),
+            style: TextButton.styleFrom(foregroundColor: air.alertInk),
+            child: const Text('Clear'),
           ),
         ],
       ),
     );
     if (confirmed == true) Log().clearLogs();
+  }
+}
+
+class _LogLine extends StatelessWidget {
+  const _LogLine({required this.line});
+
+  final String line;
+
+  static const int _maxMessageChars = 400;
+
+  @override
+  Widget build(BuildContext context) {
+    final air = context.air;
+    final close = line.indexOf('] ');
+    final stamp = close > 9 ? line.substring(1, close) : null;
+    final message = close > 0 ? line.substring(close + 2) : line;
+    final shown = message.length > _maxMessageChars
+        ? '${message.substring(0, _maxMessageChars)}…'
+        : message;
+    final lower = shown.toLowerCase();
+    final color = lower.contains('fail') ||
+            lower.contains('error') ||
+            lower.contains('exception') ||
+            lower.contains('refused') ||
+            lower.contains('timeout')
+        ? air.alertInk
+        : lower.contains('connected') || lower.contains('success')
+        ? air.connectedInk
+        : air.steel;
+    final time = stamp != null && stamp.length >= 19
+        ? stamp.substring(11, 19)
+        : stamp ?? '';
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 58,
+            child: Text(
+              time,
+              style: AppTextStyles.monoValue(color: air.ink, size: 10),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              shown,
+              style: TextStyle(
+                fontFamily: AppTextStyles.mono,
+                fontSize: 11,
+                height: 1.6,
+                color: color,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -226,24 +280,13 @@ Future<void> copyLogs(
       ..hideCurrentSnackBar()
       ..showSnackBar(
         SnackBar(
-          content: Text(
-            'Copied $count log lines. Paste them into the chat.',
-            style: const TextStyle(color: AppColors.ink, fontSize: 13),
-          ),
-          backgroundColor: AppColors.raised,
-          behavior: SnackBarBehavior.floating,
+          content: Text('Copied $count log lines. Paste them into the chat.'),
         ),
       );
   } catch (error) {
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'Could not copy logs: $error',
-          style: const TextStyle(color: AppColors.ink, fontSize: 13),
-        ),
-        backgroundColor: AppColors.raised,
-      ),
+      SnackBar(content: Text('Could not copy logs: $error')),
     );
   }
 }

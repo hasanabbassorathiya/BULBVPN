@@ -289,6 +289,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.1.1"
+  equatable:
+    dependency: transitive
+    description:
+      name: equatable
+      sha256: ea36e500cbf0ec18361deabca755434f73e42fe53c5130021c7e2d6b5ebe1702
+      url: "https://pub.dev"
+    source: hosted
+    version: "3.0.0"
   fake_async:
     dependency: transitive
     description:
@@ -531,6 +539,46 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "4.1.1"
+  flutter_vless:
+    dependency: "direct main"
+    description:
+      name: flutter_vless
+      sha256: ccda63e67218c99f134a338d904264b9772bf289966fafb5067801d547b27f51
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.1.6"
+  flutter_vless_android:
+    dependency: transitive
+    description:
+      name: flutter_vless_android
+      sha256: caec9832aebd1a33c83732eafb1a6b82196a8d6ea771f987f53d1492c2b67eaa
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.1.7"
+  flutter_vless_macos:
+    dependency: transitive
+    description:
+      name: flutter_vless_macos
+      sha256: ed19c31bb70dfa4a59cbf6615a16817cfa129f3b34492380bcc80daec293ed16
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.1.7"
+  flutter_vless_platform_interface:
+    dependency: transitive
+    description:
+      name: flutter_vless_platform_interface
+      sha256: ead87ef2dc5987d7e3a83c9554a27ba7f8e914e9b2b72477eda3ba0b639fe7e8
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.1.2"
+  flutter_vless_windows:
+    dependency: transitive
+    description:
+      name: flutter_vless_windows
+      sha256: ba15fba01439b2ab15652cc6da480db9a9f7df05a3f2fb544bb9cd9c156bf8d4
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.1.7"
   flutter_web_plugins:
     dependency: transitive
     description: flutter
@@ -732,10 +780,10 @@ packages:
     dependency: transitive
     description:
       name: matcher
-      sha256: "31bd099b47c10cd1aeb55146a2d46ce0277630ecef3f7dae54ad7873f36696cd"
+      sha256: dc0b7dc7651697ea4ff3e69ef44b0407ea32c487a39fff6a4004fa585e901861
       url: "https://pub.dev"
     source: hosted
-    version: "0.12.20"
+    version: "0.12.19"
   material_color_utilities:
     dependency: transitive
     description:
@@ -748,10 +796,10 @@ packages:
     dependency: transitive
     description:
       name: meta
-      sha256: "307249ce4ff29d58a18e97f6345f539382eb9c9c29ecda628900f31de0443dd9"
+      sha256: "1741988757a65eb6b36abe716829688cf01910bbf91c34354ff7ec1c3de2b349"
       url: "https://pub.dev"
     source: hosted
-    version: "1.19.0"
+    version: "1.18.0"
   mime:
     dependency: transitive
     description:
@@ -993,6 +1041,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.5.0"
+  purchases_flutter:
+    dependency: "direct main"
+    description:
+      name: purchases_flutter
+      sha256: "16d6610e6076ef36cf0c49f926a0f03484fb092ea8c7ea89b02e51dfe57bae82"
+      url: "https://pub.dev"
+    source: hosted
+    version: "10.19.0"
   retrofit:
     dependency: "direct main"
     description:
@@ -1226,10 +1282,10 @@ packages:
     dependency: transitive
     description:
       name: test_api
-      sha256: "2a122cbe059f8b610d3a5415f42e255b6c17b1f21eee1d960f31080237fb4f11"
+      sha256: "949a932224383300f01be9221c39180316445ecb8e7547f70a41a35bf421fb9e"
       url: "https://pub.dev"
     source: hosted
-    version: "0.7.12"
+    version: "0.7.11"
   timing:
     dependency: transitive
     description:
@@ -1354,10 +1410,10 @@ packages:
     dependency: transitive
     description:
       name: vector_math
-      sha256: "92b9910f66ed1057fd4da7b040ae7c74cafacf885bdc81be496928d5049b032d"
+      sha256: d530bd74fea330e6e364cda7a85019c434070188383e1cd8d9777ee586914c5b
       url: "https://pub.dev"
     source: hosted
-    version: "2.4.3"
+    version: "2.2.0"
   version:
     dependency: "direct main"
     description:

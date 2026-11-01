@@ -2,8 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../shared/services/firebase_analytics_service.dart';
+
 import '../../modules/main/presentation/screens/main_screen.dart';
 import '../../modules/legal/legal_screen.dart';
+import '../../modules/onboarding/onboarding_screen.dart';
 import '../../modules/splash/presentation/splash_screen.dart';
 import '../../modules/settings/presentation/screens/settings_screen.dart';
 import '../../modules/speed_test/presentation/screens/speed_test_screen.dart';
@@ -14,6 +17,7 @@ enum SlideDirection { leftToRight, rightToLeft }
 enum DefyxVPNRoutes {
   splash("/splash"),
   legal("/legal"),
+  onboarding("/onboarding"),
   main("/main"),
   settings("/settings"),
   speedTest("/speedTest");
@@ -98,8 +102,10 @@ CustomTransitionPage<void> _createPageAnimation(
 }
 
 final routerProvider = Provider<GoRouter>((ref) {
+  final observer = FirebaseAnalyticsService().getAnalyticsObserver();
   return GoRouter(
     initialLocation: DefyxVPNRoutes.splash.route,
+    observers: [if (observer != null) observer],
     routes: [
       GoRoute(
         path: DefyxVPNRoutes.splash.route,
@@ -108,6 +114,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: DefyxVPNRoutes.legal.route,
         builder: (context, state) => const LegalScreen(),
+      ),
+      GoRoute(
+        path: DefyxVPNRoutes.onboarding.route,
+        builder: (context, state) => const OnboardingScreen(),
       ),
       ShellRoute(
         builder: (context, state, child) {

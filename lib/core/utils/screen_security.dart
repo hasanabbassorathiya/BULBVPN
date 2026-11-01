@@ -1,10 +1,12 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:no_screenshot/no_screenshot.dart';
 
 class ScreenSecurity {
   static final NoScreenshot _noScreenshot = NoScreenshot.instance;
 
   static Future<void> enableScreenSecurity() async {
+    // Debug builds stay capturable so store screenshots and QA recordings work.
+    if (kDebugMode) return;
     try {
       await _noScreenshot.screenshotOff();
     } catch (e) {

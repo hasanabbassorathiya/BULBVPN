@@ -2,6 +2,10 @@ import com.android.build.gradle.LibraryExtension
 
 allprojects {
     repositories {
+        // Prefer locally published artifacts. On filtered networks
+        // dl.google.com can be unreachable while a dependency (appcompat,
+        // required by a Flutter plugin) is missing from the Gradle cache.
+        mavenLocal()
         google()
         mavenCentral()
         // ics-openvpn AAR shipped inside openvpn_dart (network.mysterium.openvpn:icsopenvpn).

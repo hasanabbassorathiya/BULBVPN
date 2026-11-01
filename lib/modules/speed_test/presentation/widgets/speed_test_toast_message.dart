@@ -1,35 +1,37 @@
-import 'package:bulbvpn/core/theme/app_colors.dart';
+import 'package:bulbvpn/core/theme/air_colors.dart';
+import 'package:bulbvpn/core/theme/app_text_styles.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 class SpeedTestToastMessage extends StatelessWidget {
   final String message;
 
-  const SpeedTestToastMessage({
-    super.key,
-    required this.message,
-  });
+  const SpeedTestToastMessage({super.key, required this.message});
 
   @override
   Widget build(BuildContext context) {
+    final air = context.air;
     return Container(
-      width: double.infinity,
-      constraints: BoxConstraints(minHeight: 80.h),
-      alignment: Alignment.center,
-      // margin: EdgeInsets.symmetric(horizontal: 20.w),
-      padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 14.h),
+      padding: const EdgeInsets.fromLTRB(14, 12, 16, 12),
       decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(6.r),
+        color: air.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: air.hairline),
       ),
-      child: Text(
-        message,
-        style: TextStyle(
-          fontSize: 16.sp,
-          fontFamily: 'Outfit',
-          color: AppColors.ink,
-          height: 1.4,
-        ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 1),
+            child: Icon(Icons.error_outline, size: 16, color: air.alertInk),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
+              style: AppTextStyles.body(color: air.ink, size: 13),
+            ),
+          ),
+        ],
       ),
     );
   }

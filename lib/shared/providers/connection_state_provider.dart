@@ -3,9 +3,12 @@ import 'dart:async';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_vless/flutter_vless.dart';
 import 'package:openvpn_dart/vpn_status.dart' as vpn_status;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:bulbvpn/modules/core/log.dart';
+import 'package:bulbvpn/modules/core/reality/reality_engine.dart';
+import 'package:bulbvpn/modules/core/relay_memory.dart';
 import 'package:bulbvpn/modules/core/relay_target.dart';
 import 'package:bulbvpn/modules/core/softether_vpn.dart';
 import 'package:bulbvpn/modules/core/vpn_service.dart';
@@ -27,6 +30,22 @@ extension ConnectionStatusExtension on ConnectionStatus {
   static ConnectionStatus fromInt(int value) => ConnectionStatus.values[value];
 }
 
+/// Which engine is carrying the session. `none` covers idle and the moment
+/// before an engine reports in.
+enum TunnelProtocol {
+  none,
+  softEther,
+  openVpn,
+  reality;
+
+  String get label => switch (this) {
+    TunnelProtocol.none => 'Automatic',
+    TunnelProtocol.softEther => 'SoftEther',
+    TunnelProtocol.openVpn => 'OpenVPN',
+    TunnelProtocol.reality => 'REALITY',
+  };
+}
+
 class ConnectionState {
   /// App-level connection status (superset: adds loading/analyzing/error/noInternet).
   final ConnectionStatus status;
@@ -37,21 +56,38 @@ class ConnectionState {
   /// Cumulative session bytes downloaded (fed to the throughput gauge).
   final int totalDownload;
 
+  /// Cumulative session bytes uploaded. SoftEther exposes no upload counter,
+  /// so [hasUpload] says whether this number is real for the current engine.
+  final int totalUpload;
+  final bool hasUpload;
+
+  /// Engine that owns the live session.
+  final TunnelProtocol protocol;
+
   const ConnectionState({
     this.status = ConnectionStatus.disconnected,
     this.vpnStatus,
     this.totalDownload = 0,
+    this.totalUpload = 0,
+    this.hasUpload = false,
+    this.protocol = TunnelProtocol.none,
   });
 
   ConnectionState copyWith({
     ConnectionStatus? status,
     vpn_status.ConnectionStatus? vpnStatus,
     int? totalDownload,
+    int? totalUpload,
+    bool? hasUpload,
+    TunnelProtocol? protocol,
   }) {
     return ConnectionState(
       status: status ?? this.status,
       vpnStatus: vpnStatus ?? this.vpnStatus,
       totalDownload: totalDownload ?? this.totalDownload,
+      totalUpload: totalUpload ?? this.totalUpload,
+      hasUpload: hasUpload ?? this.hasUpload,
+      protocol: protocol ?? this.protocol,
     );
   }
 }
@@ -83,13 +119,89 @@ class ConnectionStateNotifier extends StateNotifier<ConnectionState> {
   DateTime? _lastEngineCheck;
   int _engineMisses = 0;
   int _softEtherMisses = 0;
+  bool _realityActive = false;
+  int _realityMisses = 0;
+  DateTime? _lastRealityCheck;
 
   /// The OS tunnel is already up. Ignore a stale `disconnected` replay
   /// from the OpenVPN engine while the UI catches up.
   void adoptLiveTunnel({required bool holdEngine}) {
     _ignoreDisconnectUntil = DateTime.now().add(const Duration(seconds: 4));
     holdEngineEvents(holdEngine);
+    if (!holdEngine) {
+      state = state.copyWith(protocol: TunnelProtocol.openVpn);
+    }
     setConnected();
+  }
+
+  /// The REALITY engine owns the live session.
+  ///
+  /// The OpenVPN stream is held off for the same reason as SoftEther: its
+  /// native service is idle, and a stale `disconnected` replay must not tear
+  /// down a working tunnel. Statistics come from the REALITY status stream
+  /// through [onRealityStatus] instead of the SoftEther/OpenVPN pollers.
+  void adoptRealityTunnel() {
+    _realityActive = true;
+    _realityMisses = 0;
+    _holdEngineEvents = false;
+    _softEtherMisses = 0;
+    _engineMisses = 0;
+    _lastRealityCheck = null;
+    state = state.copyWith(protocol: TunnelProtocol.reality);
+    setConnected();
+  }
+
+  /// Called before the engine is stopped on purpose, so the teardown echo is
+  /// not mistaken for a drop.
+  void releaseRealityTunnel() {
+    _realityActive = false;
+    _realityMisses = 0;
+    _lastRealityCheck = null;
+    if (state.protocol == TunnelProtocol.reality) {
+      state = state.copyWith(protocol: TunnelProtocol.none);
+    }
+  }
+
+  /// Feed from the REALITY engine's native status stream.
+  ///
+  /// CONNECTED arrives once per second and carries cumulative traffic. A
+  /// DISCONNECTED after the session was adopted means the service died or was
+  /// stopped from its notification, which is a real drop.
+  void onRealityStatus(VlessStatus status) {
+    if (!_realityActive) return;
+    switch (status.connectionState) {
+      case VlessConnectionState.connected:
+        _realityMisses = 0;
+        if (status.download != state.totalDownload ||
+            status.upload != state.totalUpload ||
+            !state.hasUpload ||
+            state.status != ConnectionStatus.connected) {
+          state = state.copyWith(
+            status: ConnectionStatus.connected,
+            totalDownload: status.download,
+            totalUpload: status.upload,
+            hasUpload: true,
+          );
+        }
+        break;
+      case VlessConnectionState.disconnected:
+        final adoptedAt = _connectedAt;
+        if (adoptedAt != null &&
+            DateTime.now().difference(adoptedAt).inSeconds < 3) {
+          return;
+        }
+        Log().addLog(
+          '[ConnectionStateNotifier] REALITY service reported disconnected',
+        );
+        unawaited(_dropRealitySession());
+        break;
+      case VlessConnectionState.connecting:
+      case VlessConnectionState.disconnecting:
+      case VlessConnectionState.unknown:
+        // The native service recovers in place while the TUN stays installed;
+        // the liveness check below decides whether it is really dead.
+        break;
+    }
   }
 
   /// While a SoftEther tunnel owns the session, ignore OpenVPN status events
@@ -100,6 +212,11 @@ class ConnectionStateNotifier extends StateNotifier<ConnectionState> {
     if (hold) {
       _connectedAt = DateTime.now();
       _engineMisses = 0;
+      if (state.protocol != TunnelProtocol.softEther) {
+        state = state.copyWith(protocol: TunnelProtocol.softEther);
+      }
+    } else if (state.protocol == TunnelProtocol.softEther) {
+      state = state.copyWith(protocol: TunnelProtocol.none);
     }
   }
 
@@ -150,7 +267,10 @@ class ConnectionStateNotifier extends StateNotifier<ConnectionState> {
       if (!mounted) return;
       try {
         if (state.status == ConnectionStatus.connected) {
-          if (_holdEngineEvents) {
+          if (_realityActive) {
+            _realityMisses = await _reconcileRealityLiveness(_realityMisses);
+            if (!mounted) return;
+          } else if (_holdEngineEvents) {
             final tunnel = await SoftEtherVpn.status();
             if (!tunnel.isLive) {
               // carrierUp briefly drops during a handover while the native
@@ -176,11 +296,29 @@ class ConnectionStateNotifier extends StateNotifier<ConnectionState> {
             if (!mounted) return;
           }
         }
-        final total = _holdEngineEvents
-            ? await SoftEtherVpn.bytesReceived()
-            : await _openVpnBytes();
-        if (total != state.totalDownload) {
-          state = state.copyWith(totalDownload: total);
+        if (_realityActive) {
+          // Byte counters arrive with the engine's one-second status pushes.
+          return;
+        }
+        if (_holdEngineEvents) {
+          final total = await SoftEtherVpn.bytesReceived();
+          if (total != state.totalDownload || state.hasUpload) {
+            state = state.copyWith(totalDownload: total, hasUpload: false);
+          }
+        } else {
+          await _vpnService.refreshTunnelStatistics();
+          final live = state.status == ConnectionStatus.connected;
+          final down = live ? _vpnService.totalDownload : state.totalDownload;
+          final up = live ? _vpnService.totalUpload : 0;
+          if (down != state.totalDownload ||
+              up != state.totalUpload ||
+              live != state.hasUpload) {
+            state = state.copyWith(
+              totalDownload: down,
+              totalUpload: up,
+              hasUpload: live,
+            );
+          }
         }
       } catch (e) {
         debugPrint(
@@ -219,8 +357,56 @@ class ConnectionStateNotifier extends StateNotifier<ConnectionState> {
     return 0;
   }
 
+  /// REALITY liveness. The native service pushes a status every second, so a
+  /// quiet stream is the first signal. Because the app can be frozen while
+  /// the service keeps forwarding traffic, a quiet stream alone is not enough:
+  /// the engine is asked to carry a real request through the tunnel first.
+  /// `null` from the engine means "cannot tell" and never counts as a drop.
+  Future<int> _reconcileRealityLiveness(int misses) async {
+    final now = DateTime.now();
+    final connectedAt = _connectedAt;
+    if (connectedAt != null && now.difference(connectedAt).inSeconds < 8) {
+      return 0;
+    }
+    final lastEvent = RealityEngine.instance.lastEventAt;
+    if (lastEvent != null && now.difference(lastEvent).inSeconds < 6) {
+      return 0;
+    }
+    final lastCheck = _lastRealityCheck;
+    if (lastCheck != null && now.difference(lastCheck).inSeconds < 15) {
+      return misses;
+    }
+    _lastRealityCheck = now;
+    final probe = await RealityEngine.instance.probeTunnel(bulk: false);
+    if (probe == null) return misses;
+    if (probe.ok) return 0;
+    final next = misses + 1;
+    if (next < 2) return next;
+    Log().addLog(
+      '[ConnectionStateNotifier] REALITY tunnel is not reachable through its '
+      'TUN; dropping the session',
+    );
+    await _dropRealitySession();
+    return 0;
+  }
+
+  /// Penalises the relay that just failed before the UI drops, so the
+  /// automatic reconnect prefers a different endpoint instead of redialling
+  /// the same one. The prefs write is awaited: recovery starts ~2s later and
+  /// must already see the failure.
+  Future<void> _dropRealitySession() async {
+    final host = RealityEngine.instance.activeRelay?.host ?? '';
+    if (host.isNotEmpty) {
+      await RelayMemory.recordProbes({host: false});
+    }
+    if (!mounted) return;
+    _dropUnclean();
+    await RealityEngine.instance.stop();
+  }
+
   /// Clears every piece of state that claims a tunnel exists.
   void _dropUnclean() {
+    releaseRealityTunnel();
     holdEngineEvents(false);
     _ref.read(connectedRelayProvider.notifier).state = null;
     _ref.read(softEtherHostProvider.notifier).state = null;
@@ -230,13 +416,10 @@ class ConnectionStateNotifier extends StateNotifier<ConnectionState> {
     setDisconnected();
   }
 
-  Future<int> _openVpnBytes() async {
-    await _vpnService.refreshTunnelStatistics();
-    return _vpnService.totalDownload;
-  }
-
   void _onStatusEvent(vpn_status.ConnectionStatus status) {
-    if (_holdEngineEvents) return;
+    // While another engine owns the tunnel, its idle stream must not speak
+    // for the session.
+    if (_holdEngineEvents || _realityActive) return;
     final ignoreUntil = _ignoreDisconnectUntil;
     if (ignoreUntil != null &&
         DateTime.now().isBefore(ignoreUntil) &&
@@ -283,20 +466,33 @@ class ConnectionStateNotifier extends StateNotifier<ConnectionState> {
     } else if (newStatus == ConnectionStatus.disconnected ||
         newStatus == ConnectionStatus.error) {
       _connectedAt = null;
+      _realityActive = false;
+      _realityMisses = 0;
       _ref.read(connectedRelayProvider.notifier).state = null;
       _ref.read(softEtherHostProvider.notifier).state = null;
       ScreenSecurity.disableScreenSecurity();
     }
 
-    if (newStatus != state.status || status != state.vpnStatus) {
+    final terminal =
+        newStatus == ConnectionStatus.disconnected ||
+        newStatus == ConnectionStatus.error;
+    if (newStatus != state.status ||
+        status != state.vpnStatus ||
+        (!_holdEngineEvents &&
+            newStatus == ConnectionStatus.connected &&
+            state.protocol != TunnelProtocol.openVpn) ||
+        (terminal && state.protocol != TunnelProtocol.none)) {
       state = state.copyWith(
         status: newStatus,
         vpnStatus: status,
-        totalDownload:
-            newStatus == ConnectionStatus.disconnected ||
-                newStatus == ConnectionStatus.error
-            ? 0
-            : null,
+        totalDownload: terminal ? 0 : null,
+        totalUpload: terminal ? 0 : null,
+        hasUpload: terminal ? false : null,
+        protocol: terminal
+            ? TunnelProtocol.none
+            : (!_holdEngineEvents && newStatus == ConnectionStatus.connected
+                  ? TunnelProtocol.openVpn
+                  : null),
       );
     }
   }
@@ -336,11 +532,19 @@ class ConnectionStateNotifier extends StateNotifier<ConnectionState> {
       _connectedAt = null;
       _engineMisses = 0;
       _softEtherMisses = 0;
+      _realityActive = false;
+      _realityMisses = 0;
       _ref.read(connectedRelayProvider.notifier).state = null;
       _ref.read(softEtherHostProvider.notifier).state = null;
     }
     state = terminal
-        ? state.copyWith(status: status, totalDownload: 0)
+        ? state.copyWith(
+            status: status,
+            totalDownload: 0,
+            totalUpload: 0,
+            hasUpload: false,
+            protocol: TunnelProtocol.none,
+          )
         : state.copyWith(status: status);
     _saveState();
 

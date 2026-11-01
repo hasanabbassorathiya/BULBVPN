@@ -11,6 +11,7 @@
 #include <firebase_remote_config/firebase_remote_config_plugin_c_api.h>
 #include <flutter_secure_storage_windows/flutter_secure_storage_windows_plugin.h>
 #include <flutter_timezone/flutter_timezone_plugin_c_api.h>
+#include <flutter_vless_windows/flutter_vless_plugin.h>
 #include <openvpn_dart/openvpn_dart_plugin_c_api.h>
 #include <permission_handler_windows/permission_handler_windows_plugin.h>
 #include <url_launcher_windows/url_launcher_windows.h>
@@ -26,6 +27,8 @@ void RegisterPlugins(flutter::PluginRegistry* registry) {
       registry->GetRegistrarForPlugin("FlutterSecureStorageWindowsPlugin"));
   FlutterTimezonePluginCApiRegisterWithRegistrar(
       registry->GetRegistrarForPlugin("FlutterTimezonePluginCApi"));
+  FlutterVlessPluginRegisterWithRegistrar(
+      registry->GetRegistrarForPlugin("FlutterVlessPlugin"));
   OpenvpnDartPluginCApiRegisterWithRegistrar(
       registry->GetRegistrarForPlugin("OpenvpnDartPluginCApi"));
   PermissionHandlerWindowsPluginRegisterWithRegistrar(

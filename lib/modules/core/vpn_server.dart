@@ -1,3 +1,5 @@
+import 'trust_tier.dart';
+
 /// One public relay from a VPN Gate catalog row.
 class VpnServer {
   final String hostName;
@@ -11,6 +13,10 @@ class VpnServer {
   final int uptime;
   final String openVpnConfigBase64;
 
+  /// Who operates this relay. Catalog rows are community-contributed until a
+  /// private source says otherwise.
+  final TrustTier trustTier;
+
   VpnServer({
     required this.hostName,
     required this.ip,
@@ -22,6 +28,7 @@ class VpnServer {
     required this.numVpnSessions,
     required this.uptime,
     required this.openVpnConfigBase64,
+    this.trustTier = TrustTier.bootstrap,
   });
 
   factory VpnServer.fromJson(Map<String, dynamic> json) {
@@ -33,7 +40,8 @@ class VpnServer {
       score: int.tryParse(json['Score']?.toString() ?? '0') ?? 0,
       ping: int.tryParse(json['Ping']?.toString() ?? '0') ?? 0,
       speed: int.tryParse(json['Speed']?.toString() ?? '0') ?? 0,
-      numVpnSessions: int.tryParse(json['NumVpnSessions']?.toString() ?? '0') ?? 0,
+      numVpnSessions:
+          int.tryParse(json['NumVpnSessions']?.toString() ?? '0') ?? 0,
       uptime: int.tryParse(json['Uptime']?.toString() ?? '0') ?? 0,
       openVpnConfigBase64: json['OpenVPN_ConfigData_Base64']?.toString() ?? '',
     );

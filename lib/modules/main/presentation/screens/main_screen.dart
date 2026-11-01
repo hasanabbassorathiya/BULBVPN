@@ -1,31 +1,37 @@
 import 'dart:async';
 import 'dart:convert';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:openvpn_dart/vpn_status.dart' as vpn_status;
-import 'package:bulbvpn/core/theme/app_colors.dart';
+import 'package:bulbvpn/core/theme/air_colors.dart';
 import 'package:bulbvpn/core/theme/app_text_styles.dart';
 import 'package:bulbvpn/modules/core/log.dart';
 import 'package:bulbvpn/modules/core/network_watch.dart';
+import 'package:bulbvpn/modules/core/reality/reality_engine.dart';
+import 'package:bulbvpn/modules/core/reality/reality_relay.dart';
+import 'package:bulbvpn/modules/core/relay_memory.dart';
 import 'package:bulbvpn/modules/core/relay_target.dart';
 import 'package:bulbvpn/modules/core/server_catalog.dart';
 import 'package:bulbvpn/modules/core/softether_vpn.dart';
+import 'package:bulbvpn/modules/core/trust_tier.dart';
 import 'package:bulbvpn/modules/core/vpn_controller.dart';
 import 'package:bulbvpn/modules/core/vpn_server.dart';
 import 'package:bulbvpn/modules/core/vpn_service.dart';
 import 'package:bulbvpn/modules/core/vpn_session_store.dart';
 import 'package:bulbvpn/modules/main/application/server_ping_provider.dart';
-import 'package:bulbvpn/modules/main/presentation/widgets/bulb_orb.dart';
+import 'package:bulbvpn/modules/main/presentation/widgets/home_composition.dart';
 import 'package:bulbvpn/modules/main/presentation/widgets/server_sheet.dart';
 import 'package:bulbvpn/modules/monetization/ad_banner.dart';
 import 'package:bulbvpn/modules/monetization/ad_config.dart';
 import 'package:bulbvpn/modules/monetization/ads_remote_config.dart';
-import 'package:bulbvpn/shared/layout/main_screen_background.dart';
+import 'package:bulbvpn/modules/monetization/premium.dart';
+import 'package:bulbvpn/shared/air/air_phase.dart';
+import 'package:bulbvpn/shared/air/air_phase_map.dart';
+import 'package:bulbvpn/shared/air/connect_trace.dart';
 import 'package:bulbvpn/shared/providers/connection_state_provider.dart';
+import 'package:bulbvpn/shared/providers/connect_trace_provider.dart';
 import 'package:bulbvpn/shared/providers/ip_info_provider.dart';
 import 'package:bulbvpn/shared/providers/exit_ip_provider.dart';
 import 'package:bulbvpn/shared/widgets/staggered_in.dart';
@@ -50,9 +56,19 @@ class _MainScreenState extends ConsumerState<MainScreen>
 
   DateTime? _connectedAt;
   int? _prevByteIn;
+  int? _prevByteUp;
   String _sessionLabel = '00:00:00';
-  String _rateLabel = '—';
+  String _downRateLabel = '—';
+  String _upRateLabel = '—';
+  String _clockLabel = _localClock();
   bool _refreshingIps = false;
+  String _preparedLabel = '';
+
+  static String _localClock() {
+    final now = DateTime.now();
+    String two(int v) => v.toString().padLeft(2, '0');
+    return '${two(now.hour)}:${two(now.minute)}';
+  }
 
   @override
   void initState() {
@@ -61,6 +77,18 @@ class _MainScreenState extends ConsumerState<MainScreen>
     log.addLog('[MainScreen] initState');
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) => _tick());
     Future.microtask(_warmServers);
+    Future.microtask(_loadPrepared);
+  }
+
+  /// The relay that last carried this network. Shown while idle so the first
+  /// tap starts from a known-good endpoint instead of a blank slate.
+  Future<void> _loadPrepared() async {
+    try {
+      final relay = await RelayMemory.recall();
+      final name = relay?.displayName ?? '';
+      if (!mounted || name == _preparedLabel) return;
+      setState(() => _preparedLabel = name);
+    } catch (_) {}
   }
 
   Future<void> _warmServers() async {
@@ -77,6 +105,7 @@ class _MainScreenState extends ConsumerState<MainScreen>
   /// numbers describe the previous path, so measure again on this one.
   Future<void> _onNetworkChanged() async {
     log.addLog('[MainScreen] Network changed; re-measuring latency');
+    unawaited(_loadPrepared());
     final servers =
         ref.read(serversProvider).valueOrNull ?? const <VpnServer>[];
     if (servers.isEmpty) return;
@@ -141,6 +170,10 @@ class _MainScreenState extends ConsumerState<MainScreen>
   Future<void> _restoreLiveTunnel() async {
     final current = ref.read(connectionStateProvider).status;
     if (current == ConnectionStatus.disconnecting) return;
+    if (RealityEngine.instance.isSessionActive) {
+      await _restoreRealityTunnel();
+      return;
+    }
     // This runs from a lifecycle callback, so a platform-channel exception
     // must never escape as an unhandled async error. If neither engine can be
     // asked, treat the tunnel as unverified rather than claiming it is up.
@@ -222,6 +255,56 @@ class _MainScreenState extends ConsumerState<MainScreen>
     log.addLog('[MainScreen] Restored live tunnel ${label ?? tunnel.host}');
   }
 
+  /// The REALITY engine still owns a native session (resume, or the app was
+  /// backgrounded while connected). Its status stream is authoritative, so
+  /// re-adopt it instead of asking SoftEther/OpenVPN, which are idle and
+  /// would report the tunnel as dead.
+  Future<void> _restoreRealityTunnel() async {
+    final session = await VpnSessionStore.read();
+    if (!mounted) return;
+    final relays = await _realityRelaysSafe();
+    final match = RealityCatalog.findByHost(relays, session?.host);
+    ref
+        .read(connectionStateProvider.notifier)
+        .adoptRealityTunnel();
+    if (match != null) {
+      ref
+          .read(connectedRelayProvider.notifier)
+          .state = match.toTarget(source: 'restored');
+      ref.read(softEtherHostProvider.notifier).state =
+          '${match.displayName} · ${match.host}';
+    } else if (session != null) {
+      ref.read(connectedRelayProvider.notifier).state = RelayTarget(
+        dial: session.host,
+        sni: session.host,
+        countryCode: session.countryCode,
+        countryName: session.countryName,
+        source: 'restored',
+        trustTier: TrustTier.community,
+      );
+      ref.read(softEtherHostProvider.notifier).state = session.label;
+    }
+    if (session != null) {
+      _connectedAt = DateTime.fromMillisecondsSinceEpoch(session.startedMs);
+      _updateSession();
+    }
+    log.addLog(
+      '[MainScreen] Restored live REALITY tunnel '
+      '${match?.endpoint ?? session?.host ?? ''}',
+    );
+  }
+
+  Future<List<RealityRelay>> _realityRelaysSafe() async {
+    final cached = ref.read(realityRelaysProvider).valueOrNull;
+    if (cached != null) return cached;
+    try {
+      return await RealityCatalog.load();
+    } catch (e) {
+      log.addLog('[MainScreen] REALITY catalog unavailable: $e');
+      return const <RealityRelay>[];
+    }
+  }
+
   void _applyServerConfig(VpnServer server) {
     final ctrl = _vpnController;
     if (ctrl == null) return;
@@ -253,27 +336,52 @@ class _MainScreenState extends ConsumerState<MainScreen>
 
   void _updateSession() {
     final cs = ref.read(connectionStateProvider);
+    final clock = _localClock();
     if (cs.status == ConnectionStatus.connected) {
       _connectedAt ??= DateTime.now();
       final session = formatDuration(DateTime.now().difference(_connectedAt!));
       final byteIn = cs.totalDownload;
-      String rate = _rateLabel;
+      var down = _downRateLabel;
       if (_prevByteIn != null && byteIn >= _prevByteIn!) {
-        rate = formatRate(byteIn - _prevByteIn!);
+        down = formatRate(byteIn - _prevByteIn!);
       }
       _prevByteIn = byteIn;
-      setState(() {
-        _sessionLabel = session;
-        _rateLabel = rate;
-      });
+
+      var up = _upRateLabel;
+      if (cs.hasUpload) {
+        if (_prevByteUp != null && cs.totalUpload >= _prevByteUp!) {
+          up = formatRate(cs.totalUpload - _prevByteUp!);
+        }
+        _prevByteUp = cs.totalUpload;
+      } else {
+        up = '—';
+        _prevByteUp = null;
+      }
+
+      if (session != _sessionLabel ||
+          down != _downRateLabel ||
+          up != _upRateLabel ||
+          clock != _clockLabel) {
+        setState(() {
+          _sessionLabel = session;
+          _downRateLabel = down;
+          _upRateLabel = up;
+          _clockLabel = clock;
+        });
+      }
     } else if (_connectedAt != null ||
         _sessionLabel != '00:00:00' ||
-        _rateLabel != '—') {
+        _downRateLabel != '—' ||
+        _upRateLabel != '—' ||
+        _clockLabel != clock) {
       _connectedAt = null;
       _prevByteIn = null;
+      _prevByteUp = null;
       setState(() {
         _sessionLabel = '00:00:00';
-        _rateLabel = '—';
+        _downRateLabel = '—';
+        _upRateLabel = '—';
+        _clockLabel = clock;
       });
     }
   }
@@ -317,69 +425,6 @@ class _MainScreenState extends ConsumerState<MainScreen>
         : '${parts.join(', ')} · ${info.isp}';
   }
 
-  Widget _buildIpRow({
-    required String label,
-    required String? ip,
-    required String location,
-    bool copyable = false,
-    Widget? trailing,
-  }) {
-    return Semantics(
-      button: copyable && ip != null,
-      label: copyable && ip != null ? 'Exit IP $ip, double tap to copy' : null,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: (copyable && ip != null) ? _copyIp(ip) : null,
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              label,
-              style: AppTextStyles.microLabel(
-                color: ip == null ? AppColors.mute : AppColors.steel,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    ip ?? '—',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppTextStyles.monoValue(
-                      size: 15,
-                      color: ip == null ? AppColors.mute : AppColors.ink,
-                    ),
-                  ),
-                  if (location.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 2),
-                      child: Text(
-                        location,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: AppColors.mute,
-                          fontSize: 11,
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            if (copyable && ip != null) ...[
-              const SizedBox(width: 6),
-              const Icon(Icons.copy_rounded, size: 12, color: AppColors.mute),
-            ],
-            if (trailing != null) ...[const SizedBox(width: 2), trailing],
-          ],
-        ),
-      ),
-    );
-  }
-
   Future<void> _refreshIps({required bool live}) async {
     if (_refreshingIps) return;
     setState(() => _refreshingIps = true);
@@ -401,26 +446,6 @@ class _MainScreenState extends ConsumerState<MainScreen>
     }
   }
 
-  Widget _refreshIpsButton({required bool live}) {
-    return SizedBox(
-      width: 28,
-      height: 28,
-      child: IconButton(
-        padding: EdgeInsets.zero,
-        constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
-        tooltip: live ? 'Refresh exit IP' : 'Refresh IP',
-        onPressed: _refreshingIps ? null : () => _refreshIps(live: live),
-        icon: _refreshingIps
-            ? const SizedBox(
-                width: 14,
-                height: 14,
-                child: CircularProgressIndicator(strokeWidth: 1.6),
-              )
-            : const Icon(Icons.refresh, size: 16, color: AppColors.steel),
-      ),
-    );
-  }
-
   VoidCallback? _copyIp(String ip) {
     if (ip.isEmpty) return null;
     return () async {
@@ -433,13 +458,9 @@ class _MainScreenState extends ConsumerState<MainScreen>
           SnackBar(
             content: Text(
               'IP $ip copied',
-              style: const TextStyle(
-                color: AppColors.ink,
-                fontSize: 13,
-                fontFamily: 'GeistMono',
-              ),
+              style: AppTextStyles.monoValue(color: context.air.ink, size: 13),
             ),
-            backgroundColor: AppColors.raised,
+            backgroundColor: context.air.raised,
             behavior: SnackBarBehavior.floating,
             duration: const Duration(seconds: 2),
             shape: RoundedRectangleBorder(
@@ -450,216 +471,15 @@ class _MainScreenState extends ConsumerState<MainScreen>
     };
   }
 
-  void _showLogs() {
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: AppColors.surface,
-      isScrollControlled: true,
-      useSafeArea: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (sheetContext) => Padding(
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
-        ),
-        child: DraggableScrollableSheet(
-          initialChildSize: 0.72,
-          minChildSize: 0.4,
-          maxChildSize: 0.92,
-          expand: false,
-          builder: (context, scrollController) => ValueListenableBuilder<int>(
-            valueListenable: Log().version,
-            builder: (_, __, ___) {
-              final lines = Log().recent(200);
-              return Column(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.only(top: 12, bottom: 4),
-                    child: Container(
-                      width: 36,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: AppColors.mute,
-                        borderRadius: BorderRadius.circular(2),
-                      ),
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 10, 8, 8),
-                    child: Row(
-                      children: [
-                        const Text(
-                          'Logs',
-                          style: TextStyle(
-                            color: AppColors.ink,
-                            fontSize: 18,
-                            fontWeight: FontWeight.w600,
-                            letterSpacing: -0.3,
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Text(
-                          '${lines.length}',
-                          style: AppTextStyles.microLabel(),
-                        ),
-                        const Spacer(),
-                        TextButton(
-                          onPressed: () => Log().clearLogs(),
-                          child: const Text(
-                            'Clear',
-                            style: TextStyle(
-                              color: AppColors.amber,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                        IconButton(
-                          onPressed: () => Navigator.pop(sheetContext),
-                          icon: const Icon(
-                            Icons.close,
-                            color: AppColors.steel,
-                            size: 20,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Expanded(
-                    child: lines.isEmpty
-                        ? const Center(
-                            child: Text(
-                              'No logs yet — tap the bulb to connect.',
-                              style: TextStyle(
-                                color: AppColors.mute,
-                                fontSize: 13,
-                              ),
-                            ),
-                          )
-                        : ListView.builder(
-                            controller: scrollController,
-                            padding: const EdgeInsets.fromLTRB(20, 4, 20, 96),
-                            itemCount: lines.length,
-                            itemBuilder: (_, i) {
-                              final line = redactRelayDetail(lines[i]);
-                              return Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 2,
-                                ),
-                                child: Text(
-                                  line,
-                                  style: AppTextStyles.logLine(
-                                    color: _logColor(line),
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
-                  ),
-                  const SizedBox(height: 8),
-                  const SafeArea(child: SizedBox(height: 8)),
-                ],
-              );
-            },
-          ),
-        ),
-      ),
-    );
-  }
-
-  Color _logColor(String line) {
-    final lower = line.toLowerCase();
-    if (lower.contains('error') || lower.contains('exception')) {
-      return AppColors.red;
-    }
-    if (lower.contains('connected') || lower.contains('success')) {
-      return AppColors.emerald;
-    }
-    return AppColors.steel;
-  }
-
-  BulbPhase _bulbPhase(ConnectionStatus status) {
-    switch (status) {
-      case ConnectionStatus.connected:
-        return BulbPhase.connected;
-      case ConnectionStatus.loading:
-      case ConnectionStatus.connecting:
-      case ConnectionStatus.analyzing:
-      case ConnectionStatus.disconnecting:
-        return BulbPhase.connecting;
-      case ConnectionStatus.error:
-      case ConnectionStatus.noInternet:
-        return BulbPhase.failed;
-      case ConnectionStatus.disconnected:
-        return BulbPhase.idle;
-    }
-  }
-
-  (String, Color) _statusPresentation(ConnectionStatus status) {
-    switch (status) {
-      case ConnectionStatus.connected:
-        return ('Connected', AppColors.emerald);
-      case ConnectionStatus.loading:
-      case ConnectionStatus.connecting:
-      case ConnectionStatus.analyzing:
-        return ('Connecting', AppColors.amber);
-      case ConnectionStatus.disconnecting:
-        return ('Disconnecting', AppColors.amber);
-      case ConnectionStatus.error:
-        return ('Connection failed', AppColors.red);
-      case ConnectionStatus.noInternet:
-        return ('No internet', AppColors.red);
-      case ConnectionStatus.disconnected:
-        return ('Standby', AppColors.ink);
-    }
-  }
-
-  String _stageLabel(ConnectionStatus status) {
-    switch (status) {
-      case ConnectionStatus.connected:
-        return 'secure tunnel';
-      case ConnectionStatus.connecting:
-        return 'opening tunnel';
-      case ConnectionStatus.analyzing:
-        return 'testing tunnel';
-      case ConnectionStatus.loading:
-        return 'preparing';
-      case ConnectionStatus.disconnecting:
-        return 'closing tunnel';
-      case ConnectionStatus.error:
-      case ConnectionStatus.noInternet:
-        return 'tunnel closed';
-      case ConnectionStatus.disconnected:
-        return 'idle';
-    }
-  }
-
-  String _orbLabel(ConnectionStatus status) {
-    switch (status) {
-      case ConnectionStatus.connected:
-        return 'Tap to disconnect';
-      case ConnectionStatus.loading:
-      case ConnectionStatus.connecting:
-      case ConnectionStatus.analyzing:
-        return _stageLabel(status);
-      case ConnectionStatus.disconnecting:
-        return 'closing tunnel';
-      case ConnectionStatus.error:
-      case ConnectionStatus.noInternet:
-        return 'Tap to retry';
-      case ConnectionStatus.disconnected:
-        return 'Tap to connect';
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final cs = ref.watch(connectionStateProvider);
     final selected = ref.watch(selectedServerProvider);
     final pingState = ref.watch(serverPingProvider);
-    // Watching also boots the Remote Config fetch; ads stay off by default.
-    final adsEnabled = ref.watch(adsEnabledProvider);
+    // Watching also boots the Remote Config fetch; ads stay off by default and
+    // disappear for Premium accounts.
+    final adsEnabled =
+        ref.watch(adsEnabledProvider) && ref.watch(adsVisibleProvider);
     final catalog =
         ref.watch(serversProvider).valueOrNull ?? const <VpnServer>[];
     final fastest = _fastestServer(catalog, pingState.byIp);
@@ -684,16 +504,6 @@ class _MainScreenState extends ConsumerState<MainScreen>
         visibleExit != null &&
         afterInfo != null &&
         afterInfo.ip == visibleExit.ip;
-    // While live, only the relay that the native session reports may be shown.
-    // The picker and the "fastest" hint are not evidence of where traffic exits.
-    // If the relay is momentarily unknown, say so instead of substituting the
-    // picker's country (the original US/India label with a Japanese exit bug).
-    final endpointLabel = status == ConnectionStatus.connected
-        ? (connectedRelay?.displayName ?? 'Connected relay')
-        : (selected?.publicLabel ??
-              (fastest != null
-                  ? 'Auto · ${fastest.publicLabel}'
-                  : 'Auto · finding fastest'));
 
     // Push server picks into the controller.
     ref.listen(selectedServerProvider, (prev, next) {
@@ -711,18 +521,32 @@ class _MainScreenState extends ConsumerState<MainScreen>
     });
     // Track session start/stop precisely on transitions.
     ref.listen(connectionStateProvider.select((s) => s.status), (prev, next) {
+      if (next == ConnectionStatus.analyzing &&
+          prev != ConnectionStatus.analyzing) {
+        HapticFeedback.selectionClick();
+      }
       if (next == ConnectionStatus.connected &&
           prev != ConnectionStatus.connected) {
+        HapticFeedback.mediumImpact();
         _connectedAt = DateTime.now();
         _prevByteIn = null;
+        _prevByteUp = null;
       } else if (prev == ConnectionStatus.connected &&
           next != ConnectionStatus.connected) {
         _connectedAt = null;
         _prevByteIn = null;
+        _prevByteUp = null;
         setState(() {
           _sessionLabel = '00:00:00';
-          _rateLabel = '—';
+          _downRateLabel = '—';
+          _upRateLabel = '—';
         });
+      }
+      if (next == ConnectionStatus.disconnected ||
+          next == ConnectionStatus.error ||
+          next == ConnectionStatus.noInternet) {
+        ref.read(connectTraceProvider.notifier).state = null;
+        unawaited(_loadPrepared());
       }
     });
     // Latency belongs to the carrier path, not to the app session.
@@ -733,365 +557,107 @@ class _MainScreenState extends ConsumerState<MainScreen>
       unawaited(_onNetworkChanged());
     });
 
-    final (statusTitle, statusColor) = _statusPresentation(status);
-    final phase = _bulbPhase(status);
+    final phase = airPhaseFor(status);
+    final stage = connectStageFor(phase);
+    final trace = ref.watch(connectTraceProvider);
+    final witness = stage == null ? null : trace?.witness;
+    // While live, only the relay that the native session reports may be shown.
+    // The picker and the "fastest" hint are not evidence of where traffic exits.
+    final relayLabel = live
+        ? (connectedRelay?.displayName ?? 'Connected relay')
+        : (selected?.publicLabel ??
+              (fastest != null ? 'Auto · ${fastest.publicLabel}' : 'Auto'));
+    final connectedServer = live
+        ? _serverForDial(connectedRelay?.dial, catalog)
+        : null;
+    final tierServer = live ? connectedServer : (selected ?? fastest);
+    // A community REALITY host is never in the VPN Gate catalog, so the relay
+    // itself is the only source that can say who operates the exit.
+    final liveTier = connectedRelay?.trustTier ?? connectedServer?.trustTier;
+    final pingServer = live ? connectedServer : (selected ?? fastest);
+    final measured = pingServer == null ? null : pingState.byIp[pingServer.ip];
+    final flagCode =
+        (live ? connectedRelay?.code : null) ??
+        _countryCode(selected ?? fastest) ??
+        '';
+    final detail = switch (status) {
+      ConnectionStatus.disconnected => _preparedLabel.isEmpty
+          ? 'path closed · $relayLabel'
+          : 'prepared · $_preparedLabel',
+      ConnectionStatus.loading => 'waking the engine',
+      ConnectionStatus.connecting => 'opening tunnel · $relayLabel',
+      ConnectionStatus.analyzing => 'checking the first byte',
+      ConnectionStatus.connected => 'traffic confirmed · $relayLabel',
+      ConnectionStatus.disconnecting => 'closing the tunnel',
+      ConnectionStatus.error => 'no working path on this network',
+      ConnectionStatus.noInternet => 'this network is offline',
+    };
 
-    return MainScreenBackground(
-      connectionStatus: status,
-      child: SafeArea(
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 480),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 6, 20, 0),
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final bounded =
-                      constraints.hasBoundedHeight &&
-                      constraints.maxHeight.isFinite;
-                  // iPad landscape and the iPhone-on-iPad window are shorter
-                  // than the phone column. Expanded inside an unbounded
-                  // height throws; scroll instead.
-                  final tight = !bounded || constraints.maxHeight < 740;
-                  final column = Column(
-                    mainAxisSize: tight ? MainAxisSize.min : MainAxisSize.max,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      // ---- Top bar: brand (+ debug logs only) ------------
-                      StaggeredIn(
-                        child: Row(
-                          children: [
-                            Flexible(child: _brandWordmark()),
-                            const Spacer(),
-                            if (kDebugMode)
-                              IconButton(
-                                onPressed: _showLogs,
-                                tooltip: 'Logs',
-                                icon: const Icon(
-                                  Icons.terminal,
-                                  color: AppColors.steel,
-                                  size: 22,
-                                ),
-                                constraints: const BoxConstraints(
-                                  minWidth: 44,
-                                  minHeight: 44,
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-
-                      // ---- Status rail ------------------------------------
-                      StaggeredIn(
-                        delayMs: 60,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('STATUS', style: AppTextStyles.microLabel()),
-                            const SizedBox(height: 6),
-                            Row(
-                              children: [
-                                AnimatedContainer(
-                                  duration: const Duration(milliseconds: 400),
-                                  width: 9,
-                                  height: 9,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    color: statusColor,
-                                  ),
-                                ),
-                                const SizedBox(width: 10),
-                                Flexible(
-                                  child: Text(
-                                    statusTitle,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      color: statusColor,
-                                      fontSize: 26,
-                                      fontWeight: FontWeight.w600,
-                                      letterSpacing: -0.5,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 5),
-                            Text(
-                              '${_stageLabel(status)} · '
-                              '${live ? endpointLabel : (selected != null ? '${selected.displayCountry} picked' : 'auto')}',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: AppTextStyles.monoValue(
-                                size: 11,
-                                color: AppColors.steel,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-
-                      // ---- Orb zone (optical center) ---------------------
-                      if (tight)
-                        Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          child: _orbBlock(
-                            ref,
-                            phase,
-                            tight: true,
-                            label: _orbLabel(status),
-                          ),
-                        )
-                      else
-                        Expanded(
-                          child: Align(
-                            alignment: const Alignment(0, -0.18),
-                            child: _orbBlock(
-                              ref,
-                              phase,
-                              tight: false,
-                              label: _orbLabel(status),
-                            ),
-                          ),
-                        ),
-
-                      // ---- Metric rail: SESSION + DOWN (1.6fr / 1fr) ------
-                      StaggeredIn(
-                        delayMs: 140,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 14,
-                          ),
-                          decoration: BoxDecoration(
-                            color: AppColors.surface.withValues(alpha: 0.85),
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: AppColors.hairline),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              IntrinsicHeight(
-                                child: Row(
-                                  children: [
-                                    Expanded(
-                                      flex: 16,
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            'SESSION',
-                                            style: AppTextStyles.microLabel(),
-                                          ),
-                                          const SizedBox(height: 6),
-                                          Text(
-                                            _sessionLabel,
-                                            style: AppTextStyles.metric(
-                                              size: 20,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    Container(
-                                      width: 1,
-                                      color: AppColors.hairline,
-                                    ),
-                                    Expanded(
-                                      flex: 10,
-                                      child: Padding(
-                                        padding: const EdgeInsets.only(
-                                          left: 16,
-                                        ),
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              'DOWN',
-                                              style: AppTextStyles.microLabel(),
-                                            ),
-                                            const SizedBox(height: 6),
-                                            Row(
-                                              children: [
-                                                const Icon(
-                                                  Icons.arrow_downward,
-                                                  size: 14,
-                                                  color: AppColors.emerald,
-                                                ),
-                                                const SizedBox(width: 5),
-                                                Flexible(
-                                                  child: Text(
-                                                    _rateLabel,
-                                                    maxLines: 1,
-                                                    overflow:
-                                                        TextOverflow.ellipsis,
-                                                    style: AppTextStyles.metric(
-                                                      size: 20,
-                                                      color: AppColors.emerald,
-                                                    ),
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(height: 12),
-                              Container(height: 1, color: AppColors.hairline),
-                              const SizedBox(height: 12),
-                              // BEFORE / AFTER IP with ipwho.is enrichment.
-                              _buildIpRow(
-                                label: 'BEFORE',
-                                ip: ipWho.before?.ip,
-                                location: ipWho.before == null
-                                    ? ''
-                                    : _ipLocationLabel(ipWho.before!),
-                              ),
-                              const SizedBox(height: 10),
-                              Container(height: 1, color: AppColors.hairline),
-                              const SizedBox(height: 10),
-                              _buildIpRow(
-                                label: visibleExit == null
-                                    ? 'EXIT IP'
-                                    : 'AFTER',
-                                ip: visibleExit?.ip,
-                                location: visibleExit == null
-                                    ? (live ? 'measuring through tunnel…' : '')
-                                    : (afterMatches
-                                          ? _ipLocationLabel(afterInfo)
-                                          : visibleExit.loc),
-                                copyable: true,
-                                trailing: _refreshIpsButton(live: live),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-
-                      // ---- Sponsored slot (kept clear of the connect
-                      // control so an orb tap cannot become an ad click).
-                      // Iranian ISPs blackhole Google's ad hosts, so the
-                      // request is retried whenever the tunnel goes live. ----
-                      if (adsEnabled && AdConfig.canRequestAds) ...[
-                        AdBanner(
-                          key: ValueKey('ad-$live'),
-                          horizontalInset: 40,
-                        ),
-                        const SizedBox(height: 12),
-                      ],
-
-                      // ---- Server pill ------------------------------------
-                      StaggeredIn(
-                        delayMs: 200,
-                        child: _serverPill(
-                          selected,
-                          catalog: catalog,
-                          connectedRelay: connectedRelay,
-                          live: live,
-                          fastest: fastest,
-                          ping: fastest == null
-                              ? null
-                              : pingState.byIp[fastest.ip],
-                          probing: pingState.probing && selected == null,
-                        ),
-                      ),
-
-                      // ---- Nav clearance ----------------------------------
-                      SizedBox(height: tight ? 72 : 96),
-                    ],
-                  );
-                  if (tight) {
-                    return SingleChildScrollView(child: column);
-                  }
-                  return column;
-                },
-              ),
-            ),
-          ),
-        ),
+    final state = HomeViewState(
+      phase: phase,
+      statusTitle: phase.word,
+      statusDetail: detail,
+      networkLabel: _networkLabel(
+        ref.watch(networkFingerprintProvider).valueOrNull ?? '',
       ),
+      clockLabel: live ? _sessionLabel : _clockLabel,
+      pingLabel: measured?.status == PingStatus.ok ? '${measured!.ms}' : '—',
+      downLabel: live ? _downRateLabel : '—',
+      upLabel: live && cs.hasUpload ? _upRateLabel : '—',
+      protocolLabel: live ? cs.protocol.label : 'Automatic',
+      relayLabel: relayLabel,
+      exitIp: visibleExit?.ip ?? '',
+      exitLocation: visibleExit == null
+          ? (live ? 'measuring through tunnel' : '')
+          : (afterMatches ? _ipLocationLabel(afterInfo) : visibleExit.loc),
+      flagCode: flagCode,
+      trustTier: live ? liveTier : tierServer?.trustTier,
+      live: live,
+      measuring: _refreshingIps,
+      tight: MediaQuery.sizeOf(context).height < 740,
+      connectStage: stage,
+      busyWitness: witness,
+    );
+
+    return HomeComposition(
+      state: state,
+      onConnect: _onConnectPressed,
+      onOpenServers: () => showServerSheet(context),
+      onRefreshIps: () => _refreshIps(live: live),
+      onCopyIp: () => _copyIp(state.exitIp)?.call(),
+      // Iranian ISPs blackhole Google's ad hosts, so the request is retried
+      // whenever the tunnel goes live.
+      sponsored: adsEnabled && AdConfig.canRequestAds
+          ? AdBanner(key: ValueKey('ad-$live'), horizontalInset: 40)
+          : null,
     );
   }
 
-  Widget _orbBlock(
-    WidgetRef ref,
-    BulbPhase phase, {
-    required bool tight,
-    required String label,
-  }) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Builder(
-          builder: (context) {
-            final total = ref.watch(
-              connectionStateProvider.select((s) => s.totalDownload),
-            );
-            final delta = total - (_prevByteIn ?? total);
-            return BulbOrb(
-              phase: phase,
-              onTap: _onConnectPressed,
-              size: tight ? 156 : 210,
-              byteDelta: delta.clamp(0, 1 << 30),
-            );
-          },
-        ),
-        const SizedBox(height: 20),
-        StaggeredIn(
-          delayMs: 100,
-          offset: 8,
-          child: Text(
-            label,
-            style: AppTextStyles.microLabel(
-              color: phase == BulbPhase.idle ? AppColors.steel : AppColors.ink,
-            ),
-          ),
-        ),
-      ],
-    );
+  VpnServer? _serverForDial(String? dial, List<VpnServer> catalog) {
+    if (dial == null || dial.isEmpty) return null;
+    for (final server in catalog) {
+      if (server.ip == dial) return server;
+    }
+    return null;
   }
 
-  Widget _brandWordmark() {
-    return Row(
-      children: [
-        const Text(
-          'BULB',
-          style: TextStyle(
-            color: AppColors.ink,
-            fontSize: 18,
-            fontWeight: FontWeight.w700,
-            letterSpacing: -0.4,
-          ),
-        ),
-        const Text(
-          'VPN',
-          style: TextStyle(
-            color: AppColors.amber,
-            fontSize: 18,
-            fontWeight: FontWeight.w700,
-            letterSpacing: -0.4,
-          ),
-        ),
-        const SizedBox(width: 10),
-        if (MediaQuery.sizeOf(context).width >= 390)
-          Flexible(
-            child: Text(
-              'SECURE TUNNEL',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: AppTextStyles.microLabel(),
-            ),
-          ),
-      ],
-    );
+  String? _countryCode(VpnServer? server) {
+    if (server == null) return null;
+    final code = server.countryShort.trim().toLowerCase();
+    return code.length == 2 ? code : null;
+  }
+
+  String _networkLabel(String fingerprint) {
+    if (fingerprint.startsWith('wifi:')) {
+      final parts = fingerprint.split(':');
+      return parts.length >= 3 && parts[2].isNotEmpty
+          ? 'Wi-Fi · ${parts[2]}'
+          : 'Wi-Fi';
+    }
+    if (fingerprint.startsWith('cell:')) return 'Mobile';
+    if (fingerprint.startsWith('eth:')) return 'Ethernet';
+    if (fingerprint == 'offline') return 'Offline';
+    return 'Network';
   }
 
   VpnServer? _fastestServer(
@@ -1104,146 +670,5 @@ class _MainScreenState extends ConsumerState<MainScreen>
       if (ping != null && ping.status == PingStatus.ok) return server;
     }
     return ranked.isEmpty ? null : ranked.first;
-  }
-
-  Widget _serverPill(
-    VpnServer? selected, {
-    required List<VpnServer> catalog,
-    required RelayTarget? connectedRelay,
-    required bool live,
-    VpnServer? fastest,
-    ServerPing? ping,
-    bool probing = false,
-  }) {
-    // The flag, title and badge must all describe the same thing. Mixing the
-    // picker's country with the connected relay's name was the visible symptom
-    // of the old JP fallback overriding the selected server.
-    final liveRelay = live ? connectedRelay : null;
-    final flagCode = live
-        ? (liveRelay == null || liveRelay.code.isEmpty ? null : liveRelay.code)
-        : (selected != null
-              ? (selected.countryShort.toLowerCase().length == 2
-                    ? selected.countryShort.toLowerCase()
-                    : null)
-              : (fastest != null &&
-                        fastest.countryShort.toLowerCase().length == 2
-                    ? fastest.countryShort.toLowerCase()
-                    : null));
-    final title = live
-        ? (liveRelay?.displayName ?? 'Connected relay')
-        : (selected?.publicLabel ??
-              (fastest != null
-                  ? 'Auto · ${fastest.publicLabel}'
-                  : 'Choose a server'));
-    final subtitle = live
-        ? (liveRelay == null
-              ? 'Connected · relay details unavailable'
-              : 'Connected · ${liveRelay.code.isEmpty ? 'private relay' : liveRelay.code}')
-        : (selected != null
-              ? 'Selected relay'
-              : (probing && ping == null
-                    ? 'Measuring from this device'
-                    : 'Auto · fastest measured'));
-    final liveMs = !live && selected == null ? ping : null;
-    return GestureDetector(
-      onTap: () => showServerSheet(context),
-      behavior: HitTestBehavior.opaque,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
-        decoration: BoxDecoration(
-          color: AppColors.surface.withValues(alpha: 0.85),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: live
-                ? AppColors.emerald.withValues(alpha: 0.35)
-                : AppColors.hairline,
-          ),
-        ),
-        child: Row(
-          children: [
-            if (flagCode != null)
-              SizedBox(
-                width: 30,
-                height: 22,
-                child: SvgPicture.asset(
-                  'assets/flags/$flagCode.svg',
-                  fit: BoxFit.contain,
-                  errorBuilder: (_, __, ___) => const Icon(
-                    Icons.public,
-                    size: 20,
-                    color: AppColors.steel,
-                  ),
-                ),
-              )
-            else
-              const Icon(Icons.public, size: 20, color: AppColors.steel),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: AppColors.ink,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    subtitle,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppTextStyles.monoValue(
-                      size: 11,
-                      color: AppColors.mute,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 10),
-            if (liveMs != null && liveMs.status == PingStatus.ok)
-              Text(
-                '${liveMs.ms} ms',
-                style: AppTextStyles.monoValue(
-                  size: 12,
-                  color: AppColors.emerald,
-                ),
-              )
-            else if (probing)
-              const SizedBox(
-                width: 14,
-                height: 14,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: AppColors.amber,
-                ),
-              )
-            else
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                decoration: BoxDecoration(
-                  color: live
-                      ? AppColors.emerald.withValues(alpha: 0.14)
-                      : AppColors.amberTint,
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Text(
-                  live ? 'LIVE' : (selected == null ? 'AUTO' : 'PICKED'),
-                  style: AppTextStyles.microLabel(
-                    color: live ? AppColors.emerald : AppColors.amber,
-                  ),
-                ),
-              ),
-            const SizedBox(width: 6),
-            const Icon(Icons.chevron_right, size: 18, color: AppColors.mute),
-          ],
-        ),
-      ),
-    );
   }
 }

@@ -1,17 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_screenutil/flutter_screenutil.dart';
-import 'package:bulbvpn/shared/layout/main_screen_background.dart';
+
+import 'package:bulbvpn/shared/air/air_layout.dart';
+import 'package:bulbvpn/shared/air/air_phase.dart';
+import 'package:bulbvpn/shared/air/horizon_field.dart';
 import 'package:bulbvpn/shared/providers/connection_state_provider.dart' as conn;
 
 import '../widgets/speed_test_header.dart';
+import '../widgets/speed_test_toast_message.dart';
+import '../widgets/speed_test_view.dart';
 import '../../application/speed_test_provider.dart';
 import '../../models/speed_test_result.dart';
-import '../widgets/speed_test_state/speed_test_download/speed_test_download_state.dart';
-import '../widgets/speed_test_state/speed_test_loading/speed_test_loading_state.dart';
-import '../widgets/speed_test_state/speed_test_ready/speed_test_ready_state.dart';
-import '../widgets/speed_test_state/speed_test_upload/speed_test_upload_state.dart';
-import '../widgets/speed_test_toast_message.dart';
 
 class SpeedTestScreen extends ConsumerStatefulWidget {
   const SpeedTestScreen({super.key});
@@ -21,204 +20,89 @@ class SpeedTestScreen extends ConsumerStatefulWidget {
 }
 
 class _SpeedTestScreenState extends ConsumerState<SpeedTestScreen> {
-  // TODO: After fixing ads issue, enable this code to manage ads during speed test
-  // late final GoogleAds _googleAds;
+  /// Real measured samples for the current run, oldest first.
+  final List<double> _samples = <double>[];
+  static const int _maxSamples = 120;
 
-  @override
-  void initState() {
-    super.initState();
-
-    // TODO: After fixing ads issue, enable this code to initialize Google Ads
-    // _googleAds = GoogleAds(
-    //   backgroundColor: const Color(0xFF1A1A1A),
-    //   cornerRadius: 10.0.r,
-    // );
-
-    // Initialization complete - all state management is handled by providers
-  }
-
-  /*
-  // If needed, stop and reset the speed test
-  @override
-  void deactivate() {
-    Future.microtask(() {
-      if (mounted) {
-        ref.read(speedTestProvider.notifier).stopAndResetTest();
+  void _record(SpeedTestState? previous, SpeedTestState next) {
+    // A run begins at loading; until the next run starts, the finished trace
+    // stays on screen so the last reading keeps its shape.
+    if (next.step == SpeedTestStep.loading) {
+      _samples.clear();
+    }
+    if ((next.step == SpeedTestStep.download ||
+            next.step == SpeedTestStep.upload) &&
+        next.currentSpeed > 0) {
+      if (_samples.isEmpty ||
+          (_samples.last - next.currentSpeed).abs() > 0.01) {
+        _samples.add(next.currentSpeed);
+        if (_samples.length > _maxSamples) {
+          _samples.removeRange(0, _samples.length - _maxSamples);
+        }
       }
-    });
-    super.deactivate();
+    }
   }
-  */
-
-  /*
-  @override
-  void dispose() {
-    // If needed, stop and reset the speed test
-    Future.microtask(() {
-      try {
-        ref.read(speedTestProvider.notifier).stopAndResetTest();
-      } catch (e) {
-        debugPrint('Speed test provider already disposed: $e');
-      }
-    });
-    super.dispose();
-  }
-  */
 
   @override
   Widget build(BuildContext context) {
-    final speedTestState = ref.watch(speedTestProvider);
+    final state = ref.watch(speedTestProvider);
     final connectionState = ref.watch(conn.connectionStateProvider);
+    ref.listen<SpeedTestState>(speedTestProvider, _record);
 
-    /*
-    ref.listen<SpeedTestState>(speedTestProvider, (previous, next) {
-      if (previous?.step != next.step) {
-        _handleStepChange(previous, next);
-      }
-    });
-    */
+    final tunnelLive =
+        connectionState.status == conn.ConnectionStatus.connected;
+    final failed = state.errorMessage != null && state.step == SpeedTestStep.ready;
 
-    // TODO: After fixing ads issue, enable this code to complete test after ads
-    /*
-    ref.listen(googleAdsProvider, (previous, next) {
-      if (!next.showCountdown &&
-          next.shouldDisposeAd &&
-          mounted) {
-        Future(() {
-          if (mounted) {
-            ref.read(speedTestProvider.notifier).completeTest();
-          }
-        });
-      }
-    });
-    */
-
-    return MainScreenBackground(
-      connectionStatus: connectionState.status,
+    return HorizonField(
+      phase: AirPhase.idle,
+      showHorizon: false,
       child: SafeArea(
         child: Align(
           alignment: Alignment.topCenter,
           child: ConstrainedBox(
-            constraints: BoxConstraints(maxWidth: 393.w),
+            constraints: const BoxConstraints(maxWidth: AirLayout.rail),
             child: Padding(
-              padding: EdgeInsets.symmetric(horizontal: 24.w),
+              padding: const EdgeInsets.symmetric(
+                horizontal: AirLayout.gutter,
+              ),
               child: Stack(
-                alignment: Alignment.center,
                 fit: StackFit.expand,
                 children: [
                   Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      SizedBox(height: 45.h),
+                      const SizedBox(height: 28),
                       SpeedTestHeader(
-                        step: speedTestState.step,
-                        hasResult: speedTestState.testCompleted,
+                        step: state.step,
+                        hasResult: state.testCompleted,
+                      ),
+                      Expanded(
+                        child: SpeedTestView(
+                          state: state,
+                          samples: _samples,
+                          tunnelLive: tunnelLive,
+                          onStart: () => ref
+                              .read(speedTestProvider.notifier)
+                              .startTest(),
+                        ),
                       ),
                     ],
                   ),
-                  Positioned(
-                    top: 130.h,
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    child: _buildContent(speedTestState, connectionState.status),
-                  ),
+                  if (failed)
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 110,
+                      child: SpeedTestToastMessage(
+                        message: state.errorMessage!,
+                      ),
+                    ),
                 ],
               ),
             ),
           ),
         ),
       ),
-    );
-  }
-
-// TODO: After fixing ads issue, enable this code to start countdown timer when entering ads step
-/*
-  // void _handleStepChange(SpeedTestState? previous, SpeedTestState next) {
-    // Handle ads step
-    if (next.step == SpeedTestStep.ads) {
-      Future.microtask(() {
-        if (mounted) {
-          ref.read(googleAdsProvider.notifier).startCountdownTimer();
-        }
-      });
-    }
-  }
-*/
-
-  bool _isConnectionValid(conn.ConnectionStatus status) {
-    return status == conn.ConnectionStatus.disconnected ||
-        status == conn.ConnectionStatus.connected;
-  }
-
-  Widget _buildContent(SpeedTestState state, conn.ConnectionStatus connectionStatus) {
-    final mainContent = _buildMainContent(state, connectionStatus);
-    final shouldShowToast = _shouldShowToastOverlay(state);
-
-    if (!shouldShowToast) {
-      return mainContent;
-    }
-
-    return _buildContentWithToast(mainContent, state.errorMessage!);
-  }
-
-  Widget _buildMainContent(SpeedTestState state, conn.ConnectionStatus connectionStatus) {
-    if (state.step == SpeedTestStep.ready && !_isConnectionValid(connectionStatus)) {
-      debugPrint('Connection not valid, showing loading state. Status: $connectionStatus');
-      return const SpeedTestLoadingState();
-    }
-
-    switch (state.step) {
-      case SpeedTestStep.ready:
-        return SpeedTestReadyState(
-          onRetry: () {
-            ref.read(speedTestProvider.notifier).startTest();
-          },
-        );
-      case SpeedTestStep.loading:
-        return const SpeedTestLoadingState();
-      case SpeedTestStep.download:
-        return SpeedTestDownloadState(
-          state: state,
-          onStop: () {
-            ref.read(speedTestProvider.notifier).stopAndResetTest();
-          },
-        );
-      case SpeedTestStep.upload:
-        return SpeedTestUploadState(
-            state: state,
-            onStop: () {
-              ref.read(speedTestProvider.notifier).stopAndResetTest();
-            });
-    }
-  }
-
-  bool _shouldShowToastOverlay(SpeedTestState state) {
-    return state.errorMessage != null && (state.step == SpeedTestStep.ready);
-  }
-
-  Widget _buildContentWithToast(Widget mainContent, String errorMessage) {
-    return Stack(
-      children: [
-        mainContent,
-        Positioned(
-          left: 0,
-          right: 0,
-          bottom: 100.h,
-          child: SpeedTestToastMessage(
-            message: errorMessage,
-          ),
-        ),
-        // TODO: After fixing ads issue, enable this code to show ads overlay
-        /*
-        Positioned(
-          left: 0,
-          right: 0,
-          bottom: 100.h,
-          child: SpeedTestAdsOverlay(
-              googleAds: _googleAds,
-        ),
-        */
-      ],
     );
   }
 }

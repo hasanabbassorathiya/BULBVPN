@@ -1,8 +1,7 @@
-import 'package:bulbvpn/core/theme/app_colors.dart';
+import 'package:bulbvpn/core/theme/air_colors.dart';
 import 'package:bulbvpn/core/theme/app_text_styles.dart';
+import 'package:bulbvpn/modules/speed_test/models/speed_test_result.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_screenutil/flutter_screenutil.dart';
-import '../../models/speed_test_result.dart';
 
 class SpeedTestHeader extends StatelessWidget {
   final SpeedTestStep step;
@@ -16,13 +15,14 @@ class SpeedTestHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bool testing = step != SpeedTestStep.ready;
-    final String kicker = testing
+    final air = context.air;
+    final testing = step != SpeedTestStep.ready;
+    final kicker = testing
         ? 'LIVE MEASUREMENT'
         : (hasResult ? 'LAST RESULT' : 'THROUGHPUT CHECK');
-    final String title = testing
+    final title = testing
         ? 'Measuring link'
-        : (hasResult ? 'One reading' : 'Speed test');
+        : (hasResult ? 'Last reading' : 'Speed test');
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -30,19 +30,18 @@ class SpeedTestHeader extends StatelessWidget {
       children: [
         Text(
           kicker,
-          style: AppTextStyles.microLabel(
-            color: testing ? AppColors.amber : AppColors.mute,
+          style: AppTextStyles.label(
+            color: testing ? air.accentInk : air.steel,
+            size: 10.5,
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 10),
         Text(
           title,
-          style: TextStyle(
-            fontSize: 32.sp,
-            fontFamily: 'Outfit',
-            fontWeight: FontWeight.w600,
-            letterSpacing: -0.6,
-            color: AppColors.ink,
+          style: AppTextStyles.display(
+            color: air.ink,
+            size: 30,
+            weight: FontWeight.w600,
           ),
         ),
       ],

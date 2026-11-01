@@ -66,6 +66,7 @@ class Log {
   /// `devicectl device copy from --domain-type appDataContainer
   /// --domain-identifier app.bulbvpn.com --source tmp/bulb.log`
   void _appendFile(String line) {
+    if (kReleaseMode) return;
     try {
       // HOME is empty inside iOS/macOS sandboxes; tmp always works.
       final file = File('${Directory.systemTemp.path}/bulb.log');

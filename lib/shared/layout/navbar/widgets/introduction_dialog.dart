@@ -1,81 +1,56 @@
 import 'package:bulbvpn/app/links.dart';
-import 'package:bulbvpn/core/theme/app_colors.dart';
+import 'package:bulbvpn/core/theme/air_colors.dart';
 import 'package:bulbvpn/core/theme/app_text_styles.dart';
+import 'package:bulbvpn/shared/air/air_buttons.dart';
 import 'package:bulbvpn/shared/layout/navbar/widgets/copyable_link.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 class IntroductionDialog extends StatelessWidget {
   const IntroductionDialog({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final air = context.air;
     return Dialog(
-      insetPadding: EdgeInsets.symmetric(horizontal: 24.w),
-      backgroundColor: AppColors.surface,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+      backgroundColor: air.surface,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(15.r),
-        side: const BorderSide(color: AppColors.hairline),
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: air.hairline),
       ),
-      child: Container(
-        padding: EdgeInsets.all(25.w),
-        width: 343.w,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Introduction',
-              style: TextStyle(
-                fontSize: 18.sp,
-                fontFamily: 'Outfit',
-                fontWeight: FontWeight.w600,
-                color: AppColors.ink,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 380),
+        child: Padding(
+          padding: const EdgeInsets.all(22),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'BULBVPN',
+                style: AppTextStyles.label(color: air.steel, size: 10.5),
               ),
-            ),
-            SizedBox(height: 15.h),
-            Text(
-              'BULB VPN ensures secure access to public information and a free browsing experience.',
-              style: TextStyle(
-                fontSize: 15.sp,
-                fontFamily: 'Outfit',
-                color: AppColors.steel,
-                height: 1.4,
+              const SizedBox(height: 10),
+              Text(
+                'A quieter way through.',
+                style: AppTextStyles.title(color: air.ink, size: 21),
               ),
-            ),
-            SizedBox(height: 10.h),
-            Text(
-              'LEARN MORE',
-              style: AppTextStyles.microLabel(color: AppColors.amber),
-            ),
-            SizedBox(height: 15.h),
-            CopyableLink(text: AppLinks.website),
-            SizedBox(height: 20.h),
-            SizedBox(
-              width: double.infinity,
-              height: 46.h,
-              child: ElevatedButton(
+              const SizedBox(height: 10),
+              Text(
+                'BULBVPN measures working relays before you tap, so the '
+                'first byte arrives sooner. Bootstrap relays are public and '
+                'not private — you can import your own server instead.',
+                style: AppTextStyles.body(color: air.steel, size: 14),
+              ),
+              const SizedBox(height: 16),
+              CopyableLink(text: AppLinks.website),
+              const SizedBox(height: 18),
+              AirButton.secondary(
+                label: 'Got it',
                 onPressed: () => Navigator.of(context).pop(),
-                style: ElevatedButton.styleFrom(
-                  shadowColor: Colors.transparent,
-                  backgroundColor: AppColors.raised,
-                  foregroundColor: AppColors.ink,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8.r),
-                  ),
-                  elevation: 0,
-                ),
-                child: Text(
-                  'Got it',
-                  style: TextStyle(
-                    fontSize: 14.sp,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.steel,
-                  ),
-                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

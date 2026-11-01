@@ -12,8 +12,9 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await dotenv.load();
   try {
+    // The default app, not a named one: Analytics, Crashlytics, and Remote
+    // Config all resolve `Firebase.app()`.
     await Firebase.initializeApp(
-      name: 'bulbvpn',
       options: DefaultFirebaseOptions.currentPlatform,
     );
     FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterFatalError;

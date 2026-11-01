@@ -1,7 +1,7 @@
 name: bulbvpn
 description: "A new Vpn app."
 publish_to: 'none'
-version: 1.1.0+14
+version: 1.2.0+19
 
 environment:
   sdk: ^3.10.0
@@ -40,6 +40,7 @@ dependencies:
       ref: 0.1.3
   permission_handler: ^11.3.1
   http: ^1.2.0
+  flutter_vless: ^1.1.6
 
   # Frontend Packages
   flutter_screenutil: ^5.9.3
@@ -56,6 +57,7 @@ dependencies:
   battery_plus: ^7.0.0
   no_screenshot: ^0.3.1
   firebase_remote_config: ^6.7.1
+  purchases_flutter: ^10.11.0
 
 dev_dependencies:
   flutter_test:
@@ -78,13 +80,14 @@ flutter:
     - assets/fonts/
     - assets/lottie/
     - assets/flags/
+    - assets/relays/
     - data/vpngate.json
     - .env
 
   fonts:
-    - family: Outfit
+    - family: SchibstedGrotesk
       fonts:
-        - asset: assets/fonts/Outfit-VF.ttf
+        - asset: assets/fonts/SchibstedGrotesk-VF.ttf
     - family: GeistMono
       fonts:
         - asset: assets/fonts/GeistMono-VF.ttf

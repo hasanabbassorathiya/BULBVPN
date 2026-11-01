@@ -16,10 +16,13 @@ class RelayMemory {
 
   static const _key = 'bulb_relay_memory_v2';
   static const _statsKey = 'bulb_relay_stats_v1';
+  static const _healthKey = 'bulb_engine_health_v1';
   static const _maxEntries = 8;
   static const _maxStats = 128;
+  static const _maxHealth = 16;
   static const _maxAgeMs = 14 * 24 * 60 * 60 * 1000;
   static const _statsMaxAgeMs = 30 * 24 * 60 * 60 * 1000;
+  static const _healthMaxAgeMs = 7 * 24 * 60 * 60 * 1000;
 
   static Future<RelayTarget?> recall({String? network}) async {
     final fingerprint = network ?? await NetworkIdentity.current();
@@ -36,11 +39,13 @@ class RelayMemory {
     final dial = entry['dial']?.toString() ?? '';
     if (dial.isEmpty) return null;
     final sni = entry['sni']?.toString().trim() ?? '';
+    final port = (entry['port'] as num?)?.toInt() ?? 443;
     return RelayTarget(
       dial: dial,
       // An entry written by the OpenVPN path may have no catalog hostname.
       // SoftEther must never be dialled with an empty TLS name.
       sni: sni.isEmpty ? dial : sni,
+      port: port >= 1 && port <= 65535 ? port : 443,
       countryCode: (entry['countryCode']?.toString() ?? '').toUpperCase(),
       countryName: entry['countryName']?.toString() ?? '',
       pingMs: int.tryParse(entry['pingMs']?.toString() ?? '') ?? 0,
@@ -56,6 +61,7 @@ class RelayMemory {
     entries[fingerprint] = {
       'dial': target.dial,
       'sni': target.sni.trim().isEmpty ? target.dial : target.sni,
+      'port': target.port,
       'countryCode': target.countryCode,
       'countryName': target.countryName,
       'pingMs': target.pingMs,
@@ -133,6 +139,51 @@ class RelayMemory {
   /// A relay-level failure (TLS/auth/hub) after the TCP probe succeeded.
   static Future<void> recordDialFailure(String dial, {String? network}) {
     return recordProbes({dial: false}, network: network);
+  }
+
+  /// Records whether a whole connect attempt with [engine] produced a working
+  /// tunnel on this network.
+  ///
+  /// A streak of failed attempts means the engine is being throttled here,
+  /// not that one relay is unlucky: redialling the fleet on every recovery
+  /// would spend the connect budget before the fallback is reached. A success
+  /// resets the streak, and a new network has its own entry.
+  static Future<void> recordEngineOutcome(
+    String engine,
+    bool ok, {
+    String? network,
+  }) async {
+    final fingerprint = network ?? await NetworkIdentity.current();
+    if (!_usable(fingerprint) || engine.isEmpty) return;
+    final health = await _readMap(_healthKey);
+    final key = '$fingerprint|$engine';
+    final entry = health[key] ?? <String, dynamic>{};
+    final streak = int.tryParse(entry['streak']?.toString() ?? '') ?? 0;
+    entry['streak'] = ok ? 0 : streak + 1;
+    entry['at'] = DateTime.now().millisecondsSinceEpoch;
+    health[key] = entry;
+    _pruneMap(health, _maxHealth, _healthMaxAgeMs);
+    await _writeMap(_healthKey, health);
+  }
+
+  /// True when [engine] failed the last [minStreak] attempts on this network
+  /// within [window]. An explicit relay pick bypasses this so the user can
+  /// always retry by hand.
+  static Future<bool> engineRecentlyFailing(
+    String engine, {
+    String? network,
+    Duration window = const Duration(minutes: 20),
+    int minStreak = 3,
+  }) async {
+    final fingerprint = network ?? await NetworkIdentity.current();
+    if (!_usable(fingerprint) || engine.isEmpty) return false;
+    final health = await _readMap(_healthKey);
+    final entry = health['$fingerprint|$engine'];
+    if (entry == null) return false;
+    final streak = int.tryParse(entry['streak']?.toString() ?? '') ?? 0;
+    final at = int.tryParse(entry['at']?.toString() ?? '') ?? 0;
+    if (streak < minStreak || at == 0) return false;
+    return DateTime.now().millisecondsSinceEpoch - at <= window.inMilliseconds;
   }
 
   /// Stable, per-network ordering used instead of raw catalog order.
@@ -215,22 +266,32 @@ class RelayMemory {
   }
 
   static void _pruneStats(Map<String, Map<String, dynamic>> stats, int now) {
-    stats.removeWhere((_, entry) {
-      final at = int.tryParse(entry['at']?.toString() ?? '') ?? 0;
-      return at > 0 && now - at > _statsMaxAgeMs;
+    _pruneMap(stats, _maxStats, _statsMaxAgeMs, now: now);
+  }
+
+  static void _pruneMap(
+    Map<String, Map<String, dynamic>> map,
+    int maxEntries,
+    int maxAgeMs, {
+    int? now,
+  }) {
+    final at = now ?? DateTime.now().millisecondsSinceEpoch;
+    map.removeWhere((_, entry) {
+      final updated = int.tryParse(entry['at']?.toString() ?? '') ?? 0;
+      return updated > 0 && at - updated > maxAgeMs;
     });
-    while (stats.length > _maxStats) {
+    while (map.length > maxEntries) {
       String? oldest;
       var oldestAt = 1 << 62;
-      stats.forEach((key, value) {
-        final at = int.tryParse(value['at']?.toString() ?? '') ?? 0;
-        if (at < oldestAt) {
-          oldestAt = at;
+      map.forEach((key, value) {
+        final updated = int.tryParse(value['at']?.toString() ?? '') ?? 0;
+        if (updated < oldestAt) {
+          oldestAt = updated;
           oldest = key;
         }
       });
       if (oldest == null) break;
-      stats.remove(oldest);
+      map.remove(oldest);
     }
   }
 

@@ -11,7 +11,7 @@
   <meta property="og:title" content="BULBVPN — the tunnel you can inspect">
   <meta property="og:description" content="One tap to connect, your exit IP on screen. Release builds hide technical logs.">
   <meta property="og:url" content="https://bulbvpn-e9b4c.web.app/">
-  <meta property="og:image" content="https://bulbvpn-e9b4c.web.app/assets/screenshots/connected.webp">
+  <meta property="og:image" content="https://bulbvpn-e9b4c.web.app/assets/screenshots/connected-v2.webp">
   <meta name="twitter:card" content="summary_large_image">
   <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -31,6 +31,7 @@
       <nav class="nav" aria-label="Primary">
         <a href="index.html" aria-current="page">Introduction</a>
         <a href="app.html">The app</a>
+        <a href="premium.html">Premium</a>
         <a href="privacy.html">Privacy</a>
         <a href="terms.html">Terms</a>
       </nav>
@@ -56,7 +57,7 @@
         </div>
         <div class="hero-visual" aria-hidden="true">
           <div class="phone">
-            <img src="assets/screenshots/connected.webp" width="720" height="1600"
+            <img src="assets/screenshots/connected-v2.webp" width="720" height="1600"
                  alt="" fetchpriority="high">
           </div>
         </div>
@@ -69,7 +70,7 @@
         <span class="fact"><b data-server-count>96</b> community endpoints</span>
         <span class="fact"><b>No account</b> required</span>
         <span class="fact"><b>Exit IP</b> on screen</span>
-        <span class="fact"><b>Free</b> forever</span>
+        <span class="fact"><b>Free</b> tier, no account</span>
       </div>
     </div>
 
@@ -146,10 +147,12 @@
             <h2 id="numbers-title">Small surface, honest numbers.</h2>
           </div>
           <p>
-            No accounts, no subscription wall, no browsing history leaving the
-            phone. What the app does send — connection events to Firebase
-            Analytics, an exit-IP lookup to Cloudflare, the endpoint list from a
-            public mirror — is itemised in the privacy policy.
+            No accounts, no browsing history leaving the phone. The free tier
+            keeps the full relay list. Premium ($2.99/month or $19.99/year)
+            removes ads and ranks the least-congested relays first. What the app
+            does send — connection events to Firebase Analytics, an exit-IP
+            lookup to Cloudflare, the endpoint list from a public mirror — is
+            itemised in the privacy policy.
           </p>
         </div>
 
@@ -192,6 +195,45 @@
       </div>
     </section>
 
+    <section class="section" aria-labelledby="premium-title">
+      <div class="container">
+        <div class="section-head reveal">
+          <div>
+            <span class="eyebrow">Premium</span>
+            <h2 id="premium-title">The free tunnel stays free.</h2>
+          </div>
+          <p>
+            Premium pays for the relays. It removes ads and moves the
+            least-congested relays to the top of the list. It does not unlock
+            extra servers, and it does not hide any connection state.
+          </p>
+        </div>
+        <div class="bento">
+          <div class="card span-2 reveal">
+            <span class="k">Free</span>
+            <span class="stat">$0</span>
+            <p>
+              Full relay list, country grouping, auto-select, exit IP and speed
+              checks. Supported by a single banner ad.
+            </p>
+          </div>
+          <div class="card span-2 reveal">
+            <span class="k">Premium monthly</span>
+            <span class="stat">$2.99 <span class="unit">/ MO</span></span>
+            <p>No ads. Priority ranking for the least-congested relays.</p>
+          </div>
+          <div class="card span-2 reveal">
+            <span class="k">Premium yearly</span>
+            <span class="stat">$19.99 <span class="unit">/ YR</span></span>
+            <p>
+              Everything in monthly, billed once — about $1.67 a month.
+              <a href="premium.html">Plan details</a>.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <section class="cta-band">
       <div class="container reveal">
         <span class="eyebrow">The app</span>
@@ -216,14 +258,16 @@
             <span class="tag">SECURE TUNNEL</span>
           </a>
           <p>
-            A private OpenVPN client for Wi-Fi and mobile data. Exit IP on screen
-            Release builds hide technical logs. Free to use, no account required.
+            A private OpenVPN client for Wi-Fi and mobile data. Exit IP on screen.
+            Release builds hide technical logs. Free tier, no account required;
+            Premium removes ads and prioritizes relays.
           </p>
         </div>
         <div class="footer-col">
           <div class="label">Product</div>
           <a href="index.html">Introduction</a>
           <a href="app.html">The app</a>
+          <a href="premium.html">Premium</a>
           <a href="app.html#downloads">Download</a>
         </div>
         <div class="footer-col">

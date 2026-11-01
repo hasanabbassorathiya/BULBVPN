@@ -49,13 +49,13 @@ class AdsRemoteConfigNotifier extends StateNotifier<bool> {
     }
   }
 
-  /// `main.dart` registers Firebase under the name `bulbvpn`; fall back to the
-  /// default app if that ever changes.
+  /// The default app is what `main.dart` initializes. The named lookup stays
+  /// as a fallback for builds that still register `bulbvpn` separately.
   FirebaseApp _firebaseApp() {
     try {
-      return Firebase.app(_firebaseAppName);
-    } on FirebaseException {
       return Firebase.app();
+    } on FirebaseException {
+      return Firebase.app(_firebaseAppName);
     }
   }
 }

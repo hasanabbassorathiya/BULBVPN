@@ -44,6 +44,17 @@ void main() {
 
     final recalled = await RelayMemory.recall(network: cell);
     expect(recalled?.sni, '198.51.100.9');
+    expect(recalled?.port, 443);
+  });
+
+  test('a relay proven on an alternate listener is recalled on that port',
+      () async {
+    await RelayMemory.remember(
+      const RelayTarget(dial: '203.0.113.7', sni: 'a.opengw.net', port: 992),
+      network: cell,
+    );
+
+    expect((await RelayMemory.recall(network: cell))?.port, 992);
   });
 
   test('forget removes only the relay it names', () async {
@@ -96,6 +107,51 @@ void main() {
       good,
     ], network: wifi);
     expect(ordered.first.dial, good.dial);
+  });
+
+  test('three failed sessions close an engine on that network', () async {
+    for (var i = 0; i < 3; i++) {
+      await RelayMemory.recordEngineOutcome('reality', false, network: wifi);
+    }
+
+    expect(
+      await RelayMemory.engineRecentlyFailing('reality', network: wifi),
+      isTrue,
+    );
+  });
+
+  test('two failed sessions keep the engine in rotation', () async {
+    for (var i = 0; i < 2; i++) {
+      await RelayMemory.recordEngineOutcome('reality', false, network: wifi);
+    }
+
+    expect(
+      await RelayMemory.engineRecentlyFailing('reality', network: wifi),
+      isFalse,
+    );
+  });
+
+  test('a working session reopens the engine at once', () async {
+    for (var i = 0; i < 3; i++) {
+      await RelayMemory.recordEngineOutcome('reality', false, network: wifi);
+    }
+    await RelayMemory.recordEngineOutcome('reality', true, network: wifi);
+
+    expect(
+      await RelayMemory.engineRecentlyFailing('reality', network: wifi),
+      isFalse,
+    );
+  });
+
+  test('engine health is scoped to the network', () async {
+    for (var i = 0; i < 3; i++) {
+      await RelayMemory.recordEngineOutcome('reality', false, network: cell);
+    }
+
+    expect(
+      await RelayMemory.engineRecentlyFailing('reality', network: wifi),
+      isFalse,
+    );
   });
 
   test('history on one network does not reorder another', () async {

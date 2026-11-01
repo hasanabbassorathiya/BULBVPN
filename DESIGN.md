@@ -1,162 +1,283 @@
-# Design System: BULBVPN — "Filament"
+# Design System: BULBVPN — "Clear Air"
 
-Enterprise-grade VPN app. Dark, instrument-grade, alive. This document is the single
-source of truth for every screen, widget, color, type style, and motion decision.
+Source of truth for every screen, color, type style, and motion decision in
+the 1.2 redesign. When code and this document disagree, this document wins or
+it gets amended first.
 
-**Dials:** Creativity `8` · Density `5` · Variance `7` · Motion `7`
+**Dials:** Creativity `7` · Density `4` · Variance `5` · Motion `4`
 
 ---
 
-## 1. Visual Theme & Atmosphere
+## 1. What it is
 
-A night-time mission console lit by a single warm filament. The canvas is deep
-blue-charcoal (never black), the only saturated color in the entire interface is
-Filament Amber — the light the bulb throws. Everything else is quiet neutral
-plumbing: hairlines, dim labels, one clear instrument at the center.
+A daylit instrument, not a night-time console. The screen is sky above a
+horizon and warm ground below it. One aperture opens as the tunnel comes up;
+three figures sit on a single hairline; every relay states who runs it. The
+app says less, and what it says is true.
 
-The four ideas drive every screen:
+Five rules:
 
-- **BULB** — the connect control is a literal bulb: a filament that warms up,
-  flickers during handshake, and breathes when live.
-- **INTERNET** — concentric dashed tunnel rings orbit the bulb; packets are
-  dots that ride them when connected.
-- **LOCATION** — a dim meridian/globe motif behind the console; every server
-  row carries its flag + city + latency as a coordinate.
-- **SPEED** — the speed test is a machined gauge: spring needle, tabular
-  monospace readouts, a faint trail behind the sweep.
+- **One control.** The aperture is the only primary action on the connect
+  surface. No card grid, no secondary connect buttons.
+- **Honest instruments.** Numbers are measured or shown as `—`. Never a
+  plausible-looking sample, never "connecting…" for a state that is not
+  connecting.
+- **The trust contract is visible.** Every relay names its operator. Public
+  relays say `NOT PRIVATE` wherever they appear — never in small print.
+- **Quiet by default.** Hairlines instead of cards, one accent instead of a
+  gradient, motion only where it explains a state change.
+- **Two lights, one world.** Day is the default. Night Air is the same world
+  after dark, not a different product.
 
-Density is balanced (5): one instrument per screen, data in disciplined rails —
-not a wall of cards. Variance is high (7): no two sections share a layout.
-Motion is cinematic (7): state changes are choreographed, idle states breathe.
+## 2. Color
 
-## 2. Color Palette & Roles
+`AirColors` is a `ThemeExtension` on `ThemeData`; read it as `context.air`.
+Both palettes are asserted at WCAG AA in `test/air_theme_test.dart`.
 
-### Neutrals (the plumbing)
-- **Night Canvas** `#0A0D14` — root scaffold background. Blue-charcoal, not black.
-- **Console Surface** `#11151F` — sheets, bottom nav, cards.
-- **Raised Surface** `#171C29` — inputs, active rows, chips.
-- **Ink** `#F2F4F8` — primary text.
-- **Steel** `#99A1B3` — secondary text, descriptions, unit labels.
-- **Mute** `#5B6478` — tertiary text, disabled, timestamps.
-- **Hairline** `rgba(255,255,255,0.08)` — all 1px structural borders.
-- **Shadow** `rgba(0,0,0,0.45)` — sheets only, wide blur (24px), low opacity.
+| Role | Day | Night | Used for |
+|---|---|---|---|
+| ground | `#E9F0EC` | `#0B1416` | Scaffold base |
+| surface | `#F7F4EC` | `#111D1F` | Sheets, nav bar, aperture face |
+| raised | `#FCFAF3` | `#162426` | Inputs, snackbars |
+| sunken | `#E1E9E4` | `#091113` | Closed aperture well, inert tracks |
+| ink | `#0E1B1D` | `#E9F0EC` | Primary text, primary button fill |
+| steel | `#5A6A67` | `#A9B8B3` | Secondary text, units, labels |
+| mute | `#5B6B67` | `#8FA09B` | Chevrons, disabled glyphs |
+| hairline | `ink @ 10%` | `white @ 10%` | Every structural 1 px line |
+| hairlineStrong | `ink @ 20%` | `white @ 20%` | Input borders, control rims |
+| accent | `#0E7C86` | `#4FB3BF` | Busy state, focus, nav mark |
+| accentInk | `#0B656D` | `#7BD1D9` | Accent-colored text |
+| accentWash | `#D8E9E8` | `#143B3E` | Private trust pill, selected row |
+| connected | `#2E8B6D` | `#59C39A` | Connected state, download figure |
+| connectedInk | `#246B55` | `#8ADBB9` | Connected title, done waveform |
+| alert | `#C9553D` | `#E0715A` | Public trust wash, error rims |
+| alertInk | `#9E3B28` | `#F0A08D` | Blocked title, NOT PRIVATE text |
+| sun | `#F3E3C4` | `#E8D6AE` | The sun disc; appears only when connected |
+| shadow | `ink @ 8%` | `black @ 40%` | Aperture lift, sheets |
+| skyTop → skyHorizon | `#DFEBE7` → `#E9F0EC` | `#0D1A1C` → `#0B1416` | Sky gradient |
+| groundHorizon → groundBottom | `#E6EBE3` → `#F4F1E8` | `#0A1213` → `#0B1416` | Ground gradient |
+| haze | `#F7F4EC` | `#162426` | Drifting horizon bands while busy |
 
-### Accent (exactly one)
-- **Filament Amber** `#E9A23B` (HSL sat 78%) — the ONLY decorative accent.
-  Used for: the bulb filament and its halo, primary buttons, active nav state,
-  focus rings, the connected pulse, progress arcs, key metrics.
-- **Amber Tint** `rgba(233,162,59,0.12)` — wash backgrounds, chip fills,
-  selected-row highlights. Never a full-screen fill.
+Rules: text is ink, steel, or a semantic ink — never a saturated accent body
+color. Public trust always uses `alert` + `alertInk`; private trust uses
+`accentWash` + `accentInk`. No pure black, no purple, no multi-stop decorative
+gradients.
 
-### Semantic status (state reporting only — never decoration)
-- **Live Emerald** `#3FB98A` — connected state, download series.
-- **Alert Red** `#E5484D` — failed, no-internet, errors.
-- **Standby Graphite** `#3A4152` — idle/disconnected instrument ring.
-- **Sky Series** `#56A8E8` (sat 76%) — upload series in speed test only.
+## 3. Type
 
-State aura (behind the orb, radial, very low opacity): idle = graphite,
-connecting = amber, connected = emerald, failed = red. Cross-fade 600ms.
+Two families, both variable fonts registered in `pubspec.yaml`:
 
-### Banned
-Purple/violet neon gradients · pure `#000000` · accents above 80% saturation ·
-mixing warm and cool grays · colored body text (text is neutral, always).
+- **Schibsted Grotesk** (`AppTextStyles.sans`) — display, title, body.
+- **Geist Mono** (`AppTextStyles.mono`) — every number, label, log line.
 
-## 3. Typography Rules
+| Style | Size / height | Weight | Tracking | Use |
+|---|---|---|---|---|
+| display | 34 / 1.06 | 600 | −0.8 | The state word (`Connected`) |
+| title | 21 / 1.18 | 600 | −0.3 | Sheet titles, section headers in dialogs |
+| body | 15 / 1.42 | 400 | 0 | Row titles, paragraphs (12.5–14 for secondary) |
+| label | 10.5 / 1.2 mono | 500 | +0.8 | Kickers, units, table labels, nav labels |
+| metric | 26 / 1.0 mono | 500 | −0.6 | Shelf figures; 44 for the speed headline |
+| monoValue | 12 / 1.25 mono | 500 | 0 | IPs, timers, protocol, detail lines |
+| logLine | 11 / 1.5 mono | 400 | 0 | Logs only |
 
-- **Display:** `Outfit` — weights 500/600/700. Letter-spacing `-0.02em` at
-  24px+. Line-height 1.1. Hierarchy comes from weight + color, not size wars.
-  Headline sizes: 32 / 24 / 20 (app); section titles 16.
-- **Body:** `Outfit` 400/500 — line-height 1.5, sizes 15 / 13. Steel color.
-- **Mono / all numbers:** `Geist Mono` (fallback `JetBrains Mono`) — every
-  speed, ping, IP, byte counter, timer, percentage. `font-variant-numeric:
-  tabular-nums`. Metric readouts: 28–40px mono 500. Micro-labels: 11px mono
-  uppercase, tracking `+0.08em`, Mute color.
-- **Banned:** `Inter` anywhere. Generic serifs anywhere. System default fonts.
-  Centered all-caps paragraphs. Emoji as icons.
+Colors are always explicit arguments; there is no palette bridge. Numeric
+styles use tabular figures. Never center a paragraph; never set body copy in
+mono; never use weight below 400.
 
-## 4. Component Stylings
+## 4. Layout
 
-- **The Bulb (connect control):** 200px orb. Off-state: Standby Graphite ring,
-  filament path dim (`#3A4152`). Connecting: filament animates warm-up flicker
-  (3–5 opacity steps, 120ms), tunnel rings rotate at opposing speeds. Connected:
-  filament at full Amber, soft radial halo (gradient, opacity ≤ 0.25 — NOT a
-  box-shadow glow), perpetual breathing scale 1.0→1.025 at 2.4s. Tactile
-  `scale(0.96)` on press. The orb is a real button: 44px+ hit target (it is 200px).
-- **Buttons:** Height 52px, radius 16px. Primary = Amber fill, `#0A0D14` text,
-  weight 600. Secondary = ghost, 1px Hairline border, Ink text. Active press =
-  `scale(0.98)` + brightness shift. No glows, ever. Full-width on mobile.
-- **Cards / rows:** radius 16px, Console Surface fill, 1px Hairline border,
-  NO drop shadows inside the scroll content. Rows in lists use bottom Hairline
-  dividers instead of cards. Cards only for genuinely elevated things (server
-  picker summary, result tiles).
-- **Inputs:** Raised Surface fill, radius 12px, label above (11px mono
-  uppercase Mute), focus = 1px Amber border + Amber tint fill. No floating labels.
-- **Nav bar (bottom):** floating pill, Console Surface, 1px Hairline, radius
-  999. Active item: Amber icon + Amber tint pill behind it (layout-animating
-  pill, spring). 44px minimum targets, 3 destinations + separate info action.
-- **Loaders:** skeleton shimmer matching final layout dims — never a lone
-  circular spinner (a gauge sweep or ring rotation as part of the instrument
-  is fine).
-- **Log console:** monospace 11px, timestamp Mute, message Steel, errors Alert
-  Red, success Live Emerald. Auto-scroll, rows stagger in 40ms apart.
-- **Server row:** flag (24px, rounded 6px) + country (Outfit 500 Ink) + city
-  (13px Steel) + right-aligned latency in mono with 3-bar signal glyph
-  (emerald ≥80ms? no — bars: <100ms 3 bars, <200ms 2, else 1; bar color Steel,
-  best-servers Amber). Selected row: Amber tint fill + 2px left Amber rail.
+- Rails: `AirLayout.rail = 560` for connect, servers, speed;
+  `AirLayout.wideRail = 720` for settings, legal, paywall.
+- Gutter 20, section gap 28. One rail per screen, centered; no per-screen
+  drift.
+- Rows: 56 high (48 dense); tap targets never below 44×44.
+- Nav bar: 64 high plus safe area, three destinations (Connect, Servers,
+  Speed) and one 44 px Settings action.
+- The shell draws the body behind the nav bar (`extendBody`), so every
+  scrollable surface pads its bottom by 120 — nav bar, home indicator, and
+  one gutter — and its last line stays readable at rest.
+- Sheets: top radius 24, `surface` fill, barrier `ink @ 28%`.
+- Buttons: 50 high, radius 12. Primary is `ink` fill with `surface` text;
+  secondary is a transparent fill with `hairlineStrong` border.
+- The connect surface's horizon sits at 38% of the available height; the
+  aperture is centred on it at 30% of the rail width. Below 740 px of height
+  the column becomes scrollable and the aperture moves into a 250 px band.
 
-## 5. Layout Principles
+## 5. Components
 
-- **One instrument per screen.** Main screen: status rail top-left (asymmetric),
-  bulb orb off-center on the vertical axis (optical center at 42% height),
-  metric rail bottom-left, server pill docked above the nav — the composition
-  reads as a console, not a centered toy.
-- **Asymmetric hero, always.** Centered stacks are banned. Split the screen
-  with a dominant element + a data rail; let one side breathe.
-- **No 3-equal-card grids.** Features/stats use a 2-col asymmetric rail
-  (e.g. 1.6fr / 1fr) or a horizontal scroll strip of 82%-width tiles.
-- **No overlapping content.** Every element owns its zone; the meridian motif
-  is background-only (opacity ≤ 0.06), never behind readable text at high
-  contrast.
-- **Containment:** content max-width 480px centered (phone), side padding 20px.
-  Safe-area respected top and bottom.
-- **Full height:** `min-h-[100dvh]` equivalent — scroll views, not fixed heights.
-- **Touch:** every interactive target ≥ 44×44px, ≥ 8px apart.
+**HorizonField** — full-bleed sky/ground gradient with a 1 px horizon line.
+Owns the atmosphere: haze bands drift only while busy; the clear sweep opens
+a hole around the aperture when the path is proven; a sun disc appears only
+in `connected`. Wraps every top-level screen body. List surfaces (Settings,
+Routing, Speed) keep the gradient and drop the line, so it never crosses a
+row.
 
-## 6. Motion & Interaction
+**ApertureControl** — 96 px circular instrument with six blade ticks and a
+120 px hit area. The opening radius is the state: 0.30 idle, 0.38 preparing,
+0.56 connecting, 0.76 verifying, 1.0 connected, 0.14 fault. Busy states draw
+a 1.6 px accent arc sweeping one revolution per 4.9 s; connected fills with
+the sky gradient, adds the sun, and drifts thin flow lines. At rest the
+radius breathes ±1.4% over 5.2 s — enough to read as ready, not as another
+loading indicator. Press scales to 0.97 / release overshoots to 1.0. Caption
+under the control: "Tap to connect", "opening tunnel", "Tap to disconnect",
+"Tap to retry".
 
-- **Physics:** spring only — `stiffness: 100, damping: 20` (SpringSimulation
-  / `SpringTransition`). No linear easing. Durations: micro 180–260ms,
-  state change 400–600ms, entrance stagger 60ms per item.
-- **Entrances:** lists and rails mount staggered — opacity 0→1 + translateY
-  16→0, `delay = index * 60ms`, spring. Never instant mounts.
-- **Perpetual micro-loops (idle = alive):** bulb breathes (2.4s); tunnel rings
-  counter-rotate (18s / 26s) — speed up to 2s while connecting; status dot
-  pulses; gauge needle micro-jitters ±0.5 on live readings; meridian globe
-  drifts 60s/rotation; packet dots orbit rings only when connected.
-- **State choreography (connect tap):** press squash (0.96, 90ms) → filament
-  warm-up flicker (900ms) → rings spin up (600ms) → on success, halo blooms
-  once (scale 1→1.15→1, 500ms) and status rail cross-fades to emerald.
-- **Transform/opacity only.** Never animate layout metrics. Heavy perpetual
-  animations live in leaf widgets (CustomPainter / SingleTickerProviderStateMixin)
-  so they never re-render parents.
-- **Reduced motion:** respect `disableAnimations` — cross-fade instead of
-  spring, stop counter-rotations, keep state colors.
+**ConnectTrace** — the busy detail line, 300 px wide max. Three stops
+(`wake`, `dial`, `verify`) sit on one hairline; the accent fill advances
+between stops over 420 ms, done stops are ink, the active stop pulses a
+10 px dot inside an 18 px ring on a 2.2 s sine. Under it, one mono witness
+line reports only what the controller knows: `REALITY · path 2 of 3 ·
+Germany`, then `REALITY · first bytes · Germany` during the data gate. The
+trace replaces the mono detail line only while `preparing`, `connecting`, or
+`verifying`; it never shows a percentage and never invents a stage.
 
-## 7. Anti-Patterns (Banned)
+**DataShelf** — a top hairline, three figures (Ping / Down / Up) with mono
+labels and units, then a meta line. Meta is `Wrap`-based so the protocol and
+trust pill reflow instead of clipping at large text sizes. Dashes (`—`) are
+steel, never colored.
 
-- No emojis anywhere (UI, labels, empty states).
-- No `Inter` font; no generic serifs; no system font fallbacks left in place.
-- No pure `#000000`; no purple/violet neon; no box-shadow glows (halo =
-  radial gradient inside the component, opacity ≤ 0.25).
-- No second decorative accent color — status colors are for state only.
-- No 3-equal-card grids; no centered symmetric hero compositions.
-- No circular spinners as primary loading UI; no bare "No data" empty states.
-- No AI copy: "Elevate", "Seamless", "Unleash", "Next-Gen", "Revolutionize",
-  "Your gateway to…". Voice: terse, technical, confident. "Connected · Frankfurt".
-- No fake round numbers (`99.99%`, `50 Mbps` as decoration) — real readings,
-  one decimal (`84.3 Mbps`), real cities, real latencies.
-- No emoji-flag glyphs — bundled SVG flags only.
-- No overlaps, no z-index layering of content, no instructional filler
-  ("Tap to connect" is allowed ONCE as the bulb's micro-label; "Scroll for more"
-  is banned).
-- No text under 11px; no white-on-amber text (amber fill takes dark text).
+**Exit row** — exit IP in mono over `City, Region · Country`, with 44 px copy
+and refresh actions while live. While live or in flight without an IP it reads
+`Exit · measuring`; with the tunnel closed it reads `Exit · closed` and offers
+no actions.
+
+**Destination row** — 48 px hairline-bordered row: flag, `Relay · Protocol`,
+trust pill, chevron. Its Semantics label is "Choose relay. {relay}.
+{protocol}."
+
+**TrustBadge** — 24 px pill, mono 9.5, radius 6. Private tiers: `OWNED`,
+`YOURS` in accent. Public tiers: `NOT PRIVATE` (compact) or
+`BOOTSTRAP · NOT PRIVATE` (full) in alert. Full disclosure is always in the
+Semantics label. The compact pill must not stretch; it is intrinsic width.
+
+**AirSection / AirRow** — settings grammar: an uppercase mono title, a top
+hairline, hairline-separated rows, a closing hairline, optional note. No
+cards and no shadows.
+
+**AirButton** — sheet actions only. Primary ink fill, secondary hairline.
+
+**Nav bar** — `surface` fill with a top hairline; icon + 2 px accent mark +
+label. The mark animates width over 180 ms. Settings is an icon action, not
+a destination.
+
+**Server sheet** — Auto row (`Fastest measured relay`), country sections, and
+per-relay rows, each carrying its trust pill. Once pings land, a `Fastest
+now` shortlist repeats the three best relays under the same `Relay N` names
+their country sections use. Search filters by country and host. A notice
+explains what a community relay can see. Empty and unavailable states are
+written, not blank.
+
+**Speed surface** — kicker (`READY` / `TESTING` / `LAST RESULT`), a 44 px
+mono headline in Mbps, a 96 px waveform painted on a log scale with ticks at
+0 / 1 / 10 / 100 / 1000, then DOWNLOAD / UPLOAD / PING and one action. A
+note states whether the reading was `Through the tunnel` or `Direct
+measurement — tunnel is off`. Samples are real; the waveform never invents
+data.
+
+**Paywall** — wide rail, back title `Premium`, one display line, sectioned
+feature list, plan rows, and a code-redeem row. Purchase errors state what
+happened and that nothing was charged; an unconfigured build says purchases
+are off rather than pretending the store failed.
+
+**Launch surfaces** — the native launch window and the Dart splash use the
+same ground: `#E9F0EC` by day, `#0B1416` at night, so startup is one surface
+rather than a flash between two. The Dart splash draws `BULB` + `VPN` and one
+rule that draws itself in 600 ms; the app holds it at most two seconds.
+
+## 6. State and copy
+
+`AirPhase` has eight states, and exactly one of them is on screen.
+
+| Phase | Word | Detail line | Aperture caption |
+|---|---|---|---|
+| idle | Standby | `path closed · {relay}` | Tap to connect |
+| preparing | Preparing | `waking the engine` | waking the engine |
+| connecting | Connecting | `opening tunnel · {relay}` | opening tunnel |
+| verifying | Verifying | `checking the first byte` | checking the first byte |
+| connected | Connected | `traffic confirmed · {relay}` | Tap to disconnect |
+| closing | Closing | `closing the tunnel` | closing the tunnel |
+| failed | Blocked | `no working path on this network` | Tap to retry |
+| offline | No internet | `this network is offline` | Tap to retry |
+
+The word is the display line. The detail is mono, one line, ellipsized. While
+a dial is in flight the detail is replaced by ConnectTrace, whose witness line
+names the engine, the attempt (`path 2 of 3`), and the relay the controller is
+actually dialling; idle shows `prepared · {last good relay on this network}`
+when memory has one. Never show two state words at once; never show a
+percentage; never show a stage the controller has not reached. While live, the
+relay label comes from the native session (`connectedRelay`), not from the
+picker.
+
+**Perceived wait.** A censored network can spend 20–40 s rotating paths
+before one carries data. The surface is built against that reality: the
+state word changes on the first tap (labor begins immediately), the trace
+names the work actually happening (labor illusion), the witness line changes
+with each real attempt (goal gradient without a fake bar), and idle already
+states what is prepared (preparedness). Motion is evidence of work, not
+decoration.
+
+## 7. Motion
+
+| Element | Duration | Curve |
+|---|---|---|
+| Clear sweep on connect | 700 ms | easeOutCubic |
+| Haze return on disconnect | 500 ms | easeInOut |
+| Ambient drift / breath | 9 s loop | sine |
+| Aperture open | distance ÷ 4 units/s | easeOutCubic |
+| Aperture idle breath | 5.2 s alternate | sine |
+| Busy arc | 4.906 s per revolution | linear |
+| Trace fill between stops | 420 ms | easeOutCubic |
+| Trace active pulse | 2.2 s loop | sine |
+| State word swap | 260 ms | easeOutCubic |
+| Detail ↔ trace resize | 240 ms | easeOutCubic |
+| Press / release | 140 ms / 220 ms | easeOut / easeOutBack |
+| Nav active mark | 180 ms | easeOut |
+
+Reduced motion (`MediaQuery.disableAnimationsOf`) stops the ambient loop and
+the idle breath, drops the arc, flow lines, trace fill and pulse (the trace
+renders its final state at once), pins the aperture to its target radius, and
+shows the static sun while connected. State changes still happen; they stop
+being decorative.
+
+## 8. Accessibility and privacy
+
+- Contrast: both palettes asserted at WCAG AA in `test/air_theme_test.dart`.
+- Text scale: verified at 1.3× on home and settings; the shelf meta wraps and
+  rows grow rather than clip.
+- Semantics: aperture is a button with a Connect/Disconnect label and the
+  phase as its value; the trust badge exposes the full disclosure; the
+  destination row names relay and protocol.
+- Screen security: screenshots are blocked while the tunnel is live in
+  release builds (`ScreenSecurity`), and debug builds stay capturable for QA.
+- Public relays are opt-in, labeled `NOT PRIVATE`, and never described as
+  secure or private anywhere in the interface or the store listing.
+
+## 9. Don't
+
+- Don't add cards, drop shadows to rows, or a second accent.
+- Don't put a spinner where a state word belongs.
+- Don't show a public relay without its badge, even on marketing surfaces.
+- Don't invent numbers, "typical" speeds, or unverified claims.
+- Don't reintroduce the Filament palette, the bulb orb, Outfit, or
+  `AppColors`; they are deleted.
+
+## 10. Evidence
+
+Device captures and renders live in `docs/design/evidence/phase1/`:
+
+- Day: `home-day`, `servers-day`, `speed-idle-day`, `speed-results-day`,
+  `settings-day`, `settings-about-day`, `logs-day`, `routing-day`,
+  `routing-apps-day`, `paywall-day`, `onboarding-1..3`, `legal-privacy-day`.
+- Night: `home-night`, `servers-night`, `settings-night-scale13`,
+  `home-night-scale13`, `home-night-reduced-motion`.
+- Renders: `renders/connected-*.png`, `renders/connecting-*.png`,
+  `renders/verifying-*.png`.
+
+Captures are 1080×2400 Android frames. Connected and Connecting cannot be
+captured on this build network (every relay dial ends in Blocked), so
+`tool/screenshots/store_shots_test.dart` renders them from the production
+widget tree. The fixture's exit identity is the verified 2026-10-28 Japan
+session — exit `115.179.206.241` (Ota, Gunma · ARTERIA) and the 789 ms TLS
+ping recorded on IR Wi-Fi; the session clock, live rates, and protocol are
+representative sampler values, not measurements. Store art is composed by
+`scripts/make_store_screenshots.py`.

@@ -51,9 +51,9 @@ class _AppState extends ConsumerState<App> {
         return _VpnInitializer(
           child: MaterialApp.router(
             title: 'BULB VPN',
-            theme: AppTheme.lightTheme,
-            darkTheme: AppTheme.darkTheme,
-            themeMode: ThemeMode.dark,
+            theme: AppTheme.light,
+            darkTheme: AppTheme.dark,
+            themeMode: ThemeMode.system,
             routerConfig: router,
             builder: _appBuilder,
             debugShowCheckedModeBanner: false,
@@ -76,10 +76,7 @@ class _AppState extends ConsumerState<App> {
   }
 
   Widget _appBuilder(BuildContext context, Widget? child) {
-    return MediaQuery(
-      data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(1.0)),
-      child: child ?? const SizedBox.shrink(),
-    );
+    return child ?? const SizedBox.shrink();
   }
 }
 

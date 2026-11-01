@@ -8,6 +8,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
   firebase_remote_config
   flutter_secure_storage_windows
   flutter_timezone
+  flutter_vless_windows
   openvpn_dart
   permission_handler_windows
   url_launcher_windows

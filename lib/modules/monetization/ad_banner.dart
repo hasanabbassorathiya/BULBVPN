@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:bulbvpn/core/theme/air_colors.dart';
 import 'package:bulbvpn/modules/monetization/ad_config.dart';
 import 'package:bulbvpn/modules/monetization/ad_service.dart';
 import 'package:bulbvpn/modules/monetization/ads_remote_config.dart';
+import 'package:bulbvpn/modules/monetization/premium.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
@@ -32,7 +34,9 @@ class _AdBannerState extends ConsumerState<AdBanner> {
   Timer? _retry;
 
   bool get _adsAllowed =>
-      ref.read(adsEnabledProvider) && AdConfig.canRequestAds;
+      ref.read(adsEnabledProvider) &&
+      ref.read(adsVisibleProvider) &&
+      AdConfig.canRequestAds;
 
   @override
   void initState() {
@@ -108,14 +112,26 @@ class _AdBannerState extends ConsumerState<AdBanner> {
     ref.listen(adsEnabledProvider, (_, enabled) {
       if (enabled) _load();
     });
-    final enabled = ref.watch(adsEnabledProvider) && AdConfig.canRequestAds;
+    final enabled = ref.watch(adsEnabledProvider) &&
+        ref.watch(adsVisibleProvider) &&
+        AdConfig.canRequestAds;
     final ad = _ad;
     if (!enabled || !_loaded || ad == null) return const SizedBox.shrink();
-    return Center(
-      child: SizedBox(
-        width: ad.size.width.toDouble(),
-        height: ad.size.height.toDouble(),
-        child: AdWidget(ad: ad),
+    final air = context.air;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: air.surface,
+        border: Border(
+          top: BorderSide(color: air.hairline),
+          bottom: BorderSide(color: air.hairline),
+        ),
+      ),
+      child: Center(
+        child: SizedBox(
+          width: ad.size.width.toDouble(),
+          height: ad.size.height.toDouble(),
+          child: AdWidget(ad: ad),
+        ),
       ),
     );
   }

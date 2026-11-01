@@ -82,5 +82,7 @@ app.*.map.json
 /brag-output/
 /brag-output-*/
 /pending.md
+/.rea-targets/
+/.impeccable/
 /android_test_01_idle.jpg
 /-

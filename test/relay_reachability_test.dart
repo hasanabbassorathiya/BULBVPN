@@ -1,3 +1,4 @@
+import 'package:bulbvpn/modules/core/relay_port_agility.dart';
 import 'package:bulbvpn/modules/core/relay_reachability.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -36,6 +37,17 @@ void main() {
 
     cache.markAlive('198.51.100.9');
     expect(cache.lookup('198.51.100.9')?.ok, isTrue);
+  });
+
+  test('a relay blocked on 443 can still be warm on 992', () {
+    final cache = RelayReachability();
+    final https = relayReachabilityKey('198.51.100.9', 443);
+    final mail = relayReachabilityKey('198.51.100.9', 992);
+    cache.markDead(https);
+    cache.record(mail, ok: true, elapsed: const Duration(milliseconds: 90));
+
+    expect(cache.lookup(https)?.ok, isFalse);
+    expect(cache.lookup(mail)?.ok, isTrue);
   });
 
   test('the cache is bounded and evicts the oldest probe', () {
