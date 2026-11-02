@@ -1,7 +1,10 @@
 package app.bulbvpn.com
 
+import android.app.ActivityManager
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
@@ -101,6 +104,18 @@ class MainActivity : FlutterActivity() {
                     }
                 }
                 "installedApps" -> installedApps(result)
+                "systemState" -> {
+                    // Two binder round-trips; keep them off the input thread so
+                    // a resume that asks "does the OS still hold my tunnel"
+                    // cannot stall the frame.
+                    workExecutor.execute {
+                        val state = mapOf(
+                            "vpnNetworkUp" to vpnNetworkActive(),
+                            "realityDaemonUp" to realityDaemonAlive(),
+                        )
+                        mainHandler.post { result.success(state) }
+                    }
+                }
                 "diagnostics" -> {
                     result.success(
                         SoftEtherVpnService.instance?.diagnostics() ?: mapOf(
@@ -181,6 +196,40 @@ class MainActivity : FlutterActivity() {
                 )
             }
         }
+    }
+
+    /**
+     * True while any VPN network is up on this device. Android allows only one
+     * tunnel at a time, so combined with [realityDaemonAlive] it identifies a
+     * tunnel this app started but this process no longer remembers.
+     */
+    private fun vpnNetworkActive(): Boolean = try {
+        val cm = getSystemService(ConnectivityManager::class.java)
+        // A VPN network is only listed while its tunnel holds one, so the
+        // transport alone answers "is something still capturing traffic".
+        cm?.allNetworks?.any { network ->
+            cm.getNetworkCapabilities(network)
+                ?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
+        } == true
+    } catch (error: Throwable) {
+        Log.w(TAG, "vpnNetworkActive failed", error)
+        false
+    }
+
+    /**
+     * True while the plugin's Xray service process is alive. It runs under
+     * `android:process=":RunSoLibXrayDaemon"`, so it outlives the UI process
+     * that started it; getRunningAppProcesses() is scoped to our own UID,
+     * which is exactly the attribution the UI needs before claiming Connected.
+     */
+    private fun realityDaemonAlive(): Boolean = try {
+        val marker = "$packageName:RunSoLibXrayDaemon"
+        getSystemService(ActivityManager::class.java)
+            ?.runningAppProcesses
+            ?.any { it.processName == marker } == true
+    } catch (error: Throwable) {
+        Log.w(TAG, "realityDaemonAlive failed", error)
+        false
     }
 
     /**

@@ -16,6 +16,7 @@ import 'package:bulbvpn/modules/core/relay_target.dart';
 import 'package:bulbvpn/modules/core/server_catalog.dart';
 import 'package:bulbvpn/modules/core/softether_vpn.dart';
 import 'package:bulbvpn/modules/core/trust_tier.dart';
+import 'package:bulbvpn/modules/core/tunnel_liveness.dart';
 import 'package:bulbvpn/modules/core/vpn_controller.dart';
 import 'package:bulbvpn/modules/core/vpn_server.dart';
 import 'package:bulbvpn/modules/core/vpn_service.dart';
@@ -172,11 +173,29 @@ class _MainScreenState extends ConsumerState<MainScreen>
         tunnel.isLive || engine == vpn_status.ConnectionStatus.connected;
     if (!mounted) return;
     if (!live) {
-      // The tunnel died while the app was backgrounded / the OS revoked it.
-      // Returning silently here left the orb on "Connected" while all traffic
-      // was already leaving in the clear.
+      // The UI process and the tunnel do not share a lifetime: XrayVPNService
+      // runs in `:RunSoLibXrayDaemon` and keeps forwarding after Android
+      // restarts the app, so "this process has no session" is not evidence
+      // that the tunnel died. Ask the framework before contradicting the OS
+      // status bar, and keep the relay record if the tunnel is still ours.
+      final session = await VpnSessionStore.read();
+      final system = await querySystemVpnState();
+      if (!mounted) return;
+      final orphan = TunnelLiveness.classify(
+        system,
+        realitySessionRecorded: session != null,
+      );
+      if (orphan == OrphanTunnel.reality && session != null) {
+        await _adoptOrphanRealityTunnel(session);
+        return;
+      }
       final latest = ref.read(connectionStateProvider).status;
       if (latest == ConnectionStatus.connected) {
+        if (orphan == OrphanTunnel.otherOwner) {
+          log.addLog(
+            '[MainScreen] Another app owns the active VPN; our tunnel is gone',
+          );
+        }
         final notifier = ref.read(connectionStateProvider.notifier);
         notifier.holdEngineEvents(false);
         notifier.setDisconnected();
@@ -190,7 +209,12 @@ class _MainScreenState extends ConsumerState<MainScreen>
           latest == ConnectionStatus.noInternet) {
         // The tunnel is really gone. Drop the persisted relay too, so a later
         // session cannot inherit the country of a dead one.
-        await VpnSessionStore.clear();
+        if (TunnelLiveness.clearsSessionOnRestart(
+          system,
+          realitySessionRecorded: session != null,
+        )) {
+          await VpnSessionStore.clear();
+        }
       }
       return;
     }
@@ -269,6 +293,24 @@ class _MainScreenState extends ConsumerState<MainScreen>
       '[MainScreen] Restored live REALITY tunnel '
       '${match?.endpoint ?? session?.host ?? ''}',
     );
+  }
+
+  /// Re-adopts a REALITY tunnel the daemon survived without us.
+  ///
+  /// Without this the app contradicts the OS: the key icon says connected, the
+  /// orb says disconnected, and Disconnect cannot stop what it cannot see.
+  Future<void> _adoptOrphanRealityTunnel(VpnSessionSnapshot session) async {
+    final relays = await _realityRelaysSafe();
+    if (!mounted) return;
+    final match = RealityCatalog.findByHost(relays, session.host);
+    await RealityEngine.instance.adoptDaemonSession(relay: match);
+    if (!mounted) return;
+    log.addLog(
+      '[MainScreen] Adopted REALITY tunnel the daemon held across a restart',
+    );
+    await _restoreRealityTunnel();
+    if (!mounted) return;
+    _vpnController?.verifyConnectionNow();
   }
 
   Future<List<RealityRelay>> _realityRelaysSafe() async {

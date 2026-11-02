@@ -994,12 +994,94 @@ gh run watch
 
 ---
 
+## 16. Android says connected, the app says disconnected
+
+### The failure this fixes
+
+Reported after build 20 shipped: a REALITY session "doesn't stay for long
+time -- on Android it shows it is connected but in the app it is
+disconnected". Two authorities were disagreeing about the same tunnel.
+
+### Root cause
+
+The release manifest (merged, `build/app/intermediates/merged_manifests/release/
+processReleaseManifest/AndroidManifest.xml:202`) declares the plugin's
+`XrayVPNService` with `android:process=":RunSoLibXrayDaemon"`. The tunnel, its
+TUN file descriptor and its foreground-service notification therefore live in
+a **separate process** from the Flutter UI. Nothing in the UI process is a
+foreground service while REALITY owns the session -- unlike SoftEther, whose
+`.SoftEtherVpnService` runs in the UI process and pins it -- so Android (and
+OxygenOS/ColorOS memory management even more eagerly) can kill the UI process
+while the tunnel keeps forwarding.
+
+The relaunched app then had no way to learn that:
+
+- `RealityEngine.instance.isSessionActive` is an in-process Dart field, so a
+  new process starts with `false`.
+- `SoftEtherVpn.status()` and `VpnService().getStatus()` both describe *other*
+  engines, which are genuinely idle, so `_restoreLiveTunnel()` computed
+  `live = false`.
+- With `live == false` and a fresh `disconnected` status it ran
+  `VpnSessionStore.clear()` -- destroying the only record of the tunnel that
+  was still up -- and showed Disconnected.
+- `RealityEngine.stop()` returned early on `_client == null`, so Disconnect
+  could not even tear down a tunnel the app refused to acknowledge.
+
+SoftEther cannot hit this path (its service dies with the process, and Android
+then reports the VPN down too), which is why the symptom was tied to REALITY
+sessions.
+
+### What changed
+
+- `android/.../MainActivity.kt` -- new `systemState` method-channel call
+  returning `vpnNetworkUp` (a network carrying `TRANSPORT_VPN` still exists)
+  and `realityDaemonUp` (a process named `<pkg>:RunSoLibXrayDaemon` is alive;
+  `getRunningAppProcesses()` is scoped to our own UID, which is exactly the
+  attribution needed). Both run off the input thread.
+- `lib/modules/core/tunnel_liveness.dart` -- `SystemVpnState`,
+  `querySystemVpnState()` (2 s cap; an unanswered query is `unknown`, never
+  "live") and the pure `TunnelLiveness` rules. Three signals must agree before
+  anything is claimed: the OS has a VPN up, **our** daemon is alive, and we
+  recorded a session we never released. A VPN belonging to another app is
+  classified `otherOwner` and never adopted.
+- `main_screen.dart:_restoreLiveTunnel()` -- on a `live == false` reading, ask
+  the framework first. An orphan we own is adopted: `adoptDaemonSession()`
+  then the existing `_restoreRealityTunnel()`, then `verifyConnectionNow()` so
+  the pill has to earn "traffic confirmed" instead of inheriting trust. Only a
+  tunnel that is demonstrably not ours clears the session record.
+- `reality_engine.dart` -- `adoptDaemonSession()` marks the daemon-held
+  session live and attaches the channel; `stop()` now creates the client on
+  demand instead of returning early when this process never called `start()`.
+  Attaching matters: the plugin's status EventChannel registers its broadcast
+  receiver on listen, so an adopted session gets its one-second status and byte
+  counters back rather than showing a frozen 0 B/s.
+- `vpn_controller.dart:_confirmRealityTunnelDown()` -- after a watchdog drop of
+  a REALITY session, if our daemon still holds the tunnel, that is written to
+  the connection log instead of the two authorities quietly disagreeing.
+
+### Verify
+
+```bash
+flutter test test/tunnel_liveness_test.dart   # classification + channel keys
+cd android && ./gradlew --offline :app:compileReleaseKotlin
+```
+
+**Not yet verified on hardware.** The repro needs a device: connect REALITY,
+`adb shell am kill app.bulbvpn` (kills only the UI process), reopen the app and
+confirm it adopts the tunnel, that the pill only reads "traffic confirmed"
+after a real probe, and that Disconnect now stops a tunnel this process never
+started.
+
+---
+
 ## Files touched by these solutions
 
 - `android/app/src/main/kotlin/app/bulbvpn/com/SoftEtherVpnService.kt`
 - `android/app/src/main/kotlin/app/bulbvpn/com/MainActivity.kt`
 - `android/app/src/main/cpp/softether_jni.c`
 - `lib/modules/core/softether_vpn.dart`
+- `lib/modules/core/tunnel_liveness.dart`
+- `test/tunnel_liveness_test.dart`
 - `lib/modules/core/vpn_controller.dart`
 - `lib/modules/core/reality/reality_engine.dart`
 - `lib/modules/core/relay_target.dart`

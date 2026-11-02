@@ -36,6 +36,7 @@ import 'package:bulbvpn/modules/core/vpn_session_store.dart';
 import 'package:bulbvpn/modules/core/relay_target.dart';
 import 'package:bulbvpn/modules/core/split_tunnel.dart';
 import 'package:bulbvpn/modules/core/watchdog_policy.dart';
+import 'package:bulbvpn/modules/core/tunnel_liveness.dart';
 import 'package:bulbvpn/modules/main/application/server_ping_provider.dart';
 import 'package:bulbvpn/modules/main/presentation/screens/main_screen.dart';
 import 'package:bulbvpn/modules/monetization/premium.dart';
@@ -489,12 +490,29 @@ class VpnController {
       await prefs.remove(_lastSslKey);
       await prefs.remove(_lastGoodKey);
     } catch (_) {}
+    await _confirmRealityTunnelDown(state.protocol);
     await VpnSessionStore.clear();
     container.read(connectionStateProvider.notifier).holdEngineEvents(false);
     if (container.read(connectionStateProvider).status ==
         ConnectionStatus.connected) {
       container.read(connectionStateProvider.notifier).setDisconnected();
     }
+  }
+
+  /// An app that shows Disconnected while Android still shows a live VPN is
+  /// the split-brain users describe as "the phone says connected, the app says
+  /// no". The daemon lives in its own process, so name it in the connection
+  /// log when a drop failed to release the interface instead of leaving the
+  /// two authorities quietly contradicting each other.
+  Future<void> _confirmRealityTunnelDown(TunnelProtocol protocol) async {
+    if (protocol != TunnelProtocol.reality) return;
+    if (!TunnelLiveness.realityTunnelStillHeld(await querySystemVpnState())) {
+      return;
+    }
+    _log.addLog(
+      '[VpnController] REALITY stop did not release the tunnel; '
+      'Android still reports the daemon holding it',
+    );
   }
 
   /// Reads native tunnel state without letting a transient platform-channel

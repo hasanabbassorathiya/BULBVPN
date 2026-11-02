@@ -60,7 +60,6 @@ class RealityEngine {
   final _log = Log();
   final _events = StreamController<VlessStatus>.broadcast();
 
-  FlutterVless? _client;
   Future<FlutterVless>? _clientFuture;
   bool _permissionRequested = false;
 
@@ -117,7 +116,6 @@ class RealityEngine {
   Future<FlutterVless> _createClient() async {
     final client = FlutterVless(onStatusChanged: _onStatus);
     await client.initializeVless();
-    _client = client;
     return client;
   }
 
@@ -413,11 +411,34 @@ class RealityEngine {
   /// A new dial must never race the previous VpnService teardown: Android
   /// keeps the old interface until the service finishes, and a second
   /// `establish()` would fail.
+  /// Adopts a tunnel the daemon kept after this process restarted.
+  ///
+  /// `XrayVPNService` runs in `:RunSoLibXrayDaemon` and outlives the UI
+  /// process, so a relaunched app can face a working tunnel it never started
+  /// in this lifetime. Marking it live is what lets Disconnect stop it and
+  /// lets the liveness poller judge it by real bytes instead of by absence.
+  Future<void> adoptDaemonSession({RealityRelay? relay}) async {
+    _sessionActive = true;
+    _nativeMayExist = true;
+    _activeRelayId = relay?.id;
+    _activeRelay = relay;
+    _lastEventAt = null;
+    _log.addLog(
+      '[RealityEngine] Adopted daemon-held tunnel ${relay?.endpoint ?? 'relay unknown'}',
+    );
+    try {
+      // stopVless() needs a client, and the native status push resumes once
+      // the channel exists.
+      await _ensureClient();
+    } catch (e) {
+      _log.addLog('[RealityEngine] adopt attach failed: $e');
+    }
+  }
+
   Future<void> stop() async {
-    final client = _client;
     _sessionActive = false;
     _activeRelayId = null;
-    if (client == null || !_nativeMayExist) return;
+    if (!_nativeMayExist) return;
     _nativeMayExist = false;
     final teardown = Completer<void>();
     late final StreamSubscription<VlessStatus> sub;
@@ -427,6 +448,17 @@ class RealityEngine {
         teardown.complete();
       }
     });
+    final FlutterVless client;
+    try {
+      // A process that adopted the daemon's tunnel never ran start() here, so
+      // the channel has to be created on demand; without it an orphan tunnel
+      // could be described but never stopped.
+      client = await _ensureClient();
+    } catch (e) {
+      _log.addLog('[RealityEngine] stop could not attach: $e');
+      await sub.cancel();
+      return;
+    }
     try {
       await client.stopVless();
     } catch (e) {
