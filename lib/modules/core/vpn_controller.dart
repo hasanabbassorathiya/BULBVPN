@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io' show Platform, SecureSocket, Socket;
+import 'dart:io'
+    show HttpClient, HttpHeaders, HttpStatus, Platform, SecureSocket, Socket;
 import 'dart:math' show Random;
 
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
@@ -10,6 +11,7 @@ import 'package:bulbvpn/core/data/local/vpn_data/vpn_data.dart';
 import 'package:bulbvpn/modules/core/vpn_service.dart';
 import 'package:bulbvpn/shared/providers/connection_state_provider.dart';
 import 'package:bulbvpn/shared/providers/connect_trace_provider.dart';
+import 'package:bulbvpn/shared/providers/data_proof_provider.dart';
 import 'package:bulbvpn/shared/providers/flow_line_provider.dart';
 import 'package:bulbvpn/shared/providers/group_provider.dart';
 import 'package:bulbvpn/shared/providers/logs_provider.dart';
@@ -20,10 +22,12 @@ import 'package:bulbvpn/modules/core/network.dart';
 import 'package:bulbvpn/modules/core/log.dart';
 import 'package:bulbvpn/modules/core/softether_vpn.dart';
 import 'package:bulbvpn/modules/core/doh_resolver.dart';
+import 'package:bulbvpn/modules/core/data_plane_probe.dart';
 import 'package:bulbvpn/modules/core/network_identity.dart';
 import 'package:bulbvpn/modules/core/relay_memory.dart';
 import 'package:bulbvpn/modules/core/home_region.dart';
 import 'package:bulbvpn/modules/core/reality/reality_engine.dart';
+import 'package:bulbvpn/modules/core/reality/reality_health.dart';
 import 'package:bulbvpn/modules/core/reality/reality_relay.dart';
 import 'package:bulbvpn/modules/core/relay_reachability.dart';
 import 'package:bulbvpn/modules/core/relay_port_agility.dart';
@@ -31,6 +35,7 @@ import 'package:bulbvpn/modules/core/vpn_gate_candidates.dart';
 import 'package:bulbvpn/modules/core/vpn_session_store.dart';
 import 'package:bulbvpn/modules/core/relay_target.dart';
 import 'package:bulbvpn/modules/core/split_tunnel.dart';
+import 'package:bulbvpn/modules/core/watchdog_policy.dart';
 import 'package:bulbvpn/modules/main/application/server_ping_provider.dart';
 import 'package:bulbvpn/modules/main/presentation/screens/main_screen.dart';
 import 'package:bulbvpn/modules/monetization/premium.dart';
@@ -142,6 +147,36 @@ class VpnController {
   /// accept the socket, print VERIFY OK, and never PUSH.
   static const _provenSubnet = '219.100.37';
 
+  /// A connected SoftEther session is measured once with this request. The
+  /// native engine reports CONNECTED as soon as the SSL session is up; a
+  /// relay that forwards almost nothing still looks healthy until the user
+  /// tries to load a page. The probe runs after the orb is already live.
+  static const _throughputProbeUrl =
+      'https://speed.cloudflare.com/__down?bytes=65536';
+  static const _throughputProbeBytes = 64 * 1024;
+  static const _throughputProbeDeadline = Duration(seconds: 8);
+  static const _throughputHealthyBytes = 24 * 1024;
+
+  /// Steady-state proof that the session still carries traffic.
+  ///
+  /// Every engine reports "connected" from its handshake. A relay or carrier
+  /// that black-holes the forwarding path afterwards leaves the orb green
+  /// while nothing works, which is the failure users describe as "it works
+  /// for a few minutes and then stops". Two missed probes (about 40s) drop
+  /// the session so the normal recovery path redials a different relay.
+  static const _watchdogInterval = Duration(seconds: 20);
+  static const _watchdogProbeDeadline = Duration(seconds: 6);
+  static const _watchdogMissesToDrop = 2;
+
+  /// Direct-IP endpoints need no DNS, so a tunnel whose DNS forwarding broke
+  /// is not declared dead while it still forwards packets. The second entry
+  /// is only tried when the first fails, so it costs nothing on a healthy
+  /// session and still catches a provider-specific block.
+  static const _watchdogUrls = <String>[
+    'https://1.1.1.1/cdn-cgi/trace',
+    'https://api.ipify.org?format=json',
+  ];
+
   /// The relay that reached CONNECTED on the iPhone (18 Oct 19:56Z).
   static const _provenFirstIp = '219.100.37.105';
   static const _lastGoodKey = 'bulbvpn_last_good_server_v1';
@@ -193,6 +228,18 @@ class VpnController {
   bool _warming = false;
   Future<List<RelayTarget>>? _sweepInFlight;
 
+  /// One automatic relay switch is allowed per connect press when the tunnel
+  /// comes up but carries almost no data. It is consumed by the first switch
+  /// so a slow fleet cannot loop the UI between relays.
+  bool _slowSoftEtherRotationArmed = true;
+
+  /// Armed while a tunnel is live. The timer's generation makes a stale tick
+  /// from a previous session inert after a rotation or a manual stop.
+  Timer? _watchdogTimer;
+  int _watchdogGeneration = 0;
+  bool _watchdogProbeInFlight = false;
+  final WatchdogPolicy _watchdogPolicy = WatchdogPolicy();
+
   DateTime? _connectDeadline;
   DateTime? _connectStartedAt;
   List<Candidate>? _freshCache;
@@ -216,6 +263,14 @@ class VpnController {
           ?.read(connectionStateProvider.notifier)
           .onRealityStatus(status);
     });
+    if (Platform.isAndroid) {
+      // One small JSON GET, off the connect path. It refreshes the bundled
+      // first-run measurements; a failed fetch leaves the local order intact.
+      unawaited(() async {
+        await Future<void>.delayed(const Duration(seconds: 8));
+        await RealityHealthStore.refresh();
+      }());
+    }
     _vibrationService.init();
     final now = DateTime.now();
     final offset = now.timeZoneOffset;
@@ -260,7 +315,16 @@ class VpnController {
         _recoveryGeneration++;
         _recoveryTimer?.cancel();
         _recoveryTimer = null;
+        // Traffic counters update the state object every second while the
+        // status stays connected. Re-arming on those would restart the timer
+        // forever and the watchdog would never fire.
+        if (previous?.status != ConnectionStatus.connected) _armWatchdog();
         return;
+      }
+      if (next.status != ConnectionStatus.connecting &&
+          next.status != ConnectionStatus.loading &&
+          next.status != ConnectionStatus.analyzing) {
+        _disarmWatchdog();
       }
       if (previous?.status == ConnectionStatus.connected &&
           next.status == ConnectionStatus.disconnected &&
@@ -271,6 +335,166 @@ class VpnController {
         _scheduleRecovery();
       }
     }, fireImmediately: false);
+  }
+
+  void _armWatchdog() {
+    _watchdogTimer?.cancel();
+    _watchdogProbeInFlight = false;
+    _watchdogPolicy.reset();
+    final generation = ++_watchdogGeneration;
+    _watchdogTimer = Timer.periodic(_watchdogInterval, (_) {
+      unawaited(_watchdogTick(generation));
+    });
+    _log.addLog(
+      '[VpnController] Data-plane watchdog armed '
+      '(${_watchdogInterval.inSeconds}s)',
+    );
+  }
+
+  void _disarmWatchdog() {
+    _watchdogGeneration++;
+    _watchdogTimer?.cancel();
+    _watchdogTimer = null;
+    _watchdogProbeInFlight = false;
+    _watchdogPolicy.reset();
+    _container?.read(dataProofProvider.notifier).state = null;
+  }
+
+  static String _engineName(TunnelProtocol protocol) => switch (protocol) {
+    TunnelProtocol.reality => 'reality',
+    TunnelProtocol.softEther => 'softether',
+    TunnelProtocol.openVpn => 'openvpn',
+    TunnelProtocol.none => 'unknown',
+  };
+
+  void _markDataProof(TunnelProtocol protocol, {int bytesPerSecond = 0}) {
+    final container = _container;
+    if (container == null) return;
+    container.read(dataProofProvider.notifier).state = DataProofState(
+      at: DateTime.now(),
+      engine: _engineName(protocol),
+      bytesPerSecond: bytesPerSecond,
+    );
+  }
+
+  /// Re-checks the live data plane now. Android freezes a cached app's Dart
+  /// timers, so a session that died while the app was in the background would
+  /// otherwise keep its last "verified" state until the next periodic tick.
+  void verifyConnectionNow() {
+    if (_watchdogGeneration == 0) return;
+    unawaited(_watchdogTick(_watchdogGeneration));
+  }
+
+  /// One liveness round. The probe is active on purpose: an idle tunnel
+  /// legitimately carries zero bytes, so byte counters alone cannot tell a
+  /// quiet session from a black-holed one.
+  Future<void> _watchdogTick(int generation) async {
+    if (generation != _watchdogGeneration || _watchdogProbeInFlight) return;
+    final container = _container;
+    if (container == null || _manualDisconnect || _connectInFlight) return;
+    final state = container.read(connectionStateProvider);
+    if (state.status != ConnectionStatus.connected ||
+        state.protocol == TunnelProtocol.none) {
+      return;
+    }
+    // In allow mode only the selected packages enter the tunnel, so this
+    // app's own probe exits through the carrier and would always "pass".
+    // Native liveness remains the only honest signal on that configuration.
+    if (container.read(splitTunnelProvider).appliedMode == TunnelMode.allow) {
+      return;
+    }
+    _watchdogProbeInFlight = true;
+    try {
+      final ok = await _watchdogProbe(generation);
+      if (generation != _watchdogGeneration) return;
+      final hadMisses = _watchdogPolicy.misses > 0;
+      final wasVerified = _watchdogPolicy.verified;
+      final drop = _watchdogPolicy.record(ok: ok);
+      if (ok) {
+        if (hadMisses) {
+          _log.addLog('[VpnController] Data plane recovered after a miss');
+        }
+        if (!wasVerified) {
+          _log.addLog(
+            '[VpnController] Data plane verified through '
+            '${container.read(connectedRelayProvider)?.endpoint ?? 'tunnel'}',
+          );
+        }
+        _markDataProof(state.protocol);
+        return;
+      }
+      _log.addLog(
+        '[VpnController] Data-plane probe missed '
+        '(${_watchdogPolicy.misses}/$_watchdogMissesToDrop) on '
+        '${container.read(connectedRelayProvider)?.endpoint ?? 'unknown'}',
+      );
+      if (!drop) return;
+      await _dropDeadTunnel(container, state);
+    } finally {
+      _watchdogProbeInFlight = false;
+    }
+  }
+
+  /// Probes the data plane. A stale generation (rotation or stop) voids the
+  /// result, so a probe racing a teardown cannot count as a miss.
+  Future<bool> _watchdogProbe(int generation) async {
+    final ok = await DataPlaneProbe.fallback(
+      _watchdogUrls,
+      _watchdogProbeDeadline,
+    );
+    if (generation != _watchdogGeneration) return true;
+    return ok;
+  }
+
+  /// Penalises the relay, stops the owning engine, then clears every "up"
+  /// flag. The resulting connected→disconnected edge makes the drop listener
+  /// schedule the normal bounded recovery, so there is one redial path.
+  Future<void> _dropDeadTunnel(
+    ProviderContainer container,
+    ConnectionState state,
+  ) async {
+    _disarmWatchdog();
+    final relay = container.read(connectedRelayProvider);
+    _log.addLog(
+      '[VpnController] Tunnel ${relay?.endpoint ?? 'unknown'} stopped '
+      'carrying data; dropping it for recovery',
+    );
+    if (relay != null) {
+      final network = await _networkForMemory();
+      final engine = switch (state.protocol) {
+        TunnelProtocol.reality => 'reality',
+        TunnelProtocol.softEther => 'softether',
+        TunnelProtocol.openVpn => 'openvpn',
+        TunnelProtocol.none => 'unknown',
+      };
+      _reachability.markDead(relayReachabilityKey(relay.dial, relay.port));
+      await RelayMemory.recordDialFailure(relay.dial, network: network);
+      await RelayMemory.forget(relay.dial, network: network, engine: engine);
+      await RelayMemory.recordEngineOutcome(engine, false, network: network);
+    }
+    if (state.protocol == TunnelProtocol.reality) {
+      try {
+        await RealityEngine.instance.stop();
+      } catch (_) {}
+    } else {
+      try {
+        await SoftEtherVpn.disconnect();
+      } catch (_) {}
+      try {
+        await _vpnService.disconnect();
+      } catch (_) {}
+    }
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_lastSslKey);
+      await prefs.remove(_lastGoodKey);
+    } catch (_) {}
+    await VpnSessionStore.clear();
+    container.read(connectionStateProvider.notifier).holdEngineEvents(false);
+    if (container.read(connectionStateProvider).status ==
+        ConnectionStatus.connected) {
+      container.read(connectionStateProvider.notifier).setDisconnected();
+    }
   }
 
   /// Reads native tunnel state without letting a transient platform-channel
@@ -374,15 +598,13 @@ class VpnController {
     _scheduleWarmProbes(delay: const Duration(seconds: 1));
   }
 
-  static const _warmProbeLimit = 10;
+  /// Warm probes stay small on purpose. They exist to give the first tap a
+  /// measured relay, not to scan the catalog while the user is still on the
+  /// home screen; a 160-relay sweep here used to saturate the carrier radio
+  /// right when the user pressed connect.
+  static const _warmProbeLimit = 3;
 
-  /// Tops the reachability cache up while the user is still deciding. The home
-  /// screen also calls this on resume, since a phone that slept for hours has
-  /// a cache from before the carrier changed.
-  void warmProbes({Duration delay = Duration.zero}) {
-    _scheduleWarmProbes(delay: delay);
-  }
-
+  /// Tops the reachability cache up while the user is still deciding.
   void _scheduleWarmProbes({Duration delay = Duration.zero}) {
     if (_manualDisconnect || _warmTimer != null) return;
     final network = _networkFingerprint;
@@ -429,22 +651,9 @@ class VpnController {
         '[VpnController] Warm probe on ${network.split('|').first}: '
         '$alive/${cold.length} relays reachable',
       );
-      // A censored carrier usually leaves the shortlist with nothing alive.
-      // Sweeping here, while the user has not pressed connect, turns the first
-      // tap into a cached dial instead of a 20 s scan.
-      if (alive < 2) {
-        if (network != _networkFingerprint) return;
-        final rtt = <String, int>{};
-        for (var i = 0; i < cold.length; i++) {
-          if (probes[i].$1) rtt[cold[i].dial] = probes[i].$2;
-        }
-        await _sweepSoftEther(
-          container,
-          {for (final target in targets) target.dial},
-          _rotationGeneration,
-          rtt,
-        );
-      }
+      // No sweep here. When this shortlist is dead the connect path still
+      // sweeps, but it does so after a real dial has failed and while the
+      // user is already waiting for a tunnel, not before they have asked.
     } finally {
       _warming = false;
     }
@@ -954,14 +1163,43 @@ class VpnController {
         }
       }
 
+      // Relays that carried a verified SoftEther session on some network.
+      // They lead the ping pool on purpose: a TLS round trip proves a host is
+      // reachable, not that it will forward VPN traffic, which is exactly why
+      // a phone can see 200 low-ping servers and still fail to connect.
+      final provenSessions = await RelayMemory.provenRelays('softether');
+      final provenDials = <String>{};
+      for (final proven in provenSessions) {
+        provenDials.add(proven.dial);
+        if (picked.length >= autoCap) continue;
+        final live = byIp[proven.dial];
+        final liveSni = live == null ? '' : SoftEtherVpn.fqdn(live.hostName);
+        add(
+          proven.copyWith(
+            sni: liveSni.isEmpty ? proven.sni : liveSni,
+            countryCode: (live?.countryShort ?? proven.countryCode)
+                .toUpperCase(),
+            countryName: live?.displayCountry ?? proven.countryName,
+          ),
+          dedupeSubnet: false,
+        );
+      }
+
       final measuredOk = ordered
           .where((s) => measured[s.ip]?.status == PingStatus.ok)
           .toList();
-      // On Irancell/Hamrah Aval, ICMP is often filtered, so there are no
-      // measured winners. In that case the relays proven on those carriers go
-      // right after last-good, before the unmeasured catalog order.
-      if (measuredOk.isEmpty) {
+      // On an Iran-home account a phone can see hundreds of low-ping servers
+      // and still fail every dial: the network completes the TLS probe but
+      // drops the VPN session. In that situation the two relays that have
+      // actually carried sessions must be inside the first dial window, not
+      // after eight ping-ranked endpoints. Other regions keep the old order
+      // and their lowest-latency choice.
+      final preferProven =
+          HomeRegion.countryCode == 'IR' || measuredOk.isEmpty;
+      if (preferProven) {
         for (final target in _provenRelays) {
+          if (picked.length >= autoCap) break;
+          provenDials.add(target.dial);
           add(target, dedupeSubnet: false);
         }
       }
@@ -1005,6 +1243,7 @@ class VpnController {
         final byHistory = await RelayMemory.orderByHistory(
           scored,
           network: network,
+          proven: provenDials,
         );
         final plan = _foreignFirst([...anchored, ...byHistory]);
         _log.addLog(
@@ -1432,7 +1671,11 @@ class VpnController {
 
   /// Single entry point. A manual press resets recovery; an automatic retry
   /// keeps the bounded budget and reschedules if this attempt also fails.
-  Future<void> _connect({bool auto = false}) async {
+  ///
+  /// [slowRotation] marks the one automatic switch made after a tunnel came
+  /// up but carried almost no data. It must not re-arm itself, otherwise a
+  /// fleet of congested relays could loop forever.
+  Future<void> _connect({bool auto = false, bool slowRotation = false}) async {
     final container = _container;
     if (container == null) return;
     if (_connectInFlight) {
@@ -1447,6 +1690,7 @@ class VpnController {
       }
       return;
     }
+    if (!slowRotation) _slowSoftEtherRotationArmed = true;
     _connectQueued = false;
     _connectInFlight = true;
     if (!auto) {
@@ -1593,6 +1837,11 @@ class VpnController {
     final loggerNotifier = container.read(loggerStateProvider.notifier);
     _attemptedDial = false;
     _log.addLog('[VpnController] Starting connection process...');
+    // The user asked for a tunnel. Any latency sweep still running from the
+    // server sheet loses the radio to the handshake from here on.
+    try {
+      container.read(serverPingProvider.notifier).stopProbing();
+    } catch (_) {}
     connectionNotifier.setLoading();
     loggerNotifier.setLoading();
     _vibrationService.vibrateHeartbeat();
@@ -1837,7 +2086,11 @@ class VpnController {
         connectionNotifier.holdEngineEvents(false);
         connectionNotifier.setConnected();
         await _saveLastGood(candidate);
-        await RelayMemory.remember(relay, network: await _networkForMemory());
+        await RelayMemory.remember(
+          relay,
+          network: await _networkForMemory(),
+          engine: 'openvpn',
+        );
         if (HomeRegion.isHome(relay.countryCode)) {
           _log.addLog(
             '[VpnController] Exit ${relay.dial} is in the device home country '
@@ -1859,6 +2112,15 @@ class VpnController {
           );
         } catch (_) {}
         _publishTrace(clear: true);
+        unawaited(
+          _verifyTunnelThroughput(
+            relay,
+            container,
+            gen,
+            connectionNotifier,
+            engine: 'openvpn',
+          ),
+        );
         // statusStream already flipped the notifier to connected.
         return;
       }
@@ -1882,7 +2144,9 @@ class VpnController {
     // interface existed, including a kill-switch block installed after the
     // SoftEther drop. Put the block back so a dead fallback cannot leak.
     if (Platform.isAndroid && await SoftEtherVpn.engageLockdown()) {
-      _log.addLog('[VpnController] Kill switch re-armed after fallback failure');
+      _log.addLog(
+        '[VpnController] Kill switch re-armed after fallback failure',
+      );
     }
     connectionNotifier.setError();
     _vibrationService.vibrateError();
@@ -2021,10 +2285,16 @@ class VpnController {
   /// can come back empty or with a single false friend while a handful of
   /// relays in the wider catalog still work. [container] lets the caller hand
   /// in the catalog so this step can sweep it instead of giving up.
+  ///
+  /// A relay this network already proved is returned without a probe unless
+  /// [allowImmediate] is false. The native dial is the real verdict; waiting
+  /// for 8-16 TLS handshakes before the first dial made every remembered
+  /// relay pay the price of a cold start.
   Future<List<RelayTarget>> _reachableSoftEther(
     List<RelayTarget> targets,
     int generation, {
     ProviderContainer? container,
+    bool allowImmediate = true,
   }) async {
     final reachable = <RelayTarget>[];
     final dead = <RelayTarget>[];
@@ -2045,6 +2315,38 @@ class VpnController {
         previouslyDead.add(target);
       }
     }
+
+    if (allowImmediate) {
+      final warmKeys = {
+        for (final target in warm)
+          relayReachabilityKey(target.dial, target.port),
+      };
+      final immediate = <RelayTarget>[];
+      final seen = <String>{};
+      for (final target in targets) {
+        final key = relayReachabilityKey(target.dial, target.port);
+        final trusted =
+            warmKeys.contains(key) ||
+            target.source == 'network-memory' ||
+            target.source == 'last-good' ||
+            target.source == 'selected';
+        if (!trusted || !seen.add(key)) continue;
+        final probe = _reachability.lookup(key);
+        if (probe != null && !probe.ok) continue;
+        immediate.add(target);
+      }
+      if (immediate.isNotEmpty) {
+        _log.addLog(
+          '[VpnController] Dialling proved relays without a probe: '
+          '${immediate.map((t) => t.endpoint).join(', ')}',
+        );
+        immediate.sort(
+          (a, b) => (rtt[a.dial] ?? 1 << 20).compareTo(rtt[b.dial] ?? 1 << 20),
+        );
+        return _foreignFirst(immediate);
+      }
+    }
+
     if (warm.isNotEmpty) {
       // The whole fast-connect win: a relay measured moments ago goes straight
       // to the native dial instead of waiting in the probe queue.
@@ -2389,12 +2691,150 @@ class VpnController {
     _reachability.markDead(relayReachabilityKey(target.dial, target.port));
     await RelayMemory.recordDialFailure(target.dial, network: network);
     if (target.source == 'network-memory') {
-      await RelayMemory.forget(target.dial, network: network);
+      await RelayMemory.forget(
+        target.dial,
+        network: network,
+        engine: 'softether',
+      );
     }
+  }
+
+  /// Proves the freshly connected session actually carries data.
+  ///
+  /// Both engines report CONNECTED as soon as their handshake is up. A relay
+  /// that is congested, throttled by the carrier, or silently dropping
+  /// forwarded traffic still looks healthy until the user loads a page. This
+  /// check runs after the orb is live, records what the relay delivered for
+  /// future ranking, and switches once when the result is near zero.
+  Future<void> _verifyTunnelThroughput(
+    RelayTarget relay,
+    ProviderContainer container,
+    int generation,
+    ConnectionStateNotifier connectionNotifier, {
+    required String engine,
+  }) async {
+    // Let the TUN and the relay's forwarding path settle before judging it.
+    await Future<void>.delayed(const Duration(seconds: 2));
+    if (_manualDisconnect || generation != _rotationGeneration) return;
+    if (container.read(connectionStateProvider).status !=
+        ConnectionStatus.connected) {
+      return;
+    }
+    final watch = Stopwatch()..start();
+    final bytes = await _downloadThroughTunnel(
+      _throughputProbeBytes,
+      _throughputProbeDeadline,
+    );
+    if (bytes < 0) {
+      _log.addLog(
+        '[VpnController] Throughput probe host returned an error; '
+        'not judging ${relay.endpoint}',
+      );
+      return;
+    }
+    final elapsedMs = watch.elapsedMilliseconds;
+    if (elapsedMs <= 0) return;
+    final bps = (bytes * 1000) ~/ elapsedMs;
+    final network = await _networkForMemory();
+    await RelayMemory.recordThroughput(relay.dial, bps, network: network);
+    _log.addLog(
+      '[VpnController] Throughput after connect: ${bytes ~/ 1024} KiB in '
+      '${elapsedMs}ms (~${bps ~/ 1024} KiB/s) via ${relay.endpoint}',
+    );
+    if (bytes >= _throughputHealthyBytes) {
+      // This is the only moment a relay earns cross-network trust: the
+      // handshake completed AND the session moved a real transfer.
+      await RelayMemory.recordSessionProof(
+        relay,
+        engine: engine,
+        bytesPerSecond: bps,
+        network: network,
+      );
+      _container?.read(dataProofProvider.notifier).state = DataProofState(
+        at: DateTime.now(),
+        engine: engine,
+        bytesPerSecond: bps,
+      );
+      return;
+    }
+    if (!_slowSoftEtherRotationArmed) return;
+    if (_manualDisconnect || generation != _rotationGeneration) return;
+    if (container.read(connectionStateProvider).status !=
+        ConnectionStatus.connected) {
+      return;
+    }
+    _slowSoftEtherRotationArmed = false;
+    _log.addLog(
+      '[VpnController] Relay ${relay.endpoint} carried only '
+      '${bytes ~/ 1024} KiB in ${elapsedMs}ms; switching',
+    );
+    _reachability.markDead(relayReachabilityKey(relay.dial, relay.port));
+    await RelayMemory.forget(relay.dial, network: network, engine: engine);
+    try {
+      await SoftEtherVpn.disconnect();
+    } catch (_) {}
+    try {
+      await _vpnService.disconnect();
+    } catch (_) {}
+    if (_manualDisconnect) return;
+    // The slow relay is still the network's and the device's last-good entry.
+    // Drop both so the next plan cannot anchor on it again, whichever engine
+    // carries the retry.
+    await VpnSessionStore.clear();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_lastSslKey);
+      await prefs.remove(_lastGoodKey);
+    } catch (_) {}
+    container.read(connectedRelayProvider.notifier).state = null;
+    container.read(softEtherHostProvider.notifier).state = null;
+    connectionNotifier.holdEngineEvents(false);
+    connectionNotifier.setConnecting();
+    await _connect(auto: true, slowRotation: true);
+  }
+
+  /// Requests a small payload through the active tunnel. Returns the bytes
+  /// received before [maxBytes] or [deadline], whichever comes first; zero is
+  /// the correct answer for a tunnel that forwards nothing. -1 means the probe
+  /// host itself answered with an error, which says nothing about the relay.
+  Future<int> _downloadThroughTunnel(int maxBytes, Duration deadline) async {
+    final client = HttpClient()..connectionTimeout = deadline;
+    var received = 0;
+    final done = Completer<int>();
+    final timer = Timer(deadline, () {
+      client.close(force: true);
+      if (!done.isCompleted) done.complete(received);
+    });
+    unawaited(() async {
+      try {
+        final request = await client.getUrl(Uri.parse(_throughputProbeUrl));
+        request.headers.set(HttpHeaders.cacheControlHeader, 'no-store');
+        final response = await request.close();
+        if (response.statusCode != HttpStatus.ok) {
+          await response.drain<void>();
+          if (!done.isCompleted) done.complete(-1);
+          return;
+        }
+        await for (final chunk in response) {
+          received += chunk.length;
+          if (received >= maxBytes) break;
+        }
+      } catch (_) {
+        // A failed request is evidence too: the caller sees zero throughput.
+      } finally {
+        timer.cancel();
+        client.close(force: true);
+        if (!done.isCompleted) done.complete(received);
+      }
+    }());
+    return done.future;
   }
 
   /// SoftEther inside the Apple packet tunnel. The profile is a marker the
   /// extension reads; OpenVPN never sees it when this path connects.
+  ///
+  /// Same two-phase shape as Android: proved relays are dialled first and
+  /// probing only runs once those dials fail.
   Future<bool> _tryAppleSoftEther(
     ProviderContainer container,
     ConnectionStateNotifier connectionNotifier,
@@ -2403,16 +2843,62 @@ class VpnController {
     final targets = await _softEtherTargets(container);
     if (targets.isEmpty || generation != _rotationGeneration) return false;
 
-    final reachable = await _reachableSoftEther(
+    final tried = <String>{};
+    Future<bool> dialPhase(List<RelayTarget> candidates) async {
+      final fresh = <RelayTarget>[];
+      for (final target in candidates) {
+        if (fresh.length >= 3) break;
+        if (!tried.add(relayReachabilityKey(target.dial, target.port))) {
+          continue;
+        }
+        fresh.add(target);
+      }
+      if (fresh.isEmpty) return false;
+      return _dialAppleSoftEtherTargets(
+        fresh,
+        container,
+        connectionNotifier,
+        generation,
+      );
+    }
+
+    final immediate = await _reachableSoftEther(
       targets,
       generation,
       container: container,
     );
-    if (reachable.isEmpty || generation != _rotationGeneration) return false;
+    if (immediate.isNotEmpty && await dialPhase(immediate)) return true;
+    if (generation != _rotationGeneration ||
+        _manualDisconnect ||
+        _connectQueued) {
+      return false;
+    }
 
-    final traceTotal = reachable.length < 3 ? reachable.length : 3;
+    final remaining = [
+      for (final target in targets)
+        if (!tried.contains(relayReachabilityKey(target.dial, target.port)))
+          target,
+    ];
+    if (remaining.isEmpty) return false;
+    final reachable = await _reachableSoftEther(
+      remaining,
+      generation,
+      container: container,
+      allowImmediate: false,
+    );
+    if (reachable.isEmpty || generation != _rotationGeneration) return false;
+    return dialPhase(reachable);
+  }
+
+  Future<bool> _dialAppleSoftEtherTargets(
+    List<RelayTarget> targets,
+    ProviderContainer container,
+    ConnectionStateNotifier connectionNotifier,
+    int generation,
+  ) async {
+    final traceTotal = targets.length < 3 ? targets.length : 3;
     var dial = 0;
-    for (final target in reachable.take(3)) {
+    for (final target in targets.take(3)) {
       if (generation != _rotationGeneration) return false;
       if (_manualDisconnect) {
         try {
@@ -2469,11 +2955,21 @@ vpn
       if (_connectQueued) return false;
       if (ok) {
         _log.addLog('[VpnController] CONNECTED via SoftEther ${target.dial}');
+        final relay = target.copyWith(source: 'softether');
         await _markRelayConnected(
           container,
           connectionNotifier,
-          target.copyWith(source: 'softether'),
+          relay,
           holdEngine: false,
+        );
+        unawaited(
+          _verifyTunnelThroughput(
+            relay,
+            container,
+            generation,
+            connectionNotifier,
+            engine: 'softether',
+          ),
         );
         return true;
       }
@@ -2485,9 +2981,9 @@ vpn
 
   /// Publishes the REALITY relay that carries the session.
   ///
-  /// Deliberately skips [RelayMemory.remember] and the SoftEther last-good
-  /// slot: those feed the VPN Gate rotation, and a community REALITY host in
-  /// that list would be dialled as a SoftEther relay on the next connect.
+  /// The network anchor is tagged `reality` so [RelayMemory.recall] can keep
+  /// this engine's picks separate from the SoftEther rotation: a community
+  /// REALITY host must never be dialled as a VPN Gate relay.
   Future<void> _markRealityConnected(
     ProviderContainer container,
     ConnectionStateNotifier connectionNotifier,
@@ -2504,6 +3000,11 @@ vpn
       countryCode: target.countryCode,
       countryName: target.countryName,
     );
+    await RelayMemory.remember(
+      target,
+      network: await _networkForMemory(),
+      engine: 'reality',
+    );
     if (HomeRegion.isHome(target.countryCode)) {
       _log.addLog(
         '[VpnController] Exit ${target.dial} is in the device home country '
@@ -2519,6 +3020,34 @@ vpn
         _connectElapsedSeconds(),
       );
     } catch (_) {}
+  }
+
+  /// Starts [relay], retrying once when the native service rejects the
+  /// request because the previous session is still tearing down. The plugin
+  /// reports that window as INVALID_CONFIG; reading it as "this relay is bad"
+  /// penalises a healthy relay and burns one of the three attempts.
+  Future<String?> _startReality(
+    RealityRelay relay,
+    List<String>? blockedApps,
+  ) async {
+    final first = await RealityEngine.instance.start(
+      relay,
+      blockedApps: blockedApps,
+    );
+    if (first == null) return null;
+    final text = first.toLowerCase();
+    final teardownRace =
+        text.contains('invalid_config') ||
+        text.contains('invalid config') ||
+        text.contains('busy') ||
+        text.contains('already');
+    if (!teardownRace) return first;
+    _log.addLog(
+      '[VpnController] REALITY start rejected ($first); retrying once after '
+      'teardown',
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 600));
+    return RealityEngine.instance.start(relay, blockedApps: blockedApps);
   }
 
   /// Censorship-resistant path: VLESS over REALITY on TCP 443.
@@ -2562,23 +3091,57 @@ vpn
     if (catalog.isEmpty || generation != _rotationGeneration) return false;
 
     final picked = settings.selectedId;
-    final ordered = <RealityRelay>[
-      ...catalog.where((relay) => relay.id == picked),
-      ...catalog.where((relay) => relay.id != picked),
-    ];
-    final ranked = await RelayMemory.orderByHistory(
-      ordered.map((relay) => relay.toTarget()).toList(),
-      network: await _networkForMemory(),
-    );
-    final byDial = {for (final relay in ordered) relay.host: relay};
-    final queue = <RealityRelay>[];
-    final seen = <String>{};
-    for (final target in ranked) {
-      final relay = byDial[target.dial];
-      if (relay != null && seen.add(relay.host)) queue.add(relay);
-    }
-    if (queue.isEmpty || generation != _rotationGeneration) return false;
     final network = await _networkForMemory();
+    final anchor = await RelayMemory.recall(network: network, engine: 'reality');
+    final proven = await RelayMemory.provenDials('reality');
+    final head = <RealityRelay>[];
+    final headHosts = <String>{};
+    void push(RealityRelay? relay) {
+      if (relay != null && headHosts.add(relay.host)) head.add(relay);
+    }
+
+    RealityRelay? findBy(bool Function(RealityRelay relay) test) {
+      for (final relay in catalog) {
+        if (test(relay)) return relay;
+      }
+      return null;
+    }
+
+    push(findBy((relay) => relay.id == picked));
+    if (anchor != null) {
+      push(findBy((relay) => relay.host == anchor.dial));
+    }
+    for (final relay in catalog) {
+      if (proven.contains(relay.host)) push(relay);
+    }
+    // Measured end-to-end health from the scheduled GitHub Action. It orders
+    // relays this phone has never tried; a relay that failed here recently
+    // still sinks because the local failure penalty is larger.
+    final health = await RealityHealthStore.load();
+    final extraScore = <String, double>{};
+    if (health != null) {
+      for (final relay in catalog) {
+        if (headHosts.contains(relay.host)) continue;
+        final score = health.scoreFor(relay.id);
+        if (score != null) extraScore[relay.host] = score;
+      }
+    }
+    final tail = await RelayMemory.orderByHistory(
+      [
+        for (final relay in catalog)
+          if (!headHosts.contains(relay.host)) relay.toTarget(),
+      ],
+      network: network,
+      proven: proven,
+      extraScore: extraScore,
+    );
+    final byDial = {for (final relay in catalog) relay.host: relay};
+    final queue = <RealityRelay>[
+      ...head,
+      for (final target in tail)
+        if (byDial[target.dial] != null) byDial[target.dial]!,
+    ];
+    if (queue.isEmpty || generation != _rotationGeneration) return false;
 
     // Redialling a fleet that just failed the data gate costs the whole
     // connect budget before SoftEther is tried. Auto mode skips it for a
@@ -2598,8 +3161,9 @@ vpn
       return false;
     }
 
-    final blockedApps =
-        split.appliedMode == TunnelMode.bypass ? split.packages.toList() : null;
+    final blockedApps = split.appliedMode == TunnelMode.bypass
+        ? split.packages.toList()
+        : null;
     final traceTotal = queue.length < _maxRealityAttempts
         ? queue.length
         : _maxRealityAttempts;
@@ -2629,16 +3193,15 @@ vpn
         '[VpnController] REALITY dial ${relay.endpoint} (${relay.countryCode}) '
         'attempt $attempts/$_maxRealityAttempts',
       );
-      final failure = await RealityEngine.instance.start(
-        relay,
-        blockedApps: blockedApps,
-      );
+      final failure = await _startReality(relay, blockedApps);
       if (generation != _rotationGeneration || _manualDisconnect) {
         await RealityEngine.instance.stop();
         return false;
       }
       if (failure != null) {
-        _log.addLog('[VpnController] REALITY failed ${relay.endpoint}: $failure');
+        _log.addLog(
+          '[VpnController] REALITY failed ${relay.endpoint}: $failure',
+        );
         unawaited(
           RelayMemory.recordProbes({relay.host: false}, network: network),
         );
@@ -2671,6 +3234,10 @@ vpn
           '${probe?.error ?? 'no probe'}); trying the next relay',
         );
         await RealityEngine.instance.stop();
+        // Android needs a moment to release the previous interface; starting
+        // the next relay against a half-torn-down service is what produced
+        // INVALID_CONFIG on the relay after a failed data gate.
+        await Future<void>.delayed(const Duration(milliseconds: 300));
         unawaited(
           RelayMemory.recordProbes({relay.host: false}, network: network),
         );
@@ -2679,14 +3246,33 @@ vpn
       final rtt = probe.rttMs;
       _log.addLog(
         '[VpnController] CONNECTED via REALITY ${relay.endpoint} '
-        '(${probe.bytes}B in ${probe.elapsedMs}ms, rtt ${rtt}ms, exit '
-        '${probe.exitIp ?? 'unknown'} ${probe.exitCountry ?? ''})'.trimRight(),
+                '(${probe.bytes}B in ${probe.elapsedMs}ms, rtt ${rtt}ms, exit '
+                '${probe.exitIp ?? 'unknown'} ${probe.exitCountry ?? ''})'
+            .trimRight(),
       );
       await _markRealityConnected(
         container,
         connectionNotifier,
         relay,
         rttMs: rtt,
+      );
+      // The data gate carried a real transfer through this relay, so the UI
+      // may say traffic is confirmed before the first steady-state probe.
+      _markDataProof(
+        TunnelProtocol.reality,
+        bytesPerSecond: probe.elapsedMs > 0
+            ? (probe.bytes * 1000) ~/ probe.elapsedMs
+            : 0,
+      );
+      unawaited(
+        RelayMemory.recordSessionProof(
+          relay.toTarget(pingMs: rtt),
+          engine: 'reality',
+          bytesPerSecond: probe.elapsedMs > 0
+              ? (probe.bytes * 1000) ~/ probe.elapsedMs
+              : 0,
+          network: network,
+        ),
       );
       unawaited(
         RelayMemory.recordEngineOutcome('reality', true, network: network),
@@ -2709,6 +3295,11 @@ vpn
   }
 
   /// SoftEther dials tried before OpenVPN. Returns true when one comes up.
+  ///
+  /// Phase 1 dials relays this network already proved with no probe in front
+  /// of them. Phase 2, with the full TLS probe and sweep, only runs after
+  /// those dials fail: the expensive verification is paid for by the rare
+  /// cold start, not by every user who opens the app.
   Future<bool> _tryOneSoftEther(
     ProviderContainer container,
     ConnectionStateNotifier connectionNotifier,
@@ -2716,15 +3307,63 @@ vpn
     final sslGen = _rotationGeneration;
     final targets = await _softEtherTargets(container);
     if (targets.isEmpty || sslGen != _rotationGeneration) return false;
-    final reachable = await _reachableSoftEther(
+
+    final tried = <String>{};
+    Future<bool> dialPhase(List<RelayTarget> candidates) async {
+      final fresh = <RelayTarget>[];
+      for (final target in candidates) {
+        if (fresh.length >= 3) break;
+        if (!tried.add(relayReachabilityKey(target.dial, target.port))) {
+          continue;
+        }
+        fresh.add(target);
+      }
+      if (fresh.isEmpty) return false;
+      return _dialSoftEtherTargets(
+        fresh,
+        container,
+        connectionNotifier,
+        sslGen,
+      );
+    }
+
+    final immediate = await _reachableSoftEther(
       targets,
       sslGen,
       container: container,
     );
-    if (reachable.isEmpty || sslGen != _rotationGeneration) return false;
-    final traceTotal = reachable.length < 3 ? reachable.length : 3;
+    if (immediate.isNotEmpty && await dialPhase(immediate)) return true;
+    if (sslGen != _rotationGeneration || _manualDisconnect || _connectQueued) {
+      return false;
+    }
+
+    // Every remembered relay failed. Now it is worth probing the rest of the
+    // shortlist and, if that is also dead, sweeping the wider catalog.
+    final remaining = [
+      for (final target in targets)
+        if (!tried.contains(relayReachabilityKey(target.dial, target.port)))
+          target,
+    ];
+    if (remaining.isEmpty) return false;
+    final verified = await _reachableSoftEther(
+      remaining,
+      sslGen,
+      container: container,
+      allowImmediate: false,
+    );
+    if (verified.isEmpty || sslGen != _rotationGeneration) return false;
+    return dialPhase(verified);
+  }
+
+  Future<bool> _dialSoftEtherTargets(
+    List<RelayTarget> targets,
+    ProviderContainer container,
+    ConnectionStateNotifier connectionNotifier,
+    int sslGen,
+  ) async {
+    final traceTotal = targets.length < 3 ? targets.length : 3;
     var dial = 0;
-    for (final target in reachable.take(3)) {
+    for (final target in targets.take(3)) {
       if (sslGen != _rotationGeneration) return false;
       if (_manualDisconnect || _connectQueued) return false;
       dial++;
@@ -2782,6 +3421,15 @@ vpn
           connectionNotifier,
           relay,
           holdEngine: true,
+        );
+        unawaited(
+          _verifyTunnelThroughput(
+            relay,
+            container,
+            sslGen,
+            connectionNotifier,
+            engine: 'softether',
+          ),
         );
         return true;
       }

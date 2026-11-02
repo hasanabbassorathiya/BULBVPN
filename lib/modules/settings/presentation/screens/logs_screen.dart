@@ -107,9 +107,10 @@ class LogsScreen extends ConsumerWidget {
                                           top: 18,
                                         ),
                                         child: Text(
-                                          'Newest first. Copied logs are '
-                                          'chronological and include a '
-                                          'device/relay header.',
+                                          'Newest first. Saved on this device '
+                                          'and kept across restarts; copied '
+                                          'logs are chronological and include '
+                                          'a device/relay header.',
                                           style: AppTextStyles.monoValue(
                                             color: air.mute,
                                             size: 11,

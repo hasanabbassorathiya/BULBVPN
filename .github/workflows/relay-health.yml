@@ -1,0 +1,64 @@
+name: Probe REALITY relays
+
+# Measured, end-to-end health for the bundled community relays. Each run
+# starts Xray with the same VLESS+REALITY outbound the app builds and moves a
+# fixed payload through it, so a server that answers a TLS probe but forwards
+# nothing is published as bad. The app reads this file from jsDelivr / raw and
+# orders unproven relays by real throughput; local per-network proof still wins.
+#
+# The file is keyed by catalog id and contains measurements only. It cannot
+# introduce a relay the app does not already ship, so a tampered CDN response
+# can reorder known relays but never point the tunnel at an attacker.
+
+on:
+  schedule:
+    # Every three hours; the app ignores measurements older than 12 hours.
+    - cron: "23 */3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: reality-health
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pinned Xray-core
+        env:
+          XRAY_VERSION: "26.10.31"
+        run: |
+          set -euo pipefail
+          base="https://github.com/XTLS/Xray-core/releases/download/v${XRAY_VERSION}"
+          curl -sSfL -o xray.zip "${base}/Xray-linux-64.zip"
+          curl -sSfL -o xray.zip.dgst "${base}/Xray-linux-64.zip.dgst"
+          expected="$(grep -E '^SHA2-256=' xray.zip.dgst | awk '{print $2}')"
+          actual="$(sha256sum xray.zip | awk '{print $1}')"
+          test -n "$expected"
+          test "$expected" = "$actual"
+          unzip -oq xray.zip -d xray-core
+          sudo install -m 0755 xray-core/xray /usr/local/bin/xray
+          xray version | head -2
+
+      - name: Probe every bundled relay
+        run: python3 scripts/probe_reality.py
+
+      - name: Publish measurements
+        run: |
+          set -euo pipefail
+          git add data/reality_health.json
+          if git diff --cached --quiet; then
+            echo "Measurements unchanged."
+            exit 0
+          fi
+          git -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit -m "chore: refresh REALITY relay health"
+          git push

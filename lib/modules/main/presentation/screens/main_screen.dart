@@ -32,6 +32,7 @@ import 'package:bulbvpn/shared/air/air_phase_map.dart';
 import 'package:bulbvpn/shared/air/connect_trace.dart';
 import 'package:bulbvpn/shared/providers/connection_state_provider.dart';
 import 'package:bulbvpn/shared/providers/connect_trace_provider.dart';
+import 'package:bulbvpn/shared/providers/data_proof_provider.dart';
 import 'package:bulbvpn/shared/providers/ip_info_provider.dart';
 import 'package:bulbvpn/shared/providers/exit_ip_provider.dart';
 import 'package:bulbvpn/shared/widgets/staggered_in.dart';
@@ -76,7 +77,6 @@ class _MainScreenState extends ConsumerState<MainScreen>
     WidgetsBinding.instance.addObserver(this);
     log.addLog('[MainScreen] initState');
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) => _tick());
-    Future.microtask(_warmServers);
     Future.microtask(_loadPrepared);
   }
 
@@ -91,32 +91,13 @@ class _MainScreenState extends ConsumerState<MainScreen>
     } catch (_) {}
   }
 
-  Future<void> _warmServers() async {
-    final servers = await ref
-        .read(serversProvider.future)
-        .catchError((_) => <VpnServer>[]);
-    if (!mounted || servers.isEmpty) return;
-    // Tabs are rebuilt on every visit; only re-probe when the last sweep is
-    // stale so the latency column stops blinking back to "…" each time.
-    await ref.read(serverPingProvider.notifier).ensureFresh(servers);
-  }
-
   /// Carrier switched Wi-Fi ⇄ cellular while the app was open. Old latency
-  /// numbers describe the previous path, so measure again on this one.
+  /// numbers describe the previous path, so they are dropped instead of
+  /// re-measured: the user came back to connect, not to watch a sweep.
   Future<void> _onNetworkChanged() async {
-    log.addLog('[MainScreen] Network changed; re-measuring latency');
+    log.addLog('[MainScreen] Network changed; dropping stale latency');
     unawaited(_loadPrepared());
-    final servers =
-        ref.read(serversProvider).valueOrNull ?? const <VpnServer>[];
-    if (servers.isEmpty) return;
-    await ref.read(serverPingProvider.notifier).pingAll(servers);
-  }
-
-  void _refreshPingsIfStale() {
-    final servers =
-        ref.read(serversProvider).valueOrNull ?? const <VpnServer>[];
-    if (servers.isEmpty) return;
-    unawaited(ref.read(serverPingProvider.notifier).ensureFresh(servers));
+    ref.read(serverPingProvider.notifier).invalidate();
   }
 
   @override
@@ -132,12 +113,10 @@ class _MainScreenState extends ConsumerState<MainScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _restoreLiveTunnel();
-      // The network usually changed while the phone slept. Refresh relay
-      // reachability in the background so the next tap does not pay for it.
-      _vpnController?.warmProbes(delay: const Duration(seconds: 2));
-      _refreshPingsIfStale();
-      if (ref.read(connectionStateProvider).status !=
+      if (ref.read(connectionStateProvider).status ==
           ConnectionStatus.connected) {
+        _vpnController?.verifyConnectionNow();
+      } else {
         unawaited(ref.read(ipWhoProvider.notifier).refresh(before: true));
       }
     }
@@ -264,13 +243,11 @@ class _MainScreenState extends ConsumerState<MainScreen>
     if (!mounted) return;
     final relays = await _realityRelaysSafe();
     final match = RealityCatalog.findByHost(relays, session?.host);
-    ref
-        .read(connectionStateProvider.notifier)
-        .adoptRealityTunnel();
+    ref.read(connectionStateProvider.notifier).adoptRealityTunnel();
     if (match != null) {
-      ref
-          .read(connectedRelayProvider.notifier)
-          .state = match.toTarget(source: 'restored');
+      ref.read(connectedRelayProvider.notifier).state = match.toTarget(
+        source: 'restored',
+      );
       ref.read(softEtherHostProvider.notifier).state =
           '${match.displayName} · ${match.host}';
     } else if (session != null) {
@@ -411,6 +388,13 @@ class _MainScreenState extends ConsumerState<MainScreen>
       log.addLog('[MainScreen] ERROR in handleConnectionButton: $e');
       log.addLog('[MainScreen] Stack trace: $stackTrace');
     }
+  }
+
+  String _proofAge(Duration age) {
+    if (age.inSeconds < 5) return 'just now';
+    if (age.inSeconds < 60) return '${age.inSeconds}s ago';
+    if (age.inMinutes < 60) return '${age.inMinutes}m ago';
+    return '${age.inHours}h ago';
   }
 
   String _ipLocationLabel(PublicIpInfo info) {
@@ -561,6 +545,15 @@ class _MainScreenState extends ConsumerState<MainScreen>
     final stage = connectStageFor(phase);
     final trace = ref.watch(connectTraceProvider);
     final witness = stage == null ? null : trace?.witness;
+    // "Connected" is an engine claim. The label may say traffic is confirmed
+    // only while a probe through the TUN succeeded recently; otherwise it
+    // says what is actually happening (the watchdog is checking).
+    final proof = ref.watch(dataProofProvider);
+    final proofAge = proof == null ? null : DateTime.now().difference(proof.at);
+    final proofFresh =
+        proofAge != null &&
+        !proofAge.isNegative &&
+        proofAge.inSeconds <= 45;
     // While live, only the relay that the native session reports may be shown.
     // The picker and the "fastest" hint are not evidence of where traffic exits.
     final relayLabel = live
@@ -581,13 +574,16 @@ class _MainScreenState extends ConsumerState<MainScreen>
         _countryCode(selected ?? fastest) ??
         '';
     final detail = switch (status) {
-      ConnectionStatus.disconnected => _preparedLabel.isEmpty
-          ? 'path closed · $relayLabel'
-          : 'prepared · $_preparedLabel',
+      ConnectionStatus.disconnected =>
+        _preparedLabel.isEmpty
+            ? 'path closed · $relayLabel'
+            : 'prepared · $_preparedLabel',
       ConnectionStatus.loading => 'waking the engine',
       ConnectionStatus.connecting => 'opening tunnel · $relayLabel',
       ConnectionStatus.analyzing => 'checking the first byte',
-      ConnectionStatus.connected => 'traffic confirmed · $relayLabel',
+      ConnectionStatus.connected => proofFresh
+          ? 'traffic confirmed ${_proofAge(proofAge)} · $relayLabel'
+          : 'checking traffic · $relayLabel',
       ConnectionStatus.disconnecting => 'closing the tunnel',
       ConnectionStatus.error => 'no working path on this network',
       ConnectionStatus.noInternet => 'this network is offline',

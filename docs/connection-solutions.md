@@ -29,6 +29,8 @@ Last updated: 2026-11-01
 | iOS / iPad runtime test | **Blocked** | iPad developer mode off; Blitz only lists simulators |
 | macOS app runtime test | **Not yet run** | needs a signed/built macOS target and a real tunnel |
 | IR mobile data (Irancell / Hamrah Aval) | **Waiting on device** | Wi-Fi path verified first |
+| Launch/connect latency (ping storm) | **Fixed and verified on emulator** | launch sweep count 0; tap → first dial 4 ms; tap → CONNECTED 9.2 s (all native JP handshake) |
+| Weak-tunnel detection (connected but dead) | **Implemented; forced-dead test passed** | 0 KiB / 8 s → exactly one automatic relay switch; second sample does not loop |
 
 ---
 
@@ -53,6 +55,9 @@ Last updated: 2026-11-01
 | 15 | REALITY service reported CONNECTED, then carried no usable traffic | Readiness probe only echoes a token through the local TUN→tun2socks→Xray loop; it never touches the Internet | Add a live-TUN transfer gate: 512 KiB request, **128 KiB required within 10 s**; reject and penalise the relay when it fails | **Fixed**; PR/DE/EE/HK/US/UA rejected as dead; IT accepted 33 KB then stalled and was rejected |
 | 16 | A fleet that cannot pass the gate burns 3 × 30–45 s before SoftEther runs | Failure state was per-relay only, so every connect re-explored the same dead fleet | Session-level engine health per network: 3 dead sessions → 20-minute REALITY skip; success resets; network change resets; a pinned relay bypasses | **Fixed**; cycle 4 logged the skip and SoftEther connected in 10.7 s |
 | 17 | Only one relay was remembered per network | A single last-good entry cannot express a fleet with different censorship exposure | Per-network scored fleet: pinned first, then `RelayMemory.orderByHistory` (probe history, dial failures, RTT), up to 3 dials per session | **Implemented and exercised in logs** |
+| 18 | Users waited through pings every time they opened the app | Launch, resume, and network change recomputed TLS latency for the whole catalog (106 relays, later 201) | Sweep only when the server sheet is opened while idle; connect calls `stopProbing`; background warm probe capped at 3 relays, no sweep | **Fixed**; launch log count 0; on-demand sweep `41/201`; connect produced no further ping logs |
+| 19 | The first dial waited for 8–16 TLS handshakes even when the network had already proved a relay | `_reachableSoftEther` probed every target before any native dial | Two-phase dial: network-memory / last-good / selected / warm relays dial immediately; probing runs only if those fail | **Fixed**; `Dialling proved relays without a probe` → dial 4 ms after the tap |
+| 20 | Engine reported CONNECTED while the tunnel carried almost nothing | Nothing checked the data plane after SoftEther or OpenVPN adoption | 64 KiB download 2 s after adoption (8 s deadline); rate stored per network; < 24 KiB → one relay switch; measured zero ranked as the worst score | **Fixed**; forced-dead probe produced exactly one switch to a different relay |
 
 ---
 
@@ -747,6 +752,248 @@ adb -s 75cecce0 shell "curl -s --interface tun1 --max-time 25 -o /dev/null \
 
 ---
 
+## 14. Open → connect without the ping storm; weak tunnels get caught
+
+### What was observed
+
+Two different complaints, one root shape:
+
+1. **Opening the app was doing network work the user never asked for.** The
+   launch path called `ensureFresh` on the server-ping provider, which ran a
+   TLS handshake sweep over the whole catalog (106 bundled, 201 after the
+   remote merge) at 10 concurrent probes with a 4 s timeout. Resume and
+   network-change repeated it. The connect path then probed the SoftEther
+   shortlist again before the first native dial, even on a network that had
+   already proved a relay moments earlier.
+2. **CONNECTED did not mean the tunnel carried data.** SoftEther and OpenVPN
+   report CONNECTED when the handshake finishes. A relay that is congested,
+   throttled after the handshake, or dropping forwarded traffic stayed green
+   until the user opened a page.
+
+The REALITY path already had a 512 KiB transfer gate (§13). SoftEther and
+OpenVPN had none, so the cheapest relay to adopt was also the one most likely
+to be a trickle.
+
+### Implemented
+
+**No measurement before the user asks.** The launch, resume, and network-change
+paths no longer ping. `ServerPingNotifier` gained a generation counter:
+`stopProbing()` invalidates in-flight workers and keeps what was already
+measured, and `invalidate()` drops the table on a network change without
+starting a new sweep. The only automatic probes left are a 3-relay warm set on
+a newly seen network, which runs only while idle.
+
+**Measure only where the user can see it.** Opening the server sheet starts
+the sweep (`[Ping] Measured 41/201 servers` in the test below) and only while
+disconnected; a live or starting tunnel skips it. Tapping connect calls
+`stopProbing()`, so the handshake owns the radio.
+
+**Dial proved relays first, probe only after they fail.** `_tryOneSoftEther`
+(Android) and `_tryAppleSoftEther` (iOS/macOS) are now two-phase. Phase one
+returns network-memory, last-good, selected, and TLS-warm relays without a
+probe and dials up to three. Phase two — the full shortlist probe, alternate
+ports, fresh list, previously-dead re-probe, and catalog sweep — runs only if
+phase one produced no working tunnel.
+
+**Verify the data plane after adoption.** Two seconds after CONNECTED, both
+engines download 64 KiB from `speed.cloudflare.com` with an 8 s deadline. The
+rate is written to `RelayMemory` and affects future ranking:
+`< 8 KiB/s` and `0` get the worst penalty, `< 24 KiB/s` a smaller one, and
+`> 100–250 KiB/s` a bonus. A probe-host **HTTP error** (`-1`) is not a verdict
+and never rotates. If fewer than 24 KiB arrive, the relay is marked dead, its
+network memory and last-good slots are cleared, and the connect restarts **once**
+(`_slowSoftEtherRotationArmed`). A second slow result is recorded but does not
+rotate again, so a fleet of slow relays cannot loop the UI.
+
+### Evidence (Android x86_64 emulator, UAE host network — not an IR carrier)
+
+| Check | Result |
+|---|---|
+| Launch / resume / network-change pings | **0** `[Ping]` log lines |
+| Warm probe at launch | 3 relays, `3/3 reachable` |
+| Cold relaunch → UI ready | 3 s |
+| Tap → first SoftEther dial | **4 ms** (`Dialling proved relays without a probe`) |
+| Tap → CONNECTED | 9.2–9.4 s, all native SoftEther handshake to JP |
+| Server sheet opened while idle | `[Ping] Measured 41/201 servers` |
+| Connect while that sweep was running | 0 further `[Ping]` lines |
+| Throughput check, healthy relay | 64 KiB in 5.7 s (~11 KiB/s) → no switch |
+| Throughput check, forced dead host | 0 KiB in 8005 ms → **one** switch to a different relay; second 0 KiB sample did not rotate |
+| Final build, real Cloudflare probe host | tap → CONNECTED 9.7 s; full 64 KiB in 7.4 s (~8 KiB/s) → no false switch, no rotation |
+
+### Limits of this evidence
+
+- These numbers are from an **emulator over a UAE network**, not from an
+  Iranian carrier. The IR-specific tap-to-connected time still needs a phone
+  on Irancell/Hamrah Aval.
+- The ~9 s tap → CONNECTED is the native SoftEther handshake to a JP relay at
+  that distance. The app-side work before the dial is now 4 ms; the handshake
+  itself is outside the app's control.
+- Free VPN Gate relays remain slow (11–16 KiB/s in this round). The app can
+  detect a dead tunnel, switch once, and rank relays by measured throughput;
+  it cannot make a congested volunteer relay fast. REALITY community relays
+  remain the opt-in path for performance.
+
+### Verify
+
+```bash
+# No launch sweep, fast first dial, throughput verdicts
+adb -s emulator-5554 logcat -d -v time | grep -E \
+  'Dialling proved relays|SoftEther dial|Throughput after connect|carried only|\[Ping\]'
+
+# Per-network throughput memory (bps per relay)
+adb -s emulator-5554 shell "run-as app.bulbvpn.com \
+  cat shared_prefs/FlutterSharedPreferences.xml" \
+  | tr '>' '>\n' | grep -A1 'bulb_relay_stats_v1'
+```
+
+---
+
+## 15. Session-proof reliability, live logs, and the measured relay catalog
+
+### The failure this fixes
+
+Every engine reports CONNECTED from its handshake, not from traffic. On a
+restrictive carrier that means:
+
+- hundreds of relays answer the TLS ping with low latency while the VPN
+  session behind them forwards nothing;
+- a session can carry a few minutes of traffic and then be silently
+  black-holed while the orb stays green;
+- the exit-IP lookup never resolves, but nothing else notices;
+- after an app kill the only evidence (the in-memory log) is gone.
+
+Ping was being used as a success signal. It proves reachability, not that a
+relay forwards packets.
+
+### What changed
+
+**1. A data-plane watchdog (`VpnController`, `DataPlaneProbe`,
+`WatchdogPolicy`).** Armed when a session becomes connected. Every 20 s it
+fetches `https://1.1.1.1/cdn-cgi/trace` (DNS-free) and falls back to
+`https://api.ipify.org?format=json`; a 200 with at least one body byte inside
+6 s is proof. Two consecutive misses (~40 s) penalise the relay, stop the
+owning engine, clear last-good/network memory, and let the normal bounded
+recovery redial. One miss never drops: a real handover stall recovers on the
+next probe. Allow-mode split routing is skipped because the app's own probe
+would leave through the carrier there. The policy is a pure class with tests
+(`test/watchdog_policy_test.dart`), and the probe transport has tests against
+a loopback server (`test/data_plane_probe_test.dart`). The app also re-probes
+immediately on resume instead of waiting for the next tick.
+
+**2. Cross-network session proof (`RelayMemory`).** A relay is remembered
+globally only after the data gate passes, tagged with the engine that proved
+it (`softether`, `openvpn`, `reality`). Per-network anchors are now keyed
+`network|engine`, so a REALITY pick cannot evict the SoftEther relay this
+network proved; legacy untagged entries still load as SoftEther. Ranking adds
+a measured-health bonus, a proof bonus, and still lets a local failure streak
+sink a proven relay. For IR-home plans the two historically proven SoftEther
+relays are always inside the first dial window, instead of being excluded
+whenever 200 servers answered the ping.
+
+**3. REALITY handoff.** The queue is now: user pick → this network's REALITY
+anchor → locally proven hosts → measured-health order → local history. After a
+failed data gate the engine is stopped and given 300 ms to release the
+interface; an `INVALID_CONFIG`/busy start is retried once after 600 ms instead
+of being recorded as a dead relay. A successful REALITY relay is written to
+the per-network anchor and the proof store.
+
+**4. Measured relay catalog from GitHub Actions.** The repo already publishes
+the VPN Gate list hourly. `scripts/probe_reality.py` now starts Xray-core with
+the same VLESS+REALITY outbound the app builds and downloads 64 KiB through
+each bundled relay; `.github/workflows/relay-health.yml` runs it every three
+hours and commits `data/reality_health.json`. The file is keyed by bundled
+catalog id and contains measurements only — it cannot introduce an unknown
+relay, so a tampered CDN response can reorder known relays but never point the
+tunnel at an attacker. The app verifies schema and a 18 h freshness window,
+ignores unknown ids, caches the last good copy, and bundles a seed file for a
+fresh install. Local proof always outranks a datacenter measurement.
+
+**5. Exit IP.** The three trace hosts are queried in parallel with a 4 s
+timeout each, instead of up to three serial 6 s waits.
+
+**6. Live-user logs.** Sanitized lines are appended to a rotating 512 KiB
+file in the app support directory (URLs and catalog hostnames are stripped on
+write; relay IPs are kept because they are the useful evidence). Startup loads
+the last 200 lines, so a force-close no longer destroys the failure. The log
+is reachable in Settings → **Connection log** (not only by long-pressing the
+version), with the existing support blob copy. Nothing is uploaded
+automatically. Diagnostics are initialized off the startup path: on a loaded
+device the support-directory call once took 16 s and blocked the first frame.
+
+**7. The UI cannot claim traffic it has not seen.** The connected subtitle is
+now driven by the proof timestamp: `traffic confirmed 18s ago · Poland` only
+while a probe succeeded in the last 45 s, otherwise `checking traffic`. The
+proof is cleared on teardown and restore.
+
+### Evidence — real phone (CPH2691, Android 16, UAE Wi-Fi)
+
+AHS (2.4 GHz) and SORATHIYAS (5 GHz) are two different subnets; the app keys
+memory per network, and the handover test used them as two real networks.
+
+| Check | Result |
+|---|---|
+| AHS, REALITY HK | dial attempt 1/3 → native CONNECTED 1.4 s → data gate **134,773 B in 4.3 s** → adopted |
+| Watchdog armed | 15:34:00 |
+| Exit IP | resolved via two parallel trace hosts at 15:34:02 and 15:34:04 |
+| First steady-state verification | **15:34:23** `Data plane verified through 165.154.63.139` |
+| Transient miss during use | 15:36:12 `probe missed (1/2)` → **15:36:23 recovered**; tunnel was not dropped |
+| Wi-Fi cut (phone offline) | session died; on Wi-Fi restore the app swept relays, connected SoftEther JP, armed the watchdog, moved **64 KiB in 6.5 s** |
+| SORATHIYAS handover | network change detected, REALITY DE data gate rejected (DNS timeout), SoftEther network-memory relay 115.179.206.241 connected in 11 s, **64 KiB in 6.0 s**, watchdog verified at 15:46:08 |
+| UI honesty | `traffic confirmed just now · Japan` on SORATHIYAS; `traffic confirmed 18s ago · Poland` on AHS; `checking traffic` while unproven |
+| Live log persistence | release build log included pre-update lines after `adb install -r`; Settings → Connection log showed them |
+| Emulator REALITY DE/PL gate | DE connected but **0 B in 10 s → rejected**; PL carried **134,780 B in 3.3 s → adopted** |
+
+### What this does not fix
+
+- No Iranian carrier test was possible in this session; AHS/SORATHIYAS are
+  UAE Wi-Fi. IR mobile remains a verification gap.
+- Android can freeze a cached app; the SoftEther service is a foreground
+  service and stayed unfrozen, but a REALITY session in the background needs
+  a dedicated frozen-process test. The resume probe and the proof-based label
+  keep the UI honest in the meantime.
+- GitHub schedules workflows only from the default branch. The health
+  workflow and its seed file do nothing until this branch is merged to `main`
+  and Actions is allowed to push; until then the app uses the bundled seed.
+- The watchdog's forced-drop branch was validated by policy/probe tests and
+  by a real transient miss, not by a black-holed live tunnel on the phone.
+
+### WhiteDNS and the anti-censorship lists
+
+- `WhiteDNS-Android` is a DNS-tunnelling client (MasterDNS/StormDNS/CottenDNS)
+  and is **source-available proprietary**: no code reuse. Their production
+  path, like `WhiteDNS-Wizard`, is Xray/VLESS/REALITY — the transport this app
+  already runs.
+- A DNS tunnel needs an authoritative domain plus a server listening on
+  port 53; GitHub Actions cannot host one, and throughput would be far below
+  video-capable. It is not shippable without infrastructure and was not faked.
+- `awesome-decentralized-vpn` lists services and overlays, not integratable
+  transports. `danoctavian/awesome-anti-censorship` confirms the relevant
+  family for Iran mobile: VLESS/REALITY, Trojan, AmneziaWG, obfs4, iodine.
+  AmneziaWG/Hysteria2 also need a server we do not have.
+- The conclusion from all three sources: the missing piece was not another
+  protocol, it was proof that the session carries traffic and an honest
+  ranking of relays that already proved it.
+
+### Verify
+
+```bash
+# Unit-level policy and probe semantics
+flutter test --no-pub test/watchdog_policy_test.dart test/data_plane_probe_test.dart
+
+# Real phone: watchdog and handover evidence (release build)
+adb -s <serial> logcat -d -s 'flutter:*' | grep -E \
+  'Data-plane watchdog armed|Data plane verified|probe missed|recovered|CONNECTED via'
+
+# On-device persistent log (open Settings → Connection log); release builds
+# are not debuggable, so run-as is intentionally unavailable.
+
+# The central health pipeline (after merge + workflow enable)
+gh workflow run relay-health.yml
+gh run watch
+```
+
+---
+
 ## Files touched by these solutions
 
 - `android/app/src/main/kotlin/app/bulbvpn/com/SoftEtherVpnService.kt`
@@ -758,6 +1005,22 @@ adb -s 75cecce0 shell "curl -s --interface tun1 --max-time 25 -o /dev/null \
 - `lib/modules/core/relay_target.dart`
 - `lib/modules/core/relay_port_agility.dart`
 - `lib/modules/core/relay_memory.dart`
+- `lib/modules/core/reality/reality_health.dart`
+- `lib/modules/core/data_plane_probe.dart`
+- `lib/modules/core/watchdog_policy.dart`
+- `lib/modules/core/log.dart`
+- `lib/shared/providers/exit_ip_provider.dart`
+- `lib/shared/providers/data_proof_provider.dart`
+- `lib/main.dart`
+- `assets/relays/community_reality.json`
+- `data/reality_health.json`
+- `scripts/probe_reality.py`
+- `.github/workflows/relay-health.yml`
+- `.github/workflows/ci.yml`
+- `test/data_plane_probe_test.dart`
+- `test/watchdog_policy_test.dart`
+- `test/reality_health_test.dart`
+- `test/relay_memory_test.dart`
 - `lib/modules/core/relay_reachability.dart`
 - `test/relay_port_agility_test.dart`
 - `test/relay_memory_test.dart`

@@ -166,6 +166,11 @@ class SettingsScreen extends ConsumerWidget {
                       title: 'Terms',
                       onTap: () => _openUrl(AppLinks.terms),
                     ),
+                    AirRow(
+                      title: 'Connection log',
+                      subtitle: 'Saved on this device · copy when reporting',
+                      onTap: () => _push(context, const LogsScreen()),
+                    ),
                     if (AppLinks.hasSupport)
                       AirRow(
                         title: 'Support',

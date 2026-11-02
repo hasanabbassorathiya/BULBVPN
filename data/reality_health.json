@@ -1,0 +1,72 @@
+{
+  "schema": 1,
+  "generated_at": "2026-11-01T11:39:02.812046+00:00",
+  "catalog_generated_at": "2026-11-01",
+  "healthy": 8,
+  "total": 9,
+  "probes": [
+    {
+      "id": "community-hk-3",
+      "ok": true,
+      "bytes": 65536,
+      "ms": 1994,
+      "error": ""
+    },
+    {
+      "id": "community-us-1",
+      "ok": true,
+      "bytes": 65536,
+      "ms": 4723,
+      "error": ""
+    },
+    {
+      "id": "community-de-2",
+      "ok": true,
+      "bytes": 65536,
+      "ms": 761,
+      "error": ""
+    },
+    {
+      "id": "community-pl-4",
+      "ok": true,
+      "bytes": 65536,
+      "ms": 831,
+      "error": ""
+    },
+    {
+      "id": "community-ee-5",
+      "ok": false,
+      "bytes": 0,
+      "ms": 550,
+      "error": "curl: (35) TLS connect error: error:0A000126:SSL routines::unexpected eof while reading"
+    },
+    {
+      "id": "community-it-6",
+      "ok": true,
+      "bytes": 65536,
+      "ms": 2133,
+      "error": ""
+    },
+    {
+      "id": "community-pl-7",
+      "ok": true,
+      "bytes": 65536,
+      "ms": 1856,
+      "error": ""
+    },
+    {
+      "id": "community-ua-8",
+      "ok": true,
+      "bytes": 65536,
+      "ms": 1238,
+      "error": ""
+    },
+    {
+      "id": "community-us-9",
+      "ok": true,
+      "bytes": 65536,
+      "ms": 1221,
+      "error": ""
+    }
+  ]
+}

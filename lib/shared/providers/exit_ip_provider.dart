@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 
+import 'package:bulbvpn/modules/core/log.dart';
+
 import 'connection_state_provider.dart';
 
 /// The public (exit) IP address as seen from inside the tunnel, plus the
@@ -46,7 +48,7 @@ class ExitIpNotifier extends StateNotifier<ExitIpInfo?> {
     'https://www.cloudflare.com/cdn-cgi/trace',
     'https://api.ipify.org?format=json',
   ];
-  static const _timeout = Duration(seconds: 6);
+  static const _timeout = Duration(seconds: 4);
   static const _retryDelays = <Duration>[
     Duration(seconds: 5),
     Duration(seconds: 15),
@@ -72,16 +74,22 @@ class ExitIpNotifier extends StateNotifier<ExitIpInfo?> {
       if (await _attempt(gen)) return;
     }
     if (gen == _generation) {
+      Log().addLog('[ExitIp] lookup failed after all retries');
       debugPrint('[ExitIp] lookup failed after all retries');
     }
   }
 
+  /// Queries every trace host at once. Serial lookups made a censored or
+  /// slow resolver cost up to three timeouts before the first answer, and the
+  /// exit IP is the user's only independent proof that the tunnel egresses
+  /// where the UI says it does.
   Future<bool> _attempt(int gen) async {
-    for (final url in _traceUrls) {
-      if (gen != _generation) return false;
-      if (await _read(url, gen)) return true;
-    }
-    return false;
+    if (gen != _generation) return false;
+    final results = await Future.wait([
+      for (final url in _traceUrls) _read(url, gen),
+    ]);
+    if (gen != _generation) return false;
+    return results.any((ok) => ok);
   }
 
   Future<bool> _read(String url, int gen) async {
@@ -105,6 +113,7 @@ class ExitIpNotifier extends StateNotifier<ExitIpInfo?> {
       }
       if (ip == null || ip.isEmpty) return false;
       state = ExitIpInfo(ip: ip, loc: loc);
+      Log().addLog('[ExitIp] resolved $ip ($loc) via ${Uri.parse(url).host}');
       debugPrint('[ExitIp] resolved $ip ($loc) via $url');
       return true;
     } catch (_) {

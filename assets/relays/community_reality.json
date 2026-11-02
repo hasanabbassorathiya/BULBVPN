@@ -4,6 +4,20 @@
   "notice": "Community-contributed REALITY relays. They are not private: the operator can see your traffic. Opt-in only.",
   "relays": [
     {
+      "id": "community-hk-3",
+      "country_code": "HK",
+      "country_name": "Hong Kong",
+      "city": "Hong Kong",
+      "host": "165.154.63.139",
+      "port": 443,
+      "uuid": "91ad30e9-ab06-4b4c-9fb9-1c2aa97d8b3a",
+      "public_key": "AE81BrwMc8-kwGEIA1LhzaL03er0Qwt2V-fFy76F5jQ",
+      "short_id": "ca4aedd4",
+      "server_name": "www.amazon.com",
+      "fingerprint": "chrome",
+      "flow": "xtls-rprx-vision"
+    },
+    {
       "id": "community-us-1",
       "country_code": "US",
       "country_name": "United States",
@@ -28,20 +42,6 @@
       "public_key": "PFC3JN1er1JE2vAemwRhNjewz8I4NUWP4XHf2Dza4Es",
       "short_id": "12e321badd07906e",
       "server_name": "play.google.com",
-      "fingerprint": "chrome",
-      "flow": "xtls-rprx-vision"
-    },
-    {
-      "id": "community-hk-3",
-      "country_code": "HK",
-      "country_name": "Hong Kong",
-      "city": "Hong Kong",
-      "host": "165.154.63.139",
-      "port": 443,
-      "uuid": "91ad30e9-ab06-4b4c-9fb9-1c2aa97d8b3a",
-      "public_key": "AE81BrwMc8-kwGEIA1LhzaL03er0Qwt2V-fFy76F5jQ",
-      "short_id": "ca4aedd4",
-      "server_name": "www.amazon.com",
       "fingerprint": "chrome",
       "flow": "xtls-rprx-vision"
     },

@@ -14,6 +14,7 @@ import 'package:bulbvpn/modules/core/vpn_server.dart';
 import 'package:bulbvpn/modules/main/application/server_grouping.dart';
 import 'package:bulbvpn/modules/main/application/server_ping_provider.dart';
 import 'package:bulbvpn/shared/air/trust_badge.dart';
+import 'package:bulbvpn/shared/providers/connection_state_provider.dart';
 import 'package:bulbvpn/shared/widgets/staggered_in.dart';
 
 /// Currently picked server (null = auto / test config).
@@ -71,14 +72,25 @@ class _ServerSheetState extends ConsumerState<ServerSheet> {
     super.dispose();
   }
 
+  /// A live or starting tunnel owns the radio and the routing table. A probe
+  /// measured through it would describe the tunnel, not the carrier path, and
+  /// the sweep would compete with the handshake. Measure only while idle.
+  bool get _canMeasure {
+    final status = ref.read(connectionStateProvider).status;
+    return status == ConnectionStatus.disconnected ||
+        status == ConnectionStatus.error ||
+        status == ConnectionStatus.noInternet;
+  }
+
   void _refreshPings() {
-    if (!mounted) return;
+    if (!mounted || !_canMeasure) return;
     final servers = ref.read(serversProvider).valueOrNull;
     if (servers == null || servers.isEmpty) return;
     unawaited(ref.read(serverPingProvider.notifier).ensureFresh(servers));
   }
 
   Future<void> _pingAll() async {
+    if (!_canMeasure) return;
     final servers = ref.read(serversProvider).valueOrNull;
     if (servers == null || servers.isEmpty) return;
     await ref.read(serverPingProvider.notifier).pingAll(servers);
@@ -93,8 +105,7 @@ class _ServerSheetState extends ConsumerState<ServerSheet> {
     final reality = ref.watch(realitySettingsProvider);
     final realitySupported = ref.watch(realitySupportedProvider);
     final realityRelays =
-        ref.watch(realityRelaysProvider).valueOrNull ??
-        const <RealityRelay>[];
+        ref.watch(realityRelaysProvider).valueOrNull ?? const <RealityRelay>[];
 
     ref.listen(serversProvider, (_, next) {
       if (next.valueOrNull?.isNotEmpty == true) _refreshPings();
@@ -362,7 +373,8 @@ class _ServerSheetState extends ConsumerState<ServerSheet> {
                         _RelayRow(
                           code: 'AUTO',
                           title: 'Auto',
-                          subtitle: 'Ranked by success on this network'
+                          subtitle:
+                              'Ranked by success on this network'
                               '${count > 0 ? ' · $count relays' : ''}',
                           latency: '',
                           selected: selected,
@@ -592,10 +604,7 @@ class _RealitySwitch extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 8),
-            Switch.adaptive(
-              value: enabled,
-              onChanged: onChanged,
-            ),
+            Switch.adaptive(value: enabled, onChanged: onChanged),
           ],
         ),
       ),
@@ -634,7 +643,9 @@ class _RealityNotice extends StatelessWidget {
 
 sealed class _Entry {
   const _Entry();
-}class _AutoEntry extends _Entry {
+}
+
+class _AutoEntry extends _Entry {
   const _AutoEntry();
 }
 

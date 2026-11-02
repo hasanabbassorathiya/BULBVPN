@@ -53,9 +53,12 @@ class ServerPingNotifier extends StateNotifier<ServerPingState> {
   List<VpnServer> _lastServers = const [];
   DateTime? _finishedAt;
 
+  /// Bumped by [stopProbing] and [invalidate]. A worker that started under an
+  /// older generation drops its result instead of publishing a stale value.
+  int _generation = 0;
+
   /// True when the last completed sweep is old enough to be worth repeating
-  /// (the home screen and the server sheet use this instead of wiping fresh
-  /// values on every visit).
+  /// (the server sheet uses this instead of wiping fresh values on every open).
   bool get isStale =>
       _finishedAt == null ||
       DateTime.now().difference(_finishedAt!) > _staleAfter;
@@ -74,20 +77,43 @@ class ServerPingNotifier extends StateNotifier<ServerPingState> {
       return;
     }
     _running = true;
+    final generation = _generation;
 
     try {
       do {
+        if (generation != _generation) break;
         _rerunRequested = false;
-        await _probeAll(_lastServers);
-      } while (_rerunRequested);
+        await _probeAll(_lastServers, generation);
+      } while (_rerunRequested && generation == _generation);
     } finally {
       _running = false;
-      _finishedAt = DateTime.now();
-      state = state.copyWith(probing: false);
+      if (generation == _generation) {
+        _finishedAt = DateTime.now();
+        state = state.copyWith(probing: false);
+      }
     }
   }
 
-  Future<void> _probeAll(List<VpnServer> servers) async {
+  /// Hands the radio back when a real dial starts. Results already measured
+  /// are kept; only the probes that have not started are dropped. Probing 106
+  /// relays while the tunnel handshake is in flight delays the thing the user
+  /// actually asked for.
+  void stopProbing() {
+    _rerunRequested = false;
+    _generation++;
+    if (_running) state = state.copyWith(probing: false);
+  }
+
+  /// The physical network changed, so every measured latency describes the
+  /// old path. Drops the table without starting a new sweep.
+  void invalidate() {
+    _rerunRequested = false;
+    _generation++;
+    _finishedAt = null;
+    state = const ServerPingState();
+  }
+
+  Future<void> _probeAll(List<VpnServer> servers, int generation) async {
     final fresh = <String, ServerPing>{
       for (final s in servers) s.ip: ServerPing.pending,
     };
@@ -98,10 +124,11 @@ class ServerPingNotifier extends StateNotifier<ServerPingState> {
 
     Future<void> worker() async {
       while (true) {
+        if (generation != _generation) return;
         final i = next++;
         if (i >= slots.length) return;
         final server = servers[i];
-        await _probeOne(server);
+        await _probeOne(server, generation);
       }
     }
 
@@ -112,12 +139,14 @@ class ServerPingNotifier extends StateNotifier<ServerPingState> {
     final workers = List.generate(workerCount, (_) => worker());
     await Future.wait(workers);
 
-    Log().addLog(
-      '[Ping] Measured ${state.byIp.values.where((p) => p.status == PingStatus.ok).length}/${servers.length} servers',
-    );
+    if (generation == _generation) {
+      Log().addLog(
+        '[Ping] Measured ${state.byIp.values.where((p) => p.status == PingStatus.ok).length}/${servers.length} servers',
+      );
+    }
   }
 
-  Future<void> _probeOne(VpnServer server) async {
+  Future<void> _probeOne(VpnServer server, int generation) async {
     Socket? socket;
     final stopwatch = Stopwatch()..start();
     try {
@@ -144,10 +173,10 @@ class ServerPingNotifier extends StateNotifier<ServerPingState> {
       socket = await attempt.timeout(_timeout);
       stopwatch.stop();
       final ms = stopwatch.elapsedMilliseconds;
-      _publish(server.ip, ServerPing.ok(ms));
+      _publish(server.ip, ServerPing.ok(ms), generation);
     } catch (_) {
       stopwatch.stop();
-      _publish(server.ip, ServerPing.timeout);
+      _publish(server.ip, ServerPing.timeout, generation);
     } finally {
       try {
         socket?.destroy();
@@ -155,16 +184,11 @@ class ServerPingNotifier extends StateNotifier<ServerPingState> {
     }
   }
 
-  void _publish(String ip, ServerPing ping) {
+  void _publish(String ip, ServerPing ping, int generation) {
+    if (generation != _generation) return;
     final cur = Map<String, ServerPing>.from(state.byIp);
     cur[ip] = ping;
     state = state.copyWith(byIp: cur);
-  }
-
-  void clear() {
-    if (_running) return;
-    state = const ServerPingState();
-    _finishedAt = null;
   }
 }
 

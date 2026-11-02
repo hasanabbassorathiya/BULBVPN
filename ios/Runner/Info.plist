@@ -28,7 +28,7 @@
 	<string>????</string>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
-	<key>GADApplicationIdentifier</key><string>ca-app-pub-3940256099942544~1458002511</string>
+	<key>GADApplicationIdentifier</key><string>ca-app-pub-3075850349836552~4383829994</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSDocumentsFolderUsageDescription</key>

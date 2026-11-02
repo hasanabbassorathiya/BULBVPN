@@ -46,6 +46,8 @@ class _AdBannerState extends ConsumerState<AdBanner> {
 
   Future<void> _load() async {
     if (!mounted || !_adsAllowed || _loading || _loaded) return;
+    final unitId = AdConfig.bannerUnitIdFor(isIos: Platform.isIOS);
+    if (unitId.isEmpty) return;
     _loading = true;
     try {
       final ready = await AdService.initialize();
@@ -58,7 +60,7 @@ class _AdBannerState extends ConsumerState<AdBanner> {
       if (!mounted) return;
       final ad = BannerAd(
         size: size,
-        adUnitId: AdConfig.bannerUnitIdFor(isIos: Platform.isIOS),
+        adUnitId: unitId,
         request: const AdRequest(),
         listener: BannerAdListener(
           onAdLoaded: (loaded) {
