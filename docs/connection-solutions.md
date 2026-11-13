@@ -3,7 +3,7 @@
 Living record of the fixes being tried for BULBVPN, why they were needed, and
 what the device evidence showed. Newest work is at the top of the attempt table.
 
-Last updated: 2026-11-01
+Last updated: 2026-11-07
 
 ---
 
@@ -11,7 +11,8 @@ Last updated: 2026-11-01
 
 | Area | Status | Evidence |
 |---|---|---|
-| Android data path (SoftEther) | **Working** | `tun1` has RX/TX, `ping 1.1.1.1` ~600 ms; connect 10.2 s; `effective=219.100.37.11`, country `JP` |
+| Android data path | **REALITY/XHTTP only, as of 2026-11-07** | SoftEther and OpenVPN are no longer dialled on Android; the measured rows below predate that change and describe the SoftEther path that still runs on Apple |
+| Apple data path (SoftEther) | **Working** | `tun1` has RX/TX, `ping 1.1.1.1` ~600 ms; connect 10.2 s; `effective=219.100.37.11`, country `JP` |
 | Android notification text | **Fixed and verified on device** | `Connected · encrypted tunnel`; removed on shutdown |
 | Truthful connected/country state | **Working** | UI reads `connectedRelayProvider`, not the picker |
 | Effective relay IP byte order | **Fixed and verified** | native network-order IP reversed before display; last-good now `219.100.37.11` |
@@ -20,7 +21,7 @@ Last updated: 2026-11-01
 | Auto relay ordering on IR carriers | **Open** | some public relays answer HTTP 404 / `-5` / `-4`; next-gen research says move off public relays |
 | Relay port agility (992 / 1194) | **Fixed and verified on device** | 443 filtered → `217.138.212.62:992` connected in 12.6 s with live traffic; default 443 regression re-checked |
 | REALITY relay fleet + real-data gate | **Working; fleet throttled on this network** | 512 KiB transfer required through the live TUN (128 KiB in 10 s floor); dead relays rejected with DNS/TLS/timeout reasons; exit IP read from `1.1.1.1/cdn-cgi/trace` |
-| Per-network engine health (REALITY cooldown) | **Fixed and verified on device** | 3 dead sessions → `REALITY skipped: recent sessions on this network carried no data` → SoftEther connected in 10.7 s |
+| Per-network engine health (REALITY cooldown) | **Recorded, no longer gates the dial on Android** | The skip was measured when a fallback existed: 3 dead sessions → `REALITY skipped: recent sessions on this network carried no data` → SoftEther connected in 10.7 s. With one engine on Android, skipping was not a delay but a guaranteed failure for 20 minutes, so the streak still feeds relay ordering and no longer refuses the connect (§13) |
 | End-to-end browsing over the chosen session | **Verified on device** | Chrome rendered `en.wikipedia.org` through the SoftEther tunnel; `tun1` moved 380,608 B in 25 s |
 | Next-gen architecture research | **Complete** | `docs/research-vpn-architecture.md`: REALITY TCP/443 primary, Xray-core via `flutter_vless` |
 | App crash during failing connect (native) | **Fixed and verified** | 5-minute AHS loop; crash buffer empty; stale client is no longer freed under a newer handshake |
@@ -351,6 +352,18 @@ cut" fallback, **Hysteria2** as an opportunistic UDP upgrade, and
 product cannot be built on public VPN Gate relays; they stay as a bootstrap
 fallback until owned relays and a signed catalog exist.
 
+**Superseded on Android, 2026-11-07.** Android now dials REALITY/XHTTP and
+nothing else: SoftEther and OpenVPN are removed from that branch, and the
+budget they used to reserve is spent exploring relays instead. The reason is
+the whitelist study (arXiv 2507.14183) — Irancell and MCI forward only DNS/53,
+HTTP/80 and HTTPS/443 and silently drop everything else, which is exactly the
+SoftEther and OpenVPN control channel — plus the live report of the mobile
+build spending its whole connect budget on handshakes that could never
+complete and then reporting the same error the REALITY loop had already
+established. Apple keeps SoftEther first with OpenVPN behind it until the
+packet-tunnel extension is verified carrying REALITY; VPN Gate relays stay in
+the product as that Apple fallback and as the catalog the health probes read.
+
 ### Why
 
 - Iran's 2025–2026 filtering is layered: DNS poisoning, SNI filtering, TCP RST,
@@ -382,7 +395,8 @@ fallback until owned relays and a signed catalog exist.
 ### Immediate next actions
 
 1. Add `flutter_vless` and a `TunnelEngine`/`TunnelCoordinator` abstraction;
-   keep SoftEther as the fallback.
+   keep SoftEther as the fallback on Apple only — Android went REALITY/XHTTP
+   exclusively once the port whitelist explained why it could never dial.
 2. Validate the packaged Xray-core with a REALITY profile (`xray run -test`,
    then a live handshake) on Android, iOS, and macOS.
 3. Implement the pre-connect race and per-network last-good verification.
@@ -697,6 +711,12 @@ like to a user.
   relay re-enables REALITY.
 - This is deliberately network-scoped: a fleet that fails on a censored
   carrier is retried as soon as the device joins a different network.
+- **Superseded on Android, 2026-11-07.** Android dials one engine now, so the
+  skip had nothing to hand the budget to: three dead sessions turned into
+  twenty minutes of certain failure instead of a slower attempt. The streak is
+  still recorded on every session, and `engineRecentlyFailing` still answers
+  it, but no dial path consults the answer. Apple keeps the same recording and
+  never gated on it — `_tryReality` has one call site, the Android branch.
 
 ### Evidence
 
@@ -728,13 +748,17 @@ like to a user.
 - The gate costs up to 10 s per rejected relay. With the 3-dial cap and the
   per-network cooldown, a censored network pays that once and then goes
   straight to SoftEther for 20 minutes.
+- **That last sentence no longer describes Android.** The fleet is dialled on
+  every attempt now, so a censored network pays the gate cost again each time;
+  what bounds it is the connect budget, not a cooldown. The 10.7 s fallback
+  above is SoftEther-era evidence and still holds on Apple.
 
 ### Verify
 
 ```bash
 # Fleet decisions and gate reasons
 adb -s 75cecce0 logcat -d -v time | grep -E \
-  'REALITY dial|did not carry data|REALITY skipped|CONNECTED via REALITY'
+  'REALITY dial|did not carry data|No tunnel on Android|CONNECTED via REALITY'
 
 # Exit evidence on a REALITY session
 adb -s 75cecce0 logcat -d -v time | grep -E 'CONNECTED via REALITY.*exit'
@@ -1072,12 +1096,553 @@ confirm it adopts the tunnel, that the pill only reads "traffic confirmed"
 after a real probe, and that Disconnect now stops a tunnel this process never
 started.
 
+### A second cause of the same symptom, found on the emulator (2 Nov)
+
+That section fixed the *orphaned daemon* path. A different mechanism produced
+the identical reading -- Connected in the OS, Disconnected in the app -- and
+this one the app did to itself.
+
+The throughput verdict is launched with `unawaited(...)`, so a dial returns
+while the claim is still `analyzing`: handshake complete, first byte not yet
+judged, tunnel really installed. Neither the post-dial check nor the recovery
+timer knew that. Each read `connectionStateProvider.status` *before* its own
+awaits and never re-read it, so an unjudged handshake counted as a failed
+press, the ladder armed, and the timer tore down the session it was waiting to
+prove. On the emulator that looked like this:
+
+```
+CONNECTED via 219.100.37.111:443
+Auto-reconnect 1/10
+Throughput after connect: 64 KiB in 8092ms (~7 KiB/s) via 219.100.37.111
+SoftEther dial failed: connect code -12
+```
+
+The session had proven 64 KiB and was destroyed anyway, then the retry failed
+against a relay the censorship had just stopped answering.
+
+`lib/modules/core/session_liveness.dart` names the invariant once --
+`holdsLiveSession()` is true for `connected` **and** `analyzing` -- and
+`vpn_controller.dart` applies it at all four places a retry decision is made:
+the ladder entry, the timer body before its probes, the timer body immediately
+after them (both probes are awaits, so a dial can come up underneath them),
+and the post-dial check.
+
+This cannot strand a dead tunnel. Both `setAnalyzing()` sites are followed by
+the probe, `_downloadThroughTunnel` never throws, and the zero-byte path
+already owns `setDisconnected()` plus `_scheduleRecovery()` -- so every
+`analyzing` has exactly one authority, and it is not the timer.
+
+### Verify
+
+Measured on `BulbVpn_Fresh` (android-35, arm64-v8a), full log in
+`docs/vpn-issues.md`:
+
+```
+16:45:55 CONNECTED via SoftEther 219.100.37.179 (JP)
+16:46:04 Throughput after connect: 64 KiB in 6738ms -> watchdog armed
+16:46:05 [ExitIp] resolved 219.100.37.244 (JP)   (three probe hosts agree)
+         Auto-reconnect: 0 lines; UI still Connected at uptime 00:04:25
+```
+
+Then `iptables -I OUTPUT -d 219.100.37.0/24 -j DROP` blackholed the live relay
+to prove the guard does not disarm real recovery:
+
+```
+16:51:16 Data-plane probe missed (1/2) on 219.100.37.179
+16:51:23 Tunnel dropped unexpectedly; scheduling recovery
+16:51:25 Auto-reconnect 1/10
+16:51:53 CONNECTED via SoftEther 217.138.212.62 (RO)
+16:52:00 Throughput after connect: 64 KiB in 4910ms (~13 KiB/s)
+```
+
+```bash
+flutter test test/session_liveness_test.dart test/docs_vpn_issues_contract_test.dart
+```
+
+Still open: the same churn on Iranian LTE, where the redial that followed the
+teardown was the part users actually felt.
+
+---
+
+## 17. Our own stalled tunnel was blamed on another app
+
+### The failure this fixes
+
+The symptom from section 16 came back on SoftEther sessions, and with a worse
+side effect: the app not only read Disconnected while the OS still showed a
+VPN key, it **forgot which relay it was using**. Separately, a connect that
+dialled a reachable-looking relay and then stalled was reported as Connected
+for as long as the handshake took to be judged, and one stalled dial switched
+the app into a state where nothing retried for the rest of the session.
+
+### Root cause
+
+Three independent causes, all traceable to the same habit of reading one
+signal where three disagree.
+
+1. **`TunnelLiveness.classify()` only knew one owner.** It asked "is our
+   REALITY daemon alive?" and, when the answer was no, returned
+   `otherOwner` -- "a VPN is up, but it is not ours". For SoftEther that is
+   simply wrong: the service runs in the UI process, and `isTunnelUp()` (the
+   native accessor behind every liveness read) is the *strict* claim --
+   `tunnelUp && client != 0L && carrierUp`. During a carrier blip, a
+   half-torn-down session or a stalled dial, `tunnelUp` is still true and the
+   TUN is still **ours**, but `isTunnelUp()` reads false. So our own interface
+   looked like some other app's VPN, and because
+   `clearsSessionOnRestart()` was defined as `classify() != reality`, the
+   resume path then ran `VpnSessionStore.clear()` and threw away the relay
+   record of a tunnel we were still holding. The kill-switch TUN had the same
+   problem: a lockdown we engaged is unmistakably ours, and it was also
+   classified as someone else's.
+
+2. **A handshake was allowed to claim Connected before any byte crossed.**
+   `_markRelayConnected()` published `connected` for SoftEther and OpenVPN on
+   the engine's own word, and the throughput probe ran afterwards. The user's
+   complaint -- lowest ping in the list, then "it fails badly" -- is exactly
+   this: a relay that completes a TLS handshake and forwards nothing earned
+   the green state for the length of the probe window.
+
+3. **A stalled dial was recorded as a user-initiated stop.**
+   `_abortConnectBudget()` set `_manualDisconnect = true` when the overall
+   connect budget ran out. That flag means "the user asked to be off"; it
+   disarms auto-reconnect, the warm reconnect and the watchdog for the rest of
+   the session. A censored network that eats one dial therefore ended the
+   press even though the user asked for a tunnel.
+
+The remaining findings were smaller instances of the same class: two
+lifecycle resumes could interleave and fight over one tunnel, an adopted
+session reset its own uptime clock, a negative duration rendered as a
+`-00:01:23` pill, a `reconnect()` tore down SoftEther but left the other
+engine's interface installed, the split-tunnel label read the editor-intent
+flag instead of the applied mode (an empty allow-list silently routes
+everything and would have said "selected apps only"), and `stop()` carried a
+doc comment describing a constraint that belongs to `establish()`.
+
+### What changed
+
+- `android/.../SoftEtherVpnService.kt` -- `holdsTunnel()`: the raw `tunnelUp`
+  flag, i.e. "the TUN this process opened is still installed", kept separate
+  from `isTunnelUp()`'s "it is carrying traffic".
+- `android/.../MainActivity.kt` -- `systemState` now also returns
+  `softEtherTunnelUp` (via `holdsTunnel()`) and `lockedDown`. Both are read
+  from the flags that *opened* the interface, never from the stricter accessor.
+- `lib/modules/core/tunnel_liveness.dart` -- `SystemVpnState.oursHeld` and a
+  new `OrphanTunnel.ours` arm, tested **before** the daemon test: an interface
+  this process opened is ours even when its own flags say it stopped
+  forwarding. `clearsSessionOnRestart()` now preserves the record for both
+  `reality` and `ours`.
+- `main_screen.dart:_restoreLiveTunnelOnce()` -- the `ours` arm logs that our
+  TUN is held but carrying no traffic and keeps the relay record. The
+  interface is deliberately *not* torn down here: lifting a kill switch on a
+  lifecycle callback would leak traffic.
+- `vpn_controller.dart` -- the claim is now earned by bytes.
+  `_markRelayConnected()` publishes `analyzing` (UI label "checking the first
+  byte") instead of `connected`. `_claimTunnelUp()` is the single place that
+  promotes to `connected`, and it is reached only by: a healthy probe, an
+  inconclusive probe (`bytes < 0`, no reliable judge host), an unreadable
+  counter (`elapsedMs <= 0`), or bytes that crossed but under the healthy
+  threshold (slow relay -- claim it, then let the pending rotation replace it).
+  Zero forwarded bytes with the one rotation already spent tears the interface
+  down, records the dial failure and the engine outcome, marks the relay dead
+  and hands off to bounded recovery. `_verifyTunnelThroughput()` accepts
+  `connected` **or** `analyzing`, so no path can strand a session in
+  "checking the first byte".
+- `vpn_controller.dart:_abortConnectBudget()` -- no longer sets
+  `_manualDisconnect`. It invalidates in-flight loops, stops every engine,
+  engages the kill switch and surfaces an error; recovery is bounded by
+  `_maxAutoReconnects` instead of being disabled.
+- `vpn_controller.dart:verifyConnectionNow()` -- public: re-runs the watchdog
+  tick on demand (used after adopting a tunnel, so a restored session has to
+  earn "traffic confirmed" rather than inherit trust). Arm-on-demand if the
+  watchdog was never started.
+- `main_screen.dart` -- `_restoreLiveTunnel()` is now a coalescing wrapper
+  around `_restoreLiveTunnelOnce()`: overlapping resumes set a "run again"
+  flag instead of racing. `_connectedAt ??= DateTime.now()` so an adopted or
+  restored session keeps its persisted `startedMs`.
+- `main_screen.dart` -- the connected pill reads
+  `'selected apps only · tunnel up'` when the applied split mode is
+  `TunnelMode.allow` and the traffic proof is stale; it does not claim
+  confirmed traffic for a route that cannot carry the probe.
+- `vpn_controller.dart:reconnect()` -- also disconnects the other engine, so a
+  teardown cannot leave one interface installed while the next dial asks for a
+  second.
+- `vpn_controller.dart` -- the "traffic confirmed" gate reads
+  `splitTunnelProvider.appliedMode != TunnelMode.all` (authoritative) rather
+  than `isSplit` (editor intent).
+- `lib/shared/widgets/staggered_in.dart:formatDuration()` -- clamps negative
+  durations to zero before splitting into `h:mm:ss`.
+- `MainActivity.kt:onDestroy()` -- bumps `pendingToken`, clears `pending`,
+  releases the global `SoftEtherVpnService.onDone` slot and drops queued
+  handler callbacks, so a dying activity cannot call back into a dead channel.
+- `reality_engine.dart` -- the "waits until the service releases the TUN, a
+  second `establish()` would fail" contract moved from `adoptDaemonSession()`
+  onto `stop()`, which is what it actually describes.
+
+**Deferred, deliberately (F5).** Replacing the global
+`SoftEtherVpnService.onDone` slot with an `EXTRA_CONNECT_TOKEN` echoed back on
+every callback spans two Kotlin files plus Dart and cannot be compile-checked
+here. The exposure is already bounded: a `pending != null` "busy" guard,
+`pending === result` identity checks, Dart's 40 s `.timeout()` on `connect`,
+Kotlin's own 45 s `postDelayed`, and the new `onDestroy` cleanup.
+
+### Verify
+
+```bash
+flutter analyze --no-pub          # only the pre-existing upload_measurement_service warning
+flutter test --no-pub             # 138 tests, incl. test/tunnel_liveness_test.dart
+cd android && ./gradlew --offline :app:compileReleaseKotlin
+```
+
+Device cases the tests cannot cover: (a) start SoftEther, drop the carrier,
+resume the app and confirm the relay record survives instead of the pill going
+to a blank Disconnected; (b) enable the kill switch alone, resume, and confirm
+it is not read as another app's VPN; (c) dial a relay that handshakes but
+forwards nothing and confirm the app never shows plain "Connected" -- it should
+sit at "checking the first byte" and then fail; (d) let a connect burn the
+budget and confirm a second press still retries.
+
+**Compiled, still not device-verified.** `:app:compileReleaseKotlin` and
+`:app:compileDebugKotlin` both run green (Gradle 9.1, 226 tasks, only two
+`allNetworks` deprecation warnings), so the three Kotlin edits --
+`holdsTunnel()`, the two new `systemState` keys, and `onDestroy()` -- build.
+The Apple side parses clean under `swiftc -parse`, which is a syntax check
+only: nothing was linked or run. `adb devices` is still empty and the host is
+still at 100% disk, so cases (a)-(d) above remain unproven and no claim is
+made about tunnel behaviour on a real radio.
+
+## 18. Mobile data hung at the handshake: our ClientHello was two packets
+
+Reported by the user against the live app: **"VPN connection fails and hang up on
+real device on mobile data on android live app."** The same build works on fixed
+lines, which is the split the community keeps reporting -- "None of my users has
+problem connecting using a fixed line like ADSL", while the mobile-data failures
+"seem to be at the IP-level as I can't see their connection in my logs"
+([net4people/bbs #365](https://github.com/net4people/bbs/issues/365),
+[#231](https://github.com/net4people/bbs/issues/231)). So the previous sections'
+emulator evidence was not evidence about this bug at all, and this section is
+written against primary sources instead.
+
+### What the handshake looked like from our side
+
+`fingerprint: 'chrome'` is what every catalog relay publishes
+(`assets/relays/community_reality.json`), and Xray resolves `chrome` to
+uTLS' `HelloChrome_Auto` -- the *current* Chrome, which since Chrome turned on
+post-quantum key agreement sends a `key_share` carrying `X25519MLKEM768`
+(1184-byte encapsulation key) alongside X25519. Measured, not assumed:
+
+```bash
+cd tool/hellosize && go run main.go
+```
+
+```
+CH bytes   segments      key_share groups            fingerprint
+512        1 (fits MTU)  X25519                      helloios_13
+512        1 (fits MTU)  CurveID(...)+2              hellochrome_100
+512        1 (fits MTU)  CurveID(...)+2              hellochrome_106_shuffle
+597        1 (fits MTU)  CurveID(...)+2              hellochrome_120
+661        1 (fits MTU)  X25519+2                    hellofirefox_120
+1819       2 (split)     X25519MLKEM768+3            chrome        <-- what we shipped
+1888       2 (split)     X25519MLKEM768+3            firefox
+1536       2 (split)     CurveID(...)+3              safari
+```
+
+It builds against the same uTLS revision the bundled core pins
+(`dev.tfox.fluttervless:xray-android:26.10.17-protect1` →
+`refraction-networking/utls v1.8.3-0.20260301010127-aa6edf4b11af`, read out of
+`XTLS/Xray-core@main/go.mod`), so the numbers describe the binary on the phone.
+
+1819 bytes is two TCP segments. Hiddify's REALITY page names this exactly: the
+hybrid `X25519MLKEM768`+`X25519` key share makes the ClientHello ~1.7 KB and
+"some networks drop or block such ClientHellos", and their countermeasure is
+`key_share: "classical"` -- a classical key share, one segment. That field is a
+sing-box knob and does not exist in Xray; in Xray the same lever is
+`realitySettings.fingerprint`, which selects the whole hello. The symptom fits:
+TCP reaches the relay, the hello leaves, nothing ever answers.
+
+### Two things this is NOT, each closed by measurement
+
+**Not a broken camouflage target.** REALITY splices the client hello to the
+`server_name` site and only starts the tunnel if that site answers TLS 1.3 with
+an `X25519` or `X25519MLKEM768` key share and no `HelloRetryRequest`; otherwise
+"the server splices a raw pipe to dest and never starts the VLESS session"
+([Xray-core #6861](https://github.com/XTLS/Xray-core/issues/6861)). All six
+targets in our catalog were tested against that contract from this host:
+
+```bash
+for h in www.amazon.com www.cloudflare.com play.google.com cloudflare.com \
+         addons.mozilla.org www.apple.com; do
+  /opt/homebrew/bin/openssl s_client -tls1_3 -connect $h:443 -servername $h \
+    -alpn h2,http/1.1 -groups X25519MLKEM768:X25519:secp256r1:secp384r1 -trace </dev/null 2>&1 \
+  | grep -E 'Negotiated TLS1.3 group:|ALPN protocol:|HelloRetryRequest'
+done
+```
+
+Every one: `Negotiated TLS1.3 group: X25519MLKEM768`, `ALPN protocol: h2`, zero
+`HelloRetryRequest`. The targets are fine; this hypothesis is dead.
+
+**Not fixable by fragmentation.** Iran began dropping *all* fragmented
+`tlshello` packets around late July 2026, structurally rather than by depth,
+even with a clean SNI
+([net4people/bbs #640](https://github.com/net4people/bbs/issues/640)). Adding
+`fragment` would make a two-segment hello a *target* instead of an accident, so
+the fix is a hello that never needs splitting, and the ladder deliberately
+contains no fragment settings. Recorded here so nobody re-adds it.
+
+### Why the community pool keeps dying anyway
+
+Borrowed SNI is fingerprintable without touching the payload: log the
+`(SNI, destination IP)` pair, resolve the SNI, compare. nDPI ships that check
+today as `NDPI_UNRESOLVED_HOSTNAME`, motivated by "VPN-like applications that
+connect to malicious IPs using popular SNIs", and same-/24 borrowing does not
+defeat it ([net4people/bbs #668](https://github.com/net4people/bbs/issues/668)).
+Five of our nine relays also sit on ports 2053/2112/10105, which is the other
+half of that sweep -- "search certificate fingerprints of Apple, Microsoft and
+Yahoo with port != 443, tens of thousands of hosts, easy list" (#668 comment,
+2026-09-25), and #254 reports borrowed-SNI nodes getting cut at the first
+handshake. This is why the fleet needs IP rotation rather than protocol
+tweaks, and why the durable answer is a relay whose SNI resolves to its own IP
+("steal your own"), which the import vault already accepts.
+
+### Changes
+
+- `reality_relay.dart:115` -- `handshakeLadder`: `hellochrome_120` (597 B),
+  `ios` (512 B), `hellochrome_106_shuffle` (512 B), all one segment. `android`
+  and `360` are excluded because they offer no TLS 1.3 and the core refuses them
+  with "REALITY handshake cannot establish" (`reality.go:186`).
+- `reality_relay.dart:126` -- `wideHelloShapes`, the measured >1448 B names, so
+  a relay whose author already publishes a narrow hello is not re-dialled.
+- `reality_relay.dart:162` -- `dialPlan()`: address and hello shape are separate
+  axes. The head relay gets the whole ladder (a shape block hits every relay at
+  once, so the question is answered in one place); later relays get the narrow
+  shape plus the published one. Imported links are dialled exactly as pasted --
+  rewriting a fingerprint there would override a deliberate choice.
+- `vpn_controller.dart:3357` -- relays with no local history are now tried
+  443-first, by partition rather than sort so the measured health order inside
+  each group survives.
+- `vpn_controller.dart:3368` -- the connect loop dials
+  `dialPlan(queue, preferredShape:)`, and a relay's failure is charged to its
+  history once, on its last shape, not once per shape.
+- `vpn_controller.dart:266` -- `_maxRealityAttempts` 3 → 6. Re-dialling after a
+  reset carries no penalty on these networks: the Iran whitelist study observed
+  connections behaving identically immediately after a block lifted ("no
+  residual effects", [#630](https://github.com/net4people/bbs/issues/630)), so
+  extra dials are yield, and the existing 35 s reserve is what bounds the pass.
+- Every dial now logs its shape (`REALITY dial <endpoint> hello <fp> attempt
+  n/6`), which is what makes a captured live-user log able to answer this
+  question for us.
+- `vpn_controller.dart:3256` -- the gate that declines to run REALITY at all
+  (nothing imported, community switch off) now logs why instead of returning
+  `false` in silence. Before this, a log pulled off a phone on LTE showed
+  SoftEther attempts and nothing else, which reads exactly like "REALITY was
+  tried and failed" -- the one misreading that would have sent the next round
+  of work down the wrong axis. (The sentence above this one predates 6 Nov:
+  the community pool is now on by default, so the gate fires only when the
+  user threw the switch -- see §19.)
+
+### Verify
+
+```bash
+cd tool/hellosize && go run main.go            # the byte table above
+flutter analyze lib/modules/core/reality/reality_relay.dart \
+                lib/modules/core/vpn_controller.dart   # pre-existing lint only
+flutter test test/reality_catalog_test.dart    # 13 tests, 4 new
+```
+
+The new tests pin the ladder names against Xray's fingerprint table
+(transcribed from `transport/internet/tls/tls.go` at `v26.10.21`), because a
+name the core does not know returns nil from `GetFingerprint` and kills every
+REALITY dial with "failed to get fingerprint" before a packet leaves.
+
+**Not device-verified.** `adb devices -l` is empty on this host and the build
+proxy at `127.0.0.1:7897` is closed, so nothing here was dialled from an
+Iranian cell tower. What is proven: the hello our build emitted was 1819 B, the
+shapes now tried first are ≤661 B, the targets satisfy the #6861 contract, and
+the plan ordering is tested. What is still a claim: that the smaller hello
+completes on Irancell/MCI. The falsification is one press on the phone -- if it
+still hangs, the log line names the shape that hung, and the next axis from the
+sources is the transport (`tcp` → `xhttp`/`grpc`, which #5332 reports working
+where tcp+REALITY is blocked), not a bigger retry list. That axis has a
+precondition this repo cannot satisfy alone: `xhttp` and `grpc` are listened
+for by the relay, not chosen by the client, so re-dialling a tcp-only community
+relay over `xhttp` is a guaranteed handshake failure rather than an experiment.
+The transport path already works for anything a user pastes -- `link`-based
+relays are regenerated by the bundled config builder, so an `xhttp`+REALITY
+server from a subscription is dialled exactly as its operator built it.
+
+### The second connect stops re-asking the question
+
+The ladder answers "which hello does this carrier drop" by spending up to three
+dials to find out, and then forgot the answer: every reconnect -- after a radio
+handover, a sleep, a rotate -- walked it again from the top. On a slow LTE link
+that repeated search is itself the "hang up" the user reports.
+
+- `relay_memory.dart:368` -- `recordHandshakeShape()` / `recallHandshakeShape()`:
+  the hello that last carried a *verified transfer* on this network, keyed by
+  network fingerprint alone. The shape is a property of the carrier, not of the
+  relay -- a network that drops a two-segment hello drops it from every address
+  at once -- so a per-relay record would be the wrong granularity, and a
+  per-network one is the whole point.
+- It is written only from `_markRealityConnected`, which the connect loop
+  reaches after the data gate. A handshake alone cannot earn it, so this memory
+  obeys the same rule as every other claim in this file: a low ping is not
+  success.
+- `reality_relay.dart:162` -- `dialPlan(queue, preferredShape:)`. The
+  remembered hello leads, the head relay keeps the ladder behind it as
+  insurance against a carrier that changed its mind, and later relays are
+  dialled at the proven shape alone because the only question left for them is
+  the address. A pasted link is still never rewritten.
+- `vpn_controller.dart:3371` logs `REALITY leading with hello <fp>` so an
+  exported log says whether the memory was being trusted or was stale.
+- The success and data-gate lines now name the shape too
+  (`CONNECTED via REALITY <endpoint> (hello <fp>, …)`), which is the datum a
+  fleet-wide decision would need: which shape to publish in the catalog.
+
+### Verify
+
+```bash
+flutter test test/reality_catalog_test.dart test/relay_memory_test.dart
+```
+
+71 tests across the relay cluster, 6 new: the remembered shape leads and is not
+dialled twice, a later relay walks addresses rather than shapes, a pasted link
+survives a remembered shape untouched, and the memory is scoped per network and
+refuses to record on `offline`/`unknown`. Full suite at that point: 224 tests.
+
+---
+
+## 19. Nothing upstream was refreshing what a phone reads
+
+The instruction was to remove what blocks or half-works and make the connect
+stop failing. Two findings below changed the plan; both were measured, and one
+of them killed a hypothesis this repo had already written down.
+
+### The pipeline was never running
+
+`vpngate-servers.yml` (hourly) and `relay-health.yml` (every 3 h) exist on this
+branch only. GitHub evaluates `schedule:` for the **default branch** and nothing
+else, and the default branch is a July tip that carries neither the workflows
+nor the `data/` directory they write. So no cron has ever fired in production,
+and the two URLs the shipped app reads first answer 404 forever:
+
+```bash
+git log -1 --format='%h %ad' --date=short origin/main
+# 59066ce 2026-07-18
+git ls-tree -r --name-only origin/main | grep -cE '^data/|\.github/workflows/'
+# 0
+for u in https://raw.githubusercontent.com/hasanabbassorathiya/BULBVPN/main/data/reality_health.json \
+         https://cdn.jsdelivr.net/gh/hasanabbassorathiya/BULBVPN@main/data/reality_health.json \
+         https://raw.githubusercontent.com/hasanabbassorathiya/BULBVPN/main/data/vpngate.json \
+         https://cdn.jsdelivr.net/gh/hasanabbassorathiya/BULBVPN@main/data/vpngate.json; do
+  printf '%s %s\n' "$(curl -s -o /dev/null -w '%{http_code}' --max-time 25 "$u")" "$u"; done
+# 404, four times
+```
+
+Two consequences, both now fixed in code:
+
+- `vpnGatePublishedLists` tried those two 404s and then fell to
+  `@redesign/production-grade`, a branch nobody builds from, whose roster was
+  last committed **2026-10-18**. First-non-empty-wins meant every install read
+  the 19-day-old list while a 9-day-old one sat on the branch that actually
+  ships, unlisted. The list now names the shipping branch.
+- The health file a device could reach was the 2026-11-01 commit -- the same
+  bytes the build bundles -- so `refresh()` could not deliver anything the
+  bundled asset did not already have.
+
+### The pool rotted inside five days
+
+`data/reality_health.json` claimed 8 of 9 community relays healthy. Re-running
+the Action's own probe, with the same pinned core and the same 64 KiB payload,
+returned 4 of 9 -- identically, twice:
+
+```bash
+V=26.10.31
+curl -sSfL -o xray.zip \
+  "https://github.com/XTLS/Xray-core/releases/download/v${V}/Xray-macos-arm64-v8a.zip"
+unzip -oq xray.zip -d xray-core && ./xray-core/xray version   # 26.10.31, the version the Action pins
+python3 scripts/probe_reality.py --catalog assets/relays/community_reality.json \
+  --out /tmp/health-pass1.json --xray ./xray-core/xray
+python3 scripts/probe_reality.py --catalog assets/relays/community_reality.json \
+  --out /tmp/health-pass2.json --xray ./xray-core/xray
+```
+
+Both passes: `wrote 4/9 healthy`.
+
+| relay | 2026-11-01 | 2026-11-06 |
+|---|---|---|
+| community-us-1 | ok 65536 B | ok 65536 B |
+| community-de-2 | ok 65536 B | ok 65536 B |
+| community-pl-4 | ok 65536 B | ok 65536 B |
+| community-ua-8 | ok 65536 B | ok 65536 B |
+| community-hk-3 | ok 65536 B | **bad** 5508 of 65536 B, then timeout |
+| community-it-6 | ok 65536 B | **bad** connect timeout |
+| community-pl-7 | ok 65536 B | **bad** connect timeout |
+| community-us-9 | ok 65536 B | **bad** connect timeout |
+| community-ee-5 | bad TLS EOF | bad TLS EOF |
+
+Four rented VPSes lapsed between runs. That inverts the value of an old
+measurement: a dead box is usually still dead a week later, so "do not dial
+this" keeps its worth, while "this forwarded 64 KiB" becomes a claim that buys
+the relay the first dial. With the 2026-11-01 file a phone would rank five dead
+relays as good and spend `_maxRealityAttempts` 6 of its 100 s budget on them
+before reaching SoftEther -- which is the shape of the reported failure.
+
+So `RealityHealth.scoreFor` splits by age now: inside `maxAge` it ranks both
+ways, past it only the penalty is returned and a stale `ok` yields `null`. The
+single production call site already read `null` as "no opinion".
+
+### The roster-decay theory this replaced (do not re-litigate)
+
+Earlier work concluded the bundled VPN Gate roster was ~98 % dead because only
+2 of 98 bundled IPs appeared in a freshly fetched list. That is wrong. VPN Gate
+returns a Score-sorted slice of a far larger pool, so leaving the list is not
+dying: two consecutive fetches of the official CSV returned the same 96 IPs, and
+40 sampled addresses from each of served-only, bundled-only and today's list
+were 40/40 open on 443 (`Socket.connect`, 3 s timeout, from this host).
+`219.100.37.105` answers on 443 and 1194 and is absent from today's list. The
+bundled roster was restored byte-identical after a same-day attempt to replace
+it briefly dropped that relay; `git status --porcelain data/vpngate.json` is
+empty.
+
+### The default that was blocking the fix
+
+REALITY is on unless the user turns it off (`reality_engine.dart`,
+`RealitySettings.enabled = true`). With the switch off and an empty vault --
+every fresh install -- the connect never reached the engine that survives DPI;
+it went straight to the blackholed SoftEther path. The consequence is stated
+where the pool is offered rather than hidden behind a switch: the sheet notice
+now reads "They are dialled unless you switch them off above", the switch and
+the NOT PRIVATE pill are unchanged, and `fromJson` still requires an explicit
+boolean, so a user who turned it off stays off across upgrades.
+
+### Verify
+
+```bash
+flutter test test/reality_health_test.dart test/reality_settings_test.dart \
+             test/server_sheet_test.dart      # 11 + 4 + 4 = 19
+flutter test --no-pub                          # 231, all passed
+flutter analyze --no-pub lib/ test/ tool/      # the two pre-existing items only
+```
+
+New: the stale-claim test, and a guard that reads the two shipped artifacts
+against each other -- relay ids are the join key, so renaming one in the
+catalog silently switches its measurements off. That guard also refuses to pass
+vacuously when nothing is measured dead, and asserts no two relays share a host
+(scores are keyed by host, so a shared host would hand both the same rank).
+
+**Still not device-verified.** No adb target on this host, the build proxy is
+closed, and every probe above leaves from an uncensored egress: "4 of 9
+forward" is not "4 of 9 reachable from Irancell", and the four survivors may be
+blocked there while the five dead are not. What is fixed regardless of that is
+that a phone no longer orders its first attempts by a five-day-old assurance.
+
 ---
 
 ## Files touched by these solutions
 
 - `android/app/src/main/kotlin/app/bulbvpn/com/SoftEtherVpnService.kt`
 - `android/app/src/main/kotlin/app/bulbvpn/com/MainActivity.kt`
+- `test/docs_vpn_issues_contract_test.dart` (source-level guards for the
+  rules `docs/vpn-issues.md` says must not come back)
 - `android/app/src/main/cpp/softether_jni.c`
 - `lib/modules/core/softether_vpn.dart`
 - `lib/modules/core/tunnel_liveness.dart`
@@ -1114,5 +1679,12 @@ started.
 - `lib/core/utils/screen_security.dart`
 - `ios/PacketTunnel/SoftEtherSession.swift`
 - `macos/PacketTunnel/SoftEtherSession.swift`
+- `lib/shared/widgets/staggered_in.dart` (`formatDuration` negative clamp)
+- `lib/modules/core/split_tunnel.dart` (read for `appliedMode` vs `isSplit`; unchanged)
 - `docs/research-vpn-architecture.md` (next-generation protocol/client/control-plane research)
+- `tool/hellosize/` (Go: measures the ClientHello each fingerprint sends)
+- `lib/modules/core/reality/reality_relay.dart` (`handshakeLadder`,
+  `wideHelloShapes`, `dialPlan`)
+- `test/reality_catalog_test.dart` (ladder names pinned against Xray's
+  fingerprint table, dial-plan order, remembered shape, link passthrough)
 - `docs/connection-solutions.md` (this log)

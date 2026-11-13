@@ -15,14 +15,18 @@ import 'package:bulbvpn/modules/core/relay_memory.dart';
 import 'package:bulbvpn/modules/core/relay_target.dart';
 import 'package:bulbvpn/modules/core/server_catalog.dart';
 import 'package:bulbvpn/modules/core/softether_vpn.dart';
+import 'package:bulbvpn/modules/core/split_tunnel.dart';
 import 'package:bulbvpn/modules/core/trust_tier.dart';
 import 'package:bulbvpn/modules/core/tunnel_liveness.dart';
 import 'package:bulbvpn/modules/core/vpn_controller.dart';
 import 'package:bulbvpn/modules/core/vpn_server.dart';
 import 'package:bulbvpn/modules/core/vpn_service.dart';
 import 'package:bulbvpn/modules/core/vpn_session_store.dart';
+import 'package:bulbvpn/modules/main/application/relay_evidence_provider.dart';
 import 'package:bulbvpn/modules/main/application/server_ping_provider.dart';
 import 'package:bulbvpn/modules/main/presentation/widgets/home_composition.dart';
+import 'package:bulbvpn/modules/main/presentation/widgets/metered_card.dart';
+import 'package:bulbvpn/shared/metered/tariff_table.dart';
 import 'package:bulbvpn/modules/main/presentation/widgets/server_sheet.dart';
 import 'package:bulbvpn/modules/monetization/ad_banner.dart';
 import 'package:bulbvpn/modules/monetization/ad_config.dart';
@@ -147,7 +151,33 @@ class _MainScreenState extends ConsumerState<MainScreen>
     }
   }
 
+  bool _restoringTunnel = false;
+  bool _restoreAgain = false;
+
+  /// One restore at a time. This runs from launch initialisation and from
+  /// every resume, and each pass awaits the session store and the platform
+  /// channel; two overlapping passes let the older read publish the newer
+  /// state, which is how the orb ends up contradicting Android's VPN key. A
+  /// resume that arrives mid-pass is remembered and runs once the current one
+  /// lands, so nothing is lost by serialising.
   Future<void> _restoreLiveTunnel() async {
+    if (_restoringTunnel) {
+      _restoreAgain = true;
+      return;
+    }
+    _restoringTunnel = true;
+    try {
+      await _restoreLiveTunnelOnce();
+    } finally {
+      _restoringTunnel = false;
+      if (_restoreAgain) {
+        _restoreAgain = false;
+        unawaited(_restoreLiveTunnel());
+      }
+    }
+  }
+
+  Future<void> _restoreLiveTunnelOnce() async {
     final current = ref.read(connectionStateProvider).status;
     if (current == ConnectionStatus.disconnecting) return;
     if (RealityEngine.instance.isSessionActive) {
@@ -194,6 +224,15 @@ class _MainScreenState extends ConsumerState<MainScreen>
         if (orphan == OrphanTunnel.otherOwner) {
           log.addLog(
             '[MainScreen] Another app owns the active VPN; our tunnel is gone',
+          );
+        } else if (orphan == OrphanTunnel.ours) {
+          // Ours, but not forwarding: the honest claim is still disconnected.
+          // The interface stays installed (a deliberate kill switch must not be
+          // lifted by a resume), and the session record survives so the next
+          // connect retries the relay this network was already using.
+          log.addLog(
+            '[MainScreen] Our own TUN is still held but carrying no traffic; '
+            'keeping the relay record',
           );
         }
         final notifier = ref.read(connectionStateProvider.notifier);
@@ -362,14 +401,14 @@ class _MainScreenState extends ConsumerState<MainScreen>
       final byteIn = cs.totalDownload;
       var down = _downRateLabel;
       if (_prevByteIn != null && byteIn >= _prevByteIn!) {
-        down = formatRate(byteIn - _prevByteIn!);
+        down = formatMbps(byteIn - _prevByteIn!);
       }
       _prevByteIn = byteIn;
 
       var up = _upRateLabel;
       if (cs.hasUpload) {
         if (_prevByteUp != null && cs.totalUpload >= _prevByteUp!) {
-          up = formatRate(cs.totalUpload - _prevByteUp!);
+          up = formatMbps(cs.totalUpload - _prevByteUp!);
         }
         _prevByteUp = cs.totalUpload;
       } else {
@@ -554,7 +593,11 @@ class _MainScreenState extends ConsumerState<MainScreen>
       if (next == ConnectionStatus.connected &&
           prev != ConnectionStatus.connected) {
         HapticFeedback.mediumImpact();
-        _connectedAt = DateTime.now();
+        // An adopted or restored tunnel already stamped the real session start
+        // from the persisted record. The status edge lands after that write,
+        // so overwriting here would restart the clock on every resume and show
+        // a session that never began.
+        _connectedAt ??= DateTime.now();
         _prevByteIn = null;
         _prevByteUp = null;
       } else if (prev == ConnectionStatus.connected &&
@@ -593,9 +636,14 @@ class _MainScreenState extends ConsumerState<MainScreen>
     final proof = ref.watch(dataProofProvider);
     final proofAge = proof == null ? null : DateTime.now().difference(proof.at);
     final proofFresh =
-        proofAge != null &&
-        !proofAge.isNegative &&
-        proofAge.inSeconds <= 45;
+        proofAge != null && !proofAge.isNegative && proofAge.inSeconds <= 45;
+    // In allow mode only the selected packages enter the tunnel, so this app's
+    // own probe leaves through the carrier and a byte proof can never arrive.
+    // The native flags the engine reconciles every second are the authority on
+    // that configuration, so the line names the route instead of promising a
+    // check that cannot happen.
+    final allowOnly =
+        ref.watch(splitTunnelProvider).appliedMode == TunnelMode.allow;
     // While live, only the relay that the native session reports may be shown.
     // The picker and the "fastest" hint are not evidence of where traffic exits.
     final relayLabel = live
@@ -623,9 +671,12 @@ class _MainScreenState extends ConsumerState<MainScreen>
       ConnectionStatus.loading => 'waking the engine',
       ConnectionStatus.connecting => 'opening tunnel · $relayLabel',
       ConnectionStatus.analyzing => 'checking the first byte',
-      ConnectionStatus.connected => proofFresh
-          ? 'traffic confirmed ${_proofAge(proofAge)} · $relayLabel'
-          : 'checking traffic · $relayLabel',
+      ConnectionStatus.connected =>
+        proofFresh
+            ? 'traffic confirmed ${_proofAge(proofAge)} · $relayLabel'
+            : allowOnly
+            ? 'selected apps only · tunnel up'
+            : 'checking traffic · $relayLabel',
       ConnectionStatus.disconnecting => 'closing the tunnel',
       ConnectionStatus.error => 'no working path on this network',
       ConnectionStatus.noInternet => 'this network is offline',
@@ -642,6 +693,7 @@ class _MainScreenState extends ConsumerState<MainScreen>
       pingLabel: measured?.status == PingStatus.ok ? '${measured!.ms}' : '—',
       downLabel: live ? _downRateLabel : '—',
       upLabel: live && cs.hasUpload ? _upRateLabel : '—',
+      trafficLabel: formatVolume(live ? cs.totalDownload : 0),
       protocolLabel: live ? cs.protocol.label : 'Automatic',
       relayLabel: relayLabel,
       exitIp: visibleExit?.ip ?? '',
@@ -651,24 +703,71 @@ class _MainScreenState extends ConsumerState<MainScreen>
       flagCode: flagCode,
       trustTier: live ? liveTier : tierServer?.trustTier,
       live: live,
+      proven: proofFresh,
+      proofAge: proofAge,
       measuring: _refreshingIps,
       tight: MediaQuery.sizeOf(context).height < 740,
       connectStage: stage,
       busyWitness: witness,
     );
 
-    return HomeComposition(
+    // Iranian ISPs blackhole Google's ad hosts, so the request is retried
+    // whenever the tunnel goes live. The strip is only asked for when it is
+    // both enabled and loadable; when it is not, the tariff sheet keeps its
+    // third line.
+    final sponsored = adsEnabled && AdConfig.canRequestAds
+        ? AdBanner(key: ValueKey('ad-$live'), horizontalInset: 0)
+        : null;
+
+    return MeteredCard(
       state: state,
+      rows: _tariffRows(
+        catalog: catalog,
+        byIp: pingState.byIp,
+        evidence:
+            ref.watch(relayEvidenceProvider).valueOrNull ?? RelayEvidence.empty,
+        limit: sponsored == null ? 3 : 2,
+      ),
       onConnect: _onConnectPressed,
-      onOpenServers: () => showServerSheet(context),
-      onRefreshIps: () => _refreshIps(live: live),
-      onCopyIp: () => _copyIp(state.exitIp)?.call(),
-      // Iranian ISPs blackhole Google's ad hosts, so the request is retried
-      // whenever the tunnel goes live.
-      sponsored: adsEnabled && AdConfig.canRequestAds
-          ? AdBanner(key: ValueKey('ad-$live'), horizontalInset: 40)
-          : null,
+      onOpenRelays: () => showServerSheet(context),
+      onScratch: () => state.exitIp.isEmpty
+          ? _refreshIps(live: live)
+          : _copyIp(state.exitIp)?.call(),
+      banner: sponsored,
     );
+  }
+
+  /// The relay lines printed on the connect face. Ranked by the same evidence
+  /// the tariff sheet ranks by, so the card and the sheet cannot tell two
+  /// different stories about the same host, and each line carries the strongest
+  /// reading that exists for it — your own session first, then the fleet probe,
+  /// then this phone's handshake. A relay with no reading prints an em dash and
+  /// is marked untried rather than quiet.
+  List<TariffRow> _tariffRows({
+    required List<VpnServer> catalog,
+    required Map<String, ServerPing> byIp,
+    required RelayEvidence evidence,
+    required int limit,
+  }) {
+    final now = DateTime.now();
+    final ranked = sortByMeasuredPing(catalog, byIp).take(limit).toList();
+    return [
+      for (var i = 0; i < ranked.length; i++)
+        () {
+          final server = ranked[i];
+          final reading = evidence.reading(
+            dial: server.ip,
+            ping: byIp[server.ip],
+            now: now,
+          );
+          return TariffRow(
+            rank: '${i + 1}',
+            destination: server.publicLabel,
+            measured: reading.value,
+            verdict: reading.verdict,
+          );
+        }(),
+    ];
   }
 
   VpnServer? _serverForDial(String? dial, List<VpnServer> catalog) {

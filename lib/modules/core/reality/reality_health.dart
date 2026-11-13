@@ -44,10 +44,19 @@ class RealityHealth {
   /// week-old ranking steer a connection.
   static const maxAge = Duration(hours: 18);
 
+  /// The copy sealed into the build cannot refresh itself, so the 18-hour bar
+  /// discards it on every install made more than a day after the last probe.
+  /// A stale ranking still moves bytes: adoption is decided by the dial loop
+  /// and the data gate, and this only chooses which address they try first.
+  static const bundledMaxAge = Duration(days: 21);
+
   static const _maxBytes = 8 * 1024 * 1024;
   static const _maxMs = 120000;
 
   bool get usable => DateTime.now().difference(generatedAt) < maxAge;
+
+  bool get usableAsBundledPrior =>
+      DateTime.now().difference(generatedAt) < bundledMaxAge;
 
   int get healthyCount => byId.values.where((entry) => entry.ok).length;
 
@@ -85,14 +94,21 @@ class RealityHealth {
 
   /// Ranking adjustment for [RelayMemory.orderByHistory].
   ///
-  /// Healthy relays get a bonus that scales with measured throughput; failed
-  /// ones get a penalty smaller than one local failure streak, so a relay that
-  /// just failed on this phone still sinks regardless of what a datacenter
-  /// measured hours ago.
+  /// A fresh measurement ranks both ways: healthy relays get a bonus that
+  /// scales with measured throughput and failed ones a penalty smaller than
+  /// one local failure streak, so a relay that just failed on this phone still
+  /// sinks regardless of what a datacenter measured hours ago.
+  ///
+  /// Past [maxAge] only the penalty is believed. Re-running
+  /// `scripts/probe_reality.py` on 2026-11-06 against the file the Action
+  /// published on 2026-11-01 found four of the eight relays it called healthy
+  /// dead. A "healthy" line is a snapshot of a rented VPS that can lapse; a
+  /// "dead" line costs at worst one wasted dial even if the box came back.
   double? scoreFor(String relayId) {
     final entry = byId[relayId];
     if (entry == null) return null;
     if (!entry.ok) return 45000;
+    if (!usable) return null;
     final kib = entry.bps / 1024;
     return -40000 - kib.clamp(0, 20000).toDouble();
   }
@@ -121,16 +137,38 @@ class RealityHealthStore {
 
   /// Same publishing pattern as the VPN Gate list. jsDelivr is usually
   /// reachable when raw.githubusercontent is not; raw is fresher.
+  ///
+  /// The last two are interim and verified serving on 2026-11-06, because
+  /// GitHub runs scheduled workflows only from the default branch and
+  /// `origin/main` carries neither `data/` nor `.github/workflows/`, so the
+  /// two `@main` URLs answer 404 today. Delete them once the workflow is on
+  /// the default branch. A CDN response can only reorder ids this build
+  /// already ships, never introduce a relay.
+  ///
+  /// The branch files are no fresher than the last commit there, which is why
+  /// [scoreFor] stops trusting "ok" past [maxAge]: relays die between runs.
   static const urls = <String>[
     'https://raw.githubusercontent.com/hasanabbassorathiya/BULBVPN/main/data/reality_health.json',
     'https://cdn.jsdelivr.net/gh/hasanabbassorathiya/BULBVPN@main/data/reality_health.json',
+    'https://raw.githubusercontent.com/hasanabbassorathiya/BULBVPN/feat/greatest-vpn/data/reality_health.json',
+    'https://cdn.jsdelivr.net/gh/hasanabbassorathiya/BULBVPN@feat/greatest-vpn/data/reality_health.json',
   ];
 
   static RealityHealth? _cached;
 
+  /// Whether [_cached] came from the build rather than a fetch, because the two
+  /// have different clocks: a published file goes stale in hours, a sealed one
+  /// cannot refresh itself at all.
+  static bool _cachedFromBundle = false;
+
   static Future<RealityHealth?> load() async {
     final cached = _cached;
-    if (cached != null) return cached.usable ? cached : null;
+    if (cached != null) {
+      final fresh = _cachedFromBundle
+          ? cached.usableAsBundledPrior
+          : cached.usable;
+      return fresh ? cached : null;
+    }
     try {
       final prefs = await SharedPreferences.getInstance();
       final raw = prefs.getString(_cacheKey);
@@ -138,6 +176,7 @@ class RealityHealthStore {
         final health = RealityHealth.parse(raw);
         if (health != null && health.usable) {
           _cached = health;
+          _cachedFromBundle = false;
           return health;
         }
       }
@@ -145,8 +184,9 @@ class RealityHealthStore {
     try {
       final raw = await rootBundle.loadString(_asset);
       final health = RealityHealth.parse(raw);
-      if (health != null && health.usable) {
+      if (health != null && health.usableAsBundledPrior) {
         _cached = health;
+        _cachedFromBundle = true;
         return health;
       }
     } catch (_) {}
@@ -168,6 +208,7 @@ class RealityHealthStore {
           continue;
         }
         _cached = health;
+        _cachedFromBundle = false;
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString(_cacheKey, response.body);
         Log().addLog(
@@ -183,5 +224,8 @@ class RealityHealthStore {
   }
 
   @visibleForTesting
-  static void resetCache() => _cached = null;
+  static void resetCache() {
+    _cached = null;
+    _cachedFromBundle = false;
+  }
 }

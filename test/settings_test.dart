@@ -39,16 +39,18 @@ Future<void> _pump(
 }
 
 void main() {
-  testWidgets('settings is a hairline ledger with honest disclosures', (
+  testWidgets('settings prints its terms on the plate', (
     tester,
   ) async {
     await _pump(tester, const SettingsScreen());
 
     expect(tester.takeException(), isNull);
-    expect(find.text('Tunnel'), findsOneWidget);
+    expect(find.text('Settings'), findsOneWidget);
     expect(find.text('CONNECTION'), findsOneWidget);
     expect(find.text('Protocol'), findsOneWidget);
-    expect(find.text('Automatic'), findsOneWidget);
+    // Not a switch: the engine chooses the path, so the line prints that and
+    // nothing else, in the card's own caps.
+    expect(find.text('AUTOMATIC'), findsOneWidget);
     // Bootstrap relays are visible as community sources, with the warning.
     expect(find.text('Relay sources'), findsOneWidget);
     expect(find.textContaining('can see your traffic'), findsOneWidget);
@@ -72,7 +74,7 @@ void main() {
     );
 
     expect(tester.takeException(), isNull);
-    expect(find.text('Tunnel'), findsOneWidget);
+    expect(find.text('Settings'), findsOneWidget);
   });
 
   testWidgets('paywall separates Free and Premium without inventing prices', (

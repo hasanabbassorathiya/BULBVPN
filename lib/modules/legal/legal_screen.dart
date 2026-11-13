@@ -3,6 +3,7 @@ import 'package:bulbvpn/core/theme/air_colors.dart';
 import 'package:bulbvpn/core/theme/app_text_styles.dart';
 import 'package:bulbvpn/modules/legal/legal_acceptance.dart';
 import 'package:bulbvpn/shared/air/air_buttons.dart';
+import 'package:bulbvpn/shared/air/air_layout.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
@@ -55,14 +56,14 @@ class _LegalScreenState extends State<LegalScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(),
-            child: Text('Back', style: TextStyle(color: air.steel)),
+            child: Text('Back', style: AppTextStyles.body(color: air.steel, size: 14)),
           ),
           TextButton(
             onPressed: () {
               Navigator.of(dialogContext).pop();
               SystemNavigator.pop();
             },
-            child: Text('Close app', style: TextStyle(color: air.alertInk)),
+            child: Text('Close app', style: AppTextStyles.body(color: air.alertInk, size: 14)),
           ),
         ],
       ),
@@ -77,7 +78,7 @@ class _LegalScreenState extends State<LegalScreen> {
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 620),
+            constraints: const BoxConstraints(maxWidth: AirLayout.wideRail),
             child: DecoratedBox(
               decoration: BoxDecoration(
                 color: air.surface,
@@ -89,7 +90,7 @@ class _LegalScreenState extends State<LegalScreen> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(22, 24, 22, 14),
+                    padding: const EdgeInsets.fromLTRB(AirLayout.gutter, 24, AirLayout.gutter, 14),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -123,7 +124,7 @@ class _LegalScreenState extends State<LegalScreen> {
                   Divider(height: 1, thickness: 1, color: air.hairline),
                   Expanded(
                     child: ListView(
-                      padding: const EdgeInsets.fromLTRB(22, 18, 22, 18),
+                      padding: const EdgeInsets.fromLTRB(AirLayout.gutter, 18, AirLayout.gutter, 18),
                       children: [
                         for (final section in _sections) ...[
                           _Section(section: section),
@@ -186,7 +187,10 @@ class _LegalScreenState extends State<LegalScreen> {
                               onPressed: _decline,
                               child: Text(
                                 'Decline',
-                                style: TextStyle(color: air.mute),
+                                style: AppTextStyles.body(
+                                  color: air.mute,
+                                  size: 14,
+                                ),
                               ),
                             ),
                             const SizedBox(width: 8),
@@ -308,7 +312,7 @@ class _FullDocs extends StatelessWidget {
             ),
             child: Text(
               'Full Terms',
-              style: TextStyle(color: air.accentInk),
+              style: AppTextStyles.body(color: air.accentInk, size: 14),
             ),
           ),
         ),
@@ -320,7 +324,7 @@ class _FullDocs extends StatelessWidget {
             ),
             child: Text(
               'Privacy Policy',
-              style: TextStyle(color: air.accentInk),
+              style: AppTextStyles.body(color: air.accentInk, size: 14),
             ),
           ),
         ),

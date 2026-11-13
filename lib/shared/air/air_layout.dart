@@ -11,6 +11,11 @@ abstract final class AirLayout {
 
   static const double gutter = 20;
   static const double sectionGap = 28;
+
+  /// Bottom padding for every scrollable body. The shell draws content behind
+  /// the nav bar (`extendBody`), so 64 px of bar, the home indicator and one
+  /// gutter must be paid for or the last row sits under the glass.
+  static const double navClearance = 120;
 }
 
 /// Centres content inside [maxWidth] and applies the horizontal gutter.

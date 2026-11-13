@@ -154,12 +154,9 @@ class _WaveformPainter extends CustomPainter {
       final painter = TextPainter(
         text: TextSpan(
           text: label,
-          style: TextStyle(
-            fontFamily: AppTextStyles.mono,
-            fontSize: 9,
-            color: tick,
-            fontFeatures: const [FontFeature.tabularFigures()],
-          ),
+          // A canvas `TextPainter` inherits nothing, so the style is spelled
+          // out here -- but it comes from the type scale, not a literal.
+          style: AppTextStyles.label(color: tick, size: 9.5, tracking: 0.4),
         ),
         textDirection: TextDirection.ltr,
       )..layout();

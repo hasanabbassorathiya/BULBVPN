@@ -326,33 +326,25 @@ void main() {
 
     // The REALITY anchor must not evict the SoftEther relay this network
     // already proved, and a failure in one engine must not erase the other.
-    await RelayMemory.forget(
-      reality.dial,
-      network: wifi,
-      engine: 'softether',
-    );
+    await RelayMemory.forget(reality.dial, network: wifi, engine: 'softether');
     expect((await RelayMemory.recall(network: wifi))?.dial, relay.dial);
     expect(
       (await RelayMemory.recall(network: wifi, engine: 'reality'))?.dial,
       reality.dial,
     );
 
-    await RelayMemory.forget(
-      reality.dial,
-      network: wifi,
-      engine: 'reality',
-    );
-    expect(
-      await RelayMemory.recall(network: wifi, engine: 'reality'),
-      isNull,
-    );
+    await RelayMemory.forget(reality.dial, network: wifi, engine: 'reality');
+    expect(await RelayMemory.recall(network: wifi, engine: 'reality'), isNull);
     expect((await RelayMemory.recall(network: wifi))?.dial, relay.dial);
   });
 
   test('the network anchor is scoped to the engine too', () async {
     await RelayMemory.remember(relay, network: wifi, engine: 'reality');
 
-    expect(await RelayMemory.recall(network: wifi, engine: 'reality'), isNotNull);
+    expect(
+      await RelayMemory.recall(network: wifi, engine: 'reality'),
+      isNotNull,
+    );
     expect(await RelayMemory.recall(network: wifi), isNull);
   });
 
@@ -365,9 +357,34 @@ void main() {
     );
 
     expect((await RelayMemory.recall(network: wifi))?.dial, '203.0.113.40');
-    expect(
-      await RelayMemory.recall(network: wifi, engine: 'reality'),
-      isNull,
+    expect(await RelayMemory.recall(network: wifi, engine: 'reality'), isNull);
+  });
+
+  test('the hello that carried data is remembered per network', () async {
+    expect(await RelayMemory.recallHandshakeShape(network: cell), isEmpty);
+
+    await RelayMemory.recordHandshakeShape('ios', network: cell);
+    expect(await RelayMemory.recallHandshakeShape(network: cell), 'ios');
+
+    // The shape is a property of the carrier, not of the relay: a hello
+    // proven on a cell tower says nothing about the Wi-Fi in front of it.
+    expect(await RelayMemory.recallHandshakeShape(network: wifi), isEmpty);
+
+    await RelayMemory.recordHandshakeShape(
+      'hellochrome_106_shuffle',
+      network: cell,
     );
+    expect(
+      await RelayMemory.recallHandshakeShape(network: cell),
+      'hellochrome_106_shuffle',
+    );
+  });
+
+  test('an empty shape and an unusable network record nothing', () async {
+    await RelayMemory.recordHandshakeShape('', network: cell);
+    await RelayMemory.recordHandshakeShape('ios', network: 'offline');
+
+    expect(await RelayMemory.recallHandshakeShape(network: cell), isEmpty);
+    expect(await RelayMemory.recallHandshakeShape(network: 'offline'), isEmpty);
   });
 }

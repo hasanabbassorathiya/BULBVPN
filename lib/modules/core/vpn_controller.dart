@@ -29,12 +29,14 @@ import 'package:bulbvpn/modules/core/home_region.dart';
 import 'package:bulbvpn/modules/core/reality/reality_engine.dart';
 import 'package:bulbvpn/modules/core/reality/reality_health.dart';
 import 'package:bulbvpn/modules/core/reality/reality_relay.dart';
+import 'package:bulbvpn/modules/core/reality/relay_vault.dart';
 import 'package:bulbvpn/modules/core/relay_reachability.dart';
 import 'package:bulbvpn/modules/core/relay_port_agility.dart';
 import 'package:bulbvpn/modules/core/vpn_gate_candidates.dart';
 import 'package:bulbvpn/modules/core/vpn_session_store.dart';
 import 'package:bulbvpn/modules/core/relay_target.dart';
 import 'package:bulbvpn/modules/core/split_tunnel.dart';
+import 'package:bulbvpn/modules/core/session_liveness.dart';
 import 'package:bulbvpn/modules/core/watchdog_policy.dart';
 import 'package:bulbvpn/modules/core/tunnel_liveness.dart';
 import 'package:bulbvpn/modules/main/application/server_ping_provider.dart';
@@ -201,6 +203,11 @@ class VpnController {
   /// dialled. A permission denial is not retryable; a failed dial is.
   bool _attemptedDial = false;
 
+  /// REALITY/XHTTP dials started by the current attempt. Zero after a failed
+  /// Android connect means the engine declined the job rather than the pool
+  /// being dead — different causes, so they must not share one log line.
+  int _realityDialsAttempted = 0;
+
   /// Bounded automatic recovery after an unexpected tunnel drop. The first
   /// three attempts are fast; the rest slow down to five-minute probes so a
   /// carrier outage that lasts minutes does not leave the user unprotected
@@ -250,10 +257,19 @@ class VpnController {
   /// the only live signal for that engine: it has no status polling channel.
   StreamSubscription? _realityStatusSub;
 
-  /// Relays dialled per press. Each is data-verified before adoption, so a
-  /// censored or throttled endpoint costs one attempt and the loop moves on.
-  /// Three leaves the rest of the connect budget for SoftEther.
-  static const _maxRealityAttempts = 3;
+  /// Dials pressed per connect, where one dial is one relay at one ClientHello
+  /// shape. Each is data-verified before adoption, so a censored or throttled
+  /// endpoint costs one attempt and the loop moves on.
+  ///
+  /// REALITY/XHTTP is the only engine on Android, so the cap is set to let the
+  /// health-checked pool be explored rather than to reserve budget for a
+  /// fallback. On Iranian LTE the address and the packet shape fail
+  /// independently, and a redial after a reset carries no penalty — Iran's
+  /// whitelist study observed connections behaving identically immediately
+  /// after a block was lifted ("no residual effects"). Fast failures (a TLS
+  /// reset in a second or two) should not stop the pass while budget remains;
+  /// the connect budget is the hard ceiling for slow dials.
+  static const _maxRealityAttempts = 12;
 
   Future<void> initialize(ProviderContainer container) async {
     if (_initialized) return;
@@ -382,7 +398,19 @@ class VpnController {
   /// timers, so a session that died while the app was in the background would
   /// otherwise keep its last "verified" state until the next periodic tick.
   void verifyConnectionNow() {
-    if (_watchdogGeneration == 0) return;
+    final container = _container;
+    if (container == null) return;
+    if (_watchdogGeneration == 0) {
+      // A resume can reach here before the drop listener ever saw the
+      // connected edge — an adopted or rehydrated tunnel. Arming instead of
+      // returning keeps that session from holding a "verified" claim with
+      // nothing left to verify it.
+      if (container.read(connectionStateProvider).status !=
+          ConnectionStatus.connected) {
+        return;
+      }
+      _armWatchdog();
+    }
     unawaited(_watchdogTick(_watchdogGeneration));
   }
 
@@ -531,6 +559,13 @@ class VpnController {
   /// phones from redialling the same relay in lockstep.
   void _scheduleRecovery() {
     if (_manualDisconnect || _connectInFlight) return;
+    // A session that is up -- or still being judged -- is not a failure to
+    // retry. Its own verdict schedules recovery if it turns out dead.
+    final scheduled = _container;
+    if (scheduled != null &&
+        holdsLiveSession(scheduled.read(connectionStateProvider).status)) {
+      return;
+    }
     if (_autoReconnects >= _maxAutoReconnects) {
       _log.addLog('[VpnController] Recovery budget exhausted; staying down');
       return;
@@ -556,7 +591,7 @@ class VpnController {
       final container = _container;
       if (container == null) return;
       final status = container.read(connectionStateProvider).status;
-      if (status == ConnectionStatus.connected ||
+      if (holdsLiveSession(status) ||
           status == ConnectionStatus.connecting ||
           _connectInFlight) {
         return;
@@ -586,6 +621,19 @@ class VpnController {
           if (generation != _recoveryGeneration || _manualDisconnect) return;
           _scheduleRecovery();
         });
+        return;
+      }
+      // Both probes above are awaits. A dial that came up while they ran owns
+      // the answer, and redialling over it is the churn this timer exists to
+      // avoid -- so the decision is re-taken immediately before acting.
+      final nowStatus = container.read(connectionStateProvider).status;
+      if (generation != _recoveryGeneration ||
+          _connectInFlight ||
+          holdsLiveSession(nowStatus) ||
+          nowStatus == ConnectionStatus.connecting) {
+        _log.addLog(
+          '[VpnController] Recovery aborted: a session came up while deciding',
+        );
         return;
       }
       _log.addLog(
@@ -625,6 +673,10 @@ class VpnController {
   /// Tops the reachability cache up while the user is still deciding.
   void _scheduleWarmProbes({Duration delay = Duration.zero}) {
     if (_manualDisconnect || _warmTimer != null) return;
+    // Android never dials SoftEther, and this cache is only read by that
+    // engine's paths, so a warm probe there spends carrier sockets to make a
+    // list nothing will use.
+    if (Platform.isAndroid) return;
     final network = _networkFingerprint;
     if (network == null || network == 'offline' || network == 'unknown') return;
     _warmTimer = Timer(delay, () {
@@ -1212,8 +1264,7 @@ class VpnController {
       // actually carried sessions must be inside the first dial window, not
       // after eight ping-ranked endpoints. Other regions keep the old order
       // and their lowest-latency choice.
-      final preferProven =
-          HomeRegion.countryCode == 'IR' || measuredOk.isEmpty;
+      final preferProven = HomeRegion.countryCode == 'IR' || measuredOk.isEmpty;
       if (preferProven) {
         for (final target in _provenRelays) {
           if (picked.length >= autoCap) break;
@@ -1754,7 +1805,11 @@ class VpnController {
       return;
     }
     final status = container.read(connectionStateProvider).status;
-    if (status == ConnectionStatus.connected) {
+    // The throughput probe is unawaited, so a dial can return with the session
+    // still under first-byte judgement. That is a live tunnel, not a failed
+    // attempt: the probe owns the verdict and redials through `_scheduleRecovery`
+    // if it decides the session forwarded nothing.
+    if (holdsLiveSession(status)) {
       _autoReconnects = 0;
       _recoveryGeneration++;
       _recoveryTimer?.cancel();
@@ -1827,7 +1882,12 @@ class VpnController {
     // Invalidate every in-flight loop before tearing the engine down so a
     // late native success cannot resurrect a session the user never got.
     _rotationGeneration++;
-    _manualDisconnect = true;
+    // Not `_manualDisconnect = true`. That flag means "the user asked to be
+    // off", and a stalled dial burning the budget is the opposite: they asked
+    // for a tunnel. Setting it here disarmed every retry, the warm reconnect
+    // and the watchdog for the rest of the session, so one dead relay in a
+    // censored network ended the press until the user pressed again. Recovery
+    // from here is bounded by `_maxAutoReconnects`.
     try {
       await _vpnService.disconnect();
     } catch (_) {}
@@ -1854,6 +1914,7 @@ class VpnController {
     final connectionNotifier = container.read(connectionStateProvider.notifier);
     final loggerNotifier = container.read(loggerStateProvider.notifier);
     _attemptedDial = false;
+    _realityDialsAttempted = 0;
     _log.addLog('[VpnController] Starting connection process...');
     // The user asked for a tunnel. Any latency sweep still running from the
     // server sheet loses the radio to the handshake from here on.
@@ -1908,30 +1969,70 @@ class VpnController {
       }
     }
 
-    // Fresh installs on 19 Oct 2026: macOS connected in one SoftEther dial
-    // to 219.100.37.105. iPhone, iPad, and Android spent the whole attempt
-    // on OpenVPN timeouts and never reached that session. Dial SoftEther
-    // first on every platform. OpenVPN stays as the backup.
+    // Android dials only REALITY/XHTTP: the carriers it serves black-hole the
+    // VPN-handshake engines, so a SoftEther/OpenVPN fallback cannot connect
+    // there. Apple platforms keep SoftEther first with OpenVPN as the backup
+    // until the packet-tunnel extension carries REALITY.
     _attemptedDial = true;
     _connectStartedAt = DateTime.now();
     _publishTrace(clear: true);
     _startConnectBudget();
     if (Platform.isIOS || Platform.isMacOS) {
-      if (await _tryAppleSoftEther(container, connectionNotifier)) {
-        return;
-      }
-    }
-    if (Platform.isAndroid) {
-      await SoftEtherVpn.disconnect();
+      // Try REALITY first on Apple platforms — it's the censorship-resistant
+      // engine that works when SoftEther/OpenVPN are blocked by the carrier.
       if (await _tryReality(container, connectionNotifier)) {
         return;
       }
-      // A stopped/queued press during the REALITY loop must not hand the
-      // session to the SoftEther dial.
       if (_manualDisconnect || _connectQueued) return;
-      if (await _tryOneSoftEther(container, connectionNotifier)) {
+      if (await _tryAppleSoftEther(container, connectionNotifier)) {
         return;
       }
+      // SoftEther also failed: fall through to the OpenVPN path below.
+    }
+    if (Platform.isAndroid) {
+      // Tear down any legacy SoftEther tunnel from an older build before the
+      // REALITY dial. Nothing on Android dials SoftEther anymore.
+      await SoftEtherVpn.disconnect();
+      if (_strictSelection) {
+        // The pick came from the VPN Gate list or an imported OpenVPN config,
+        // and neither engine is dialled here. Saying so is the difference
+        // between "the app chose a country I did not ask for" and a bug.
+        _log.addLog(
+          '[VpnController] Selected server $_serverLabel is not a '
+          'REALITY/XHTTP relay; Android dials only that engine, so this '
+          'connect exits elsewhere',
+        );
+      }
+      if (await _tryReality(container, connectionNotifier)) {
+        return;
+      }
+      // A stopped/queued press during the REALITY loop is a user action, not
+      // a failure; do not override it with an error state.
+      if (_manualDisconnect || _connectQueued) return;
+      // REALITY/XHTTP is the only mechanism on Android. The carriers this
+      // app serves black-hole SoftEther and OpenVPN, so a fallback would burn
+      // the whole connect budget on engines that cannot complete a handshake
+      // and then report the same failure slower.
+      _log.addLog(
+        _realityDialsAttempted == 0
+            ? '[VpnController] No tunnel on Android: REALITY/XHTTP dialled '
+                  'nothing (its own refusal is logged above)'
+            : '[VpnController] No tunnel on Android: REALITY/XHTTP dialled '
+                  '$_realityDialsAttempted candidates and none moved data',
+      );
+      try {
+        await _analyticsService.logVpnFailed(
+          ip: _realityDialsAttempted == 0
+              ? 'reality_not_attempted'
+              : 'reality_exhausted',
+          ping: _realityDialsAttempted,
+          rawStage: 'reality_only',
+          serverLabel: _serverLabel,
+        );
+      } catch (_) {}
+      connectionNotifier.setError();
+      _vibrationService.vibrateError();
+      return;
     }
 
     // The user may have pressed disconnect (or picked another relay, which is
@@ -1943,27 +2044,6 @@ class VpnController {
     }
     if (_connectQueued) {
       _log.addLog('[VpnController] Connect superseded by a queued relay');
-      return;
-    }
-
-    // OpenVPN owns its own VpnService instance and knows nothing about the
-    // per-app routing choices, so a fallback would tunnel the apps the user
-    // explicitly excluded. Refuse the fallback while routing is split.
-    if (Platform.isAndroid && container.read(splitTunnelProvider).isSplit) {
-      _log.addLog(
-        '[VpnController] Split routing is active; OpenVPN cannot honour it, '
-        'skipping the fallback',
-      );
-      try {
-        await _analyticsService.logVpnFailed(
-          ip: 'split_routing',
-          ping: 0,
-          rawStage: 'softether_only',
-          serverLabel: _serverLabel,
-        );
-      } catch (_) {}
-      connectionNotifier.setError();
-      _vibrationService.vibrateError();
       return;
     }
 
@@ -2101,8 +2181,13 @@ class VpnController {
         container.read(connectedRelayProvider.notifier).state = relay;
         container.read(softEtherHostProvider.notifier).state =
             '${relay.displayName} · ${relay.dial}';
-        connectionNotifier.holdEngineEvents(false);
-        connectionNotifier.setConnected();
+        // Hold the engine stream while the claim is unproven: a stray
+        // `connected` push from openvpn_dart must not pre-empt the probe. The
+        // flag is released by `_claimTunnelUp` once the session is real.
+        connectionNotifier.holdEngineEvents(true);
+        // Same contract as the SoftEther paths: the handshake alone earns
+        // "checking the first byte", not Connected.
+        connectionNotifier.setAnalyzing();
         await _saveLastGood(candidate);
         await RelayMemory.remember(
           relay,
@@ -2122,14 +2207,6 @@ class VpnController {
           countryCode: relay.countryCode,
           countryName: relay.countryName,
         );
-        try {
-          await _analyticsService.logVpnConnected(
-            'openvpn',
-            '${candidate.ip}:${candidate.port}',
-            _connectElapsedSeconds(),
-          );
-        } catch (_) {}
-        _publishTrace(clear: true);
         unawaited(
           _verifyTunnelThroughput(
             relay,
@@ -2137,9 +2214,10 @@ class VpnController {
             gen,
             connectionNotifier,
             engine: 'openvpn',
+            holdEngine: false,
           ),
         );
-        // statusStream already flipped the notifier to connected.
+        // The press is published as connected by the probe, not here.
         return;
       }
       _log.addLog(
@@ -2178,48 +2256,6 @@ class VpnController {
     } catch (_) {}
   }
 
-  /// Returns the relay that the native session reports. VPN Gate can terminate
-  /// the dialled IP on a different relay inside the same operation; showing the
-  /// dialled address as the exit would be a lie.
-  Future<RelayTarget> _relayForEffective(
-    RelayTarget target,
-    ProviderContainer container,
-  ) async {
-    final status = await _softEtherStatusSafe();
-    final effective = status.effectiveIp.trim();
-    if (effective.isEmpty ||
-        effective == '0.0.0.0' ||
-        effective == target.dial) {
-      return target.copyWith(source: 'softether');
-    }
-    // The session is on a different address than the one we dialled. Start
-    // from the dialled target but drop its country: until the catalog proves
-    // where this address lives, "Private relay" is the only honest label.
-    var relay = target.copyWith(
-      dial: effective,
-      countryCode: '',
-      countryName: '',
-      source: 'softether',
-    );
-    try {
-      final servers = await container.read(serversProvider.future);
-      for (final server in servers) {
-        if (server.ip != effective) continue;
-        final sni = SoftEtherVpn.fqdn(server.hostName);
-        relay = relay.copyWith(
-          sni: sni.isEmpty ? relay.sni : sni,
-          countryCode: server.countryShort.toUpperCase(),
-          countryName: server.displayCountry,
-        );
-        break;
-      }
-    } catch (_) {}
-    _log.addLog(
-      '[VpnController] Effective relay $effective (dialed ${target.dial})',
-    );
-    return relay;
-  }
-
   /// Publishes the relay that actually carries the session. The UI reads this
   /// object only; it must never infer the country from the picker.
   Future<void> _markRelayConnected(
@@ -2247,12 +2283,37 @@ class VpnController {
       );
     }
     connectionNotifier.holdEngineEvents(holdEngine);
-    connectionNotifier.setConnected();
+    // A completed handshake is not a working tunnel. Hold the claim at
+    // "checking the first byte" until `_verifyTunnelThroughput` has judged it,
+    // so a relay that accepts a connection and forwards nothing cannot show
+    // Connected. Both callers follow this with the probe.
+    connectionNotifier.setAnalyzing();
+  }
+
+  /// Moves a session from the handshake claim to Connected once the tunnel has
+  /// been judged, and only then publishes the press as connected.
+  ///
+  /// `holdEngine` is the flag the engine stream is left with: the OpenVPN path
+  /// holds events while the claim is unproven (a stray engine `connected` push
+  /// must not pre-empt the probe) and releases it as soon as the session is
+  /// real, so a later drop is still heard.
+  Future<void> _claimTunnelUp(
+    ConnectionStateNotifier connectionNotifier,
+    ProviderContainer container,
+    String engine, {
+    required bool holdEngine,
+  }) async {
+    connectionNotifier.holdEngineEvents(holdEngine);
+    if (container.read(connectionStateProvider).status ==
+        ConnectionStatus.analyzing) {
+      connectionNotifier.setConnected();
+    }
     _publishTrace(clear: true);
+    final dial = container.read(connectedRelayProvider)?.dial ?? '';
     try {
       await _analyticsService.logVpnConnected(
-        'softether',
-        target.dial,
+        engine,
+        dial,
         _connectElapsedSeconds(),
       );
     } catch (_) {}
@@ -2721,21 +2782,28 @@ class VpnController {
   ///
   /// Both engines report CONNECTED as soon as their handshake is up. A relay
   /// that is congested, throttled by the carrier, or silently dropping
-  /// forwarded traffic still looks healthy until the user loads a page. This
-  /// check runs after the orb is live, records what the relay delivered for
-  /// future ranking, and switches once when the result is near zero.
+  /// forwarded traffic still looks healthy until the user loads a page. SoftEther
+  /// and OpenVPN hold the claim at `analyzing` until this answers: it records
+  /// what the relay delivered for future ranking, promotes the session to
+  /// Connected only on bytes that crossed, and switches once when the result is
+  /// near zero.
   Future<void> _verifyTunnelThroughput(
     RelayTarget relay,
     ProviderContainer container,
     int generation,
     ConnectionStateNotifier connectionNotifier, {
     required String engine,
+    required bool holdEngine,
   }) async {
     // Let the TUN and the relay's forwarding path settle before judging it.
     await Future<void>.delayed(const Duration(seconds: 2));
     if (_manualDisconnect || generation != _rotationGeneration) return;
-    if (container.read(connectionStateProvider).status !=
-        ConnectionStatus.connected) {
+    // `analyzing` is the state this probe is the authority over: the engines
+    // that reach here claim the handshake first and wait for this answer.
+    // Anything else means the press was superseded, so stay out of it.
+    final judged = container.read(connectionStateProvider).status;
+    if (judged != ConnectionStatus.connected &&
+        judged != ConnectionStatus.analyzing) {
       return;
     }
     final watch = Stopwatch()..start();
@@ -2748,10 +2816,27 @@ class VpnController {
         '[VpnController] Throughput probe host returned an error; '
         'not judging ${relay.endpoint}',
       );
+      // The probe host is the unreliable party here, so it must not deny a
+      // tunnel that came up. The steady-state watchdog re-checks it every
+      // `_watchdogInterval` and drops it if the data plane really is dead.
+      await _claimTunnelUp(
+        connectionNotifier,
+        container,
+        engine,
+        holdEngine: holdEngine,
+      );
       return;
     }
     final elapsedMs = watch.elapsedMilliseconds;
-    if (elapsedMs <= 0) return;
+    if (elapsedMs <= 0) {
+      await _claimTunnelUp(
+        connectionNotifier,
+        container,
+        engine,
+        holdEngine: holdEngine,
+      );
+      return;
+    }
     final bps = (bytes * 1000) ~/ elapsedMs;
     final network = await _networkForMemory();
     await RelayMemory.recordThroughput(relay.dial, bps, network: network);
@@ -2773,12 +2858,60 @@ class VpnController {
         engine: engine,
         bytesPerSecond: bps,
       );
+      await _claimTunnelUp(
+        connectionNotifier,
+        container,
+        engine,
+        holdEngine: holdEngine,
+      );
       return;
     }
-    if (!_slowSoftEtherRotationArmed) return;
+    // Some bytes crossed the tunnel, so the session does carry traffic even
+    // though this relay is slow: claim it, then let the rotation below replace
+    // it. Zero bytes is a different answer and is handled after the guard.
+    if (bytes > 0) {
+      await _claimTunnelUp(
+        connectionNotifier,
+        container,
+        engine,
+        holdEngine: holdEngine,
+      );
+    }
+    if (!_slowSoftEtherRotationArmed) {
+      if (bytes == 0) {
+        // Nothing forwarded and the press already spent its one rotation.
+        // Saying Connected here is exactly the "the app lies" failure, so the
+        // session is named dead and the bounded recovery redials it.
+        _log.addLog(
+          '[VpnController] Tunnel ${relay.endpoint} forwarded no data; '
+          'not claiming it works',
+        );
+        _reachability.markDead(relayReachabilityKey(relay.dial, relay.port));
+        await RelayMemory.recordDialFailure(relay.dial, network: network);
+        await RelayMemory.recordEngineOutcome(engine, false, network: network);
+        if (_manualDisconnect || generation != _rotationGeneration) return;
+        // Release the interface we are about to call dead. An app that says
+        // Disconnected while its own TUN is still installed is the split-brain
+        // this class of bug keeps producing.
+        try {
+          await SoftEtherVpn.disconnect();
+        } catch (_) {}
+        try {
+          await _vpnService.disconnect();
+        } catch (_) {}
+        await VpnSessionStore.clear();
+        container.read(connectedRelayProvider.notifier).state = null;
+        container.read(softEtherHostProvider.notifier).state = null;
+        connectionNotifier.holdEngineEvents(false);
+        connectionNotifier.setDisconnected();
+        _scheduleRecovery();
+      }
+      return;
+    }
     if (_manualDisconnect || generation != _rotationGeneration) return;
-    if (container.read(connectionStateProvider).status !=
-        ConnectionStatus.connected) {
+    final stillJudged = container.read(connectionStateProvider).status;
+    if (stillJudged != ConnectionStatus.connected &&
+        stillJudged != ConnectionStatus.analyzing) {
       return;
     }
     _slowSoftEtherRotationArmed = false;
@@ -2987,6 +3120,7 @@ vpn
             generation,
             connectionNotifier,
             engine: 'softether',
+            holdEngine: false,
           ),
         );
         return true;
@@ -3018,11 +3152,20 @@ vpn
       countryCode: target.countryCode,
       countryName: target.countryName,
     );
+    final memoryNetwork = await _networkForMemory();
     await RelayMemory.remember(
       target,
-      network: await _networkForMemory(),
+      network: memoryNetwork,
       engine: 'reality',
     );
+    // This is reached only after the data gate, so the hello recorded here
+    // carried a real transfer rather than completing a handshake.
+    if (relay.link == null) {
+      await RelayMemory.recordHandshakeShape(
+        relay.fingerprint,
+        network: memoryNetwork,
+      );
+    }
     if (HomeRegion.isHome(target.countryCode)) {
       _log.addLog(
         '[VpnController] Exit ${target.dial} is in the device home country '
@@ -3071,10 +3214,12 @@ vpn
   /// Censorship-resistant path: VLESS over REALITY on TCP 443.
   ///
   /// Every dial is a complete TLS session to a benign host, so a carrier that
-  /// fingerprints and drops VPN handshakes still sees ordinary HTTPS. Tried
-  /// before SoftEther because the relay list is short and the watchdog is
-  /// tight. Community relays are opt-in only: nothing is dialled until the
-  /// user switches the engine on or picks one in the server sheet.
+  /// fingerprints and drops VPN handshakes still sees ordinary HTTPS. Android
+  /// dials nothing else: the networks this app serves forward TCP 443 and drop
+  /// the ports SoftEther and OpenVPN need, where neither engine completed a
+  /// handshake. Apple still runs those and does not reach this path.
+  /// The community pool is on unless the user turned it off; a relay
+  /// they imported is always dialled, switch or not.
   ///
   /// A relay is adopted only after [RealityEngine.probeTunnel] carries a real
   /// transfer through the installed TUN. Networks that throttle a relay's IP
@@ -3086,22 +3231,43 @@ vpn
   ) async {
     if (!RealityEngine.instance.isSupported) return false;
     final settings = await RealitySettingsStore.load();
-    if (!settings.usable) return false;
-    final split = container.read(splitTunnelProvider);
-    if (split.appliedMode == TunnelMode.allow) {
-      // The plugin only accepts a deny list; an allow list would leak every
-      // other app through the carrier while the orb says connected.
+    final vault = await RelayVault.load();
+    if (!settings.usable && vault.isEmpty) {
+      // Returning silently here is what makes a mobile-data failure
+      // unreadable in a captured log: the file would show a connect that
+      // ended with no dial at all and no trace that the one engine the
+      // sources say survives these carriers was never offered. This now
+      // means the user turned the switch off on purpose, but the reason it
+      // did not run has to be on the record.
       _log.addLog(
-        '[VpnController] REALITY cannot express an allow list; '
-        'SoftEther handles this split',
+        '[VpnController] REALITY not attempted: no relay imported and the '
+        'community relay switch is off',
       );
       return false;
     }
+    final split = container.read(splitTunnelProvider);
+    if (split.mode == TunnelMode.allow && split.packages.isNotEmpty) {
+      // The plugin only accepts a deny list, and SoftEther — which could
+      // honour an allow list — is no longer dialled here. Refusing the whole
+      // connect was the worse error: more traffic behind the tunnel than the
+      // user asked for leaks nothing, while no tunnel leaks everything.
+      _log.addLog(
+        '[VpnController] Allow-list split cannot run on this engine; '
+        'tunnelling every app instead',
+      );
+    }
 
     final generation = _rotationGeneration;
+    // A community relay exits through a stranger, so the switch is the consent
+    // for it — on by default, and the disclosure sits with the switch. A vault
+    // relay needs no such consent: the user named that address. So the vault is
+    // always dialled and is always dialled before the pool, and turning the
+    // switch off leaves the user's own servers running.
     final List<RealityRelay> catalog;
     try {
-      catalog = await RealityCatalog.load();
+      catalog = settings.usable
+          ? [...vault, ...await RealityCatalog.load()]
+          : vault;
     } catch (e) {
       _log.addLog('[VpnController] REALITY catalog unavailable: $e');
       return false;
@@ -3110,7 +3276,10 @@ vpn
 
     final picked = settings.selectedId;
     final network = await _networkForMemory();
-    final anchor = await RelayMemory.recall(network: network, engine: 'reality');
+    final anchor = await RelayMemory.recall(
+      network: network,
+      engine: 'reality',
+    );
     final proven = await RelayMemory.provenDials('reality');
     final head = <RealityRelay>[];
     final headHosts = <String>{};
@@ -3126,6 +3295,10 @@ vpn
     }
 
     push(findBy((relay) => relay.id == picked));
+    // The user's own servers go next, ahead of anything remembered: an imported
+    // address is the one the user chose to trust, and a community relay that
+    // happened to be faster last week is not a reason to route around it.
+    for (final relay in vault) push(relay);
     if (anchor != null) {
       push(findBy((relay) => relay.host == anchor.dial));
     }
@@ -3154,51 +3327,87 @@ vpn
       extraScore: extraScore,
     );
     final byDial = {for (final relay in catalog) relay.host: relay};
+    // Relays this phone has no history with are tried on their port first.
+    // A site's TLS certificate served from a port other than 443 is the
+    // cheapest mass-sweep there is — one search on a mapping engine for
+    // Apple/Cloudflare/Google certificates off-port returns tens of thousands
+    // of hosts, and net4people #254 reports the borrowed-SNI nodes behind them
+    // getting cut at the first handshake. 443 is also the only port a carrier
+    // can quietly throttle without also breaking ordinary web browsing. The
+    // split is a partition rather than a sort so the measured health order
+    // inside each group survives.
+    final tailRelays = tail
+        .map((t) => byDial[t.dial])
+        .whereType<RealityRelay>()
+        .toList();
     final queue = <RealityRelay>[
       ...head,
-      for (final target in tail)
-        if (byDial[target.dial] != null) byDial[target.dial]!,
+      ...tailRelays.where((relay) => relay.port == 443),
+      ...tailRelays.where((relay) => relay.port != 443),
     ];
     if (queue.isEmpty || generation != _rotationGeneration) return false;
 
-    // Redialling a fleet that just failed the data gate costs the whole
-    // connect budget before SoftEther is tried. Auto mode skips it for a
-    // while; a pinned relay, the cooldown expiring, or a new network lifts
-    // the skip so the fleet is retried.
-    if (picked == null &&
-        await RelayMemory.engineRecentlyFailing('reality', network: network)) {
+    // A hello that already moved bytes on this cell tower is measured
+    // evidence; the ladder is a guess. Lead with the evidence, keep the ladder
+    // behind it in case the carrier changed its mind.
+    final preferredShape = await RelayMemory.recallHandshakeShape(
+      network: network,
+    );
+    final dials = RealityRelay.dialPlan(queue, preferredShape: preferredShape);
+    if (preferredShape.isNotEmpty) {
       _log.addLog(
-        '[VpnController] REALITY skipped: recent sessions on this network '
-        'carried no data',
+        '[VpnController] REALITY leading with hello $preferredShape: '
+        'this network carried traffic with it',
       );
-      return false;
     }
 
+    // Deliberately no `engineRecentlyFailing` refusal here: that cooldown
+    // saved budget for a SoftEther fallback Android no longer dials, so
+    // skipping was not a delay but a guaranteed failure for 20 minutes. The
+    // streak is still recorded, and it no longer gates the attempt.
+
     if (!await RealityEngine.instance.ensurePermission()) {
-      _log.addLog('[VpnController] REALITY permission denied; falling back');
+      _log.addLog(
+        '[VpnController] REALITY permission denied; no dial attempted',
+      );
       return false;
     }
 
     final blockedApps = split.appliedMode == TunnelMode.bypass
         ? split.packages.toList()
         : null;
-    final traceTotal = queue.length < _maxRealityAttempts
-        ? queue.length
+    final traceTotal = dials.length < _maxRealityAttempts
+        ? dials.length
         : _maxRealityAttempts;
     var attempts = 0;
-    for (final relay in queue) {
+    // One relay tried with three hellos is still one relay, so a bad address is
+    // charged to the history once, on its last shape, not once per shape.
+    final lastDialForHost = <String, int>{};
+    for (var i = 0; i < dials.length; i++) {
+      lastDialForHost[dials[i].host] = i;
+    }
+    var dialIndex = 0;
+    for (final relay in dials) {
       if (attempts >= _maxRealityAttempts) break;
       if (generation != _rotationGeneration) return false;
       if (_manualDisconnect || _connectQueued) return false;
-      if (_budgetRemaining < const Duration(seconds: 35)) {
+      // One dial needs the handshake plus the data gate to finish inside the
+      // budget; starting it with less than that left would only have the
+      // budget abort cut it off. Derived from the engine's own timeouts so it
+      // cannot rot when they change, and no longer padded for a SoftEther
+      // fallback that no longer exists on Android.
+      if (_budgetRemaining <
+          RealityEngine.connectTimeout + RealityEngine.tunnelProbeTimeout) {
         _log.addLog(
           '[VpnController] REALITY stopped with '
-          '${_budgetRemaining.inSeconds}s of connect budget left; reserving '
-          'it for the SoftEther fallback',
+          '${_budgetRemaining.inSeconds}s of connect budget left — not enough '
+          'for another handshake and its data gate',
         );
         break;
       }
+      final thisDial = dialIndex++;
       attempts++;
+      _realityDialsAttempted = attempts;
       connectionNotifier.setConnecting();
       _publishTrace(
         engine: 'REALITY',
@@ -3209,7 +3418,7 @@ vpn
       unawaited(_analyticsService.logVpnConnectAttempt('reality'));
       _log.addLog(
         '[VpnController] REALITY dial ${relay.endpoint} (${relay.countryCode}) '
-        'attempt $attempts/$_maxRealityAttempts',
+        'hello ${relay.fingerprint} attempt $attempts/$_maxRealityAttempts',
       );
       final failure = await _startReality(relay, blockedApps);
       if (generation != _rotationGeneration || _manualDisconnect) {
@@ -3218,11 +3427,14 @@ vpn
       }
       if (failure != null) {
         _log.addLog(
-          '[VpnController] REALITY failed ${relay.endpoint}: $failure',
+          '[VpnController] REALITY failed ${relay.endpoint} '
+          '(hello ${relay.fingerprint}): $failure',
         );
-        unawaited(
-          RelayMemory.recordProbes({relay.host: false}, network: network),
-        );
+        if (lastDialForHost[relay.host] == thisDial) {
+          unawaited(
+            RelayMemory.recordProbes({relay.host: false}, network: network),
+          );
+        }
         continue;
       }
 
@@ -3246,7 +3458,8 @@ vpn
       }
       if (probe == null || !probe.ok) {
         _log.addLog(
-          '[VpnController] REALITY ${relay.endpoint} up but the tunnel did '
+          '[VpnController] REALITY ${relay.endpoint} '
+          '(hello ${relay.fingerprint}) up but the tunnel did '
           'not carry data (${probe?.bytes ?? 0}B in '
           '${probe?.elapsedMs ?? 0}ms, rtt ${probe?.traceMs ?? 0}ms, '
           '${probe?.error ?? 'no probe'}); trying the next relay',
@@ -3256,15 +3469,18 @@ vpn
         // the next relay against a half-torn-down service is what produced
         // INVALID_CONFIG on the relay after a failed data gate.
         await Future<void>.delayed(const Duration(milliseconds: 300));
-        unawaited(
-          RelayMemory.recordProbes({relay.host: false}, network: network),
-        );
+        if (lastDialForHost[relay.host] == thisDial) {
+          unawaited(
+            RelayMemory.recordProbes({relay.host: false}, network: network),
+          );
+        }
         continue;
       }
       final rtt = probe.rttMs;
       _log.addLog(
         '[VpnController] CONNECTED via REALITY ${relay.endpoint} '
-                '(${probe.bytes}B in ${probe.elapsedMs}ms, rtt ${rtt}ms, exit '
+                '(hello ${relay.fingerprint}, ${probe.bytes}B in '
+                '${probe.elapsedMs}ms, rtt ${rtt}ms, exit '
                 '${probe.exitIp ?? 'unknown'} ${probe.exitCountry ?? ''})'
             .trimRight(),
       );
@@ -3309,155 +3525,6 @@ vpn
         RelayMemory.recordEngineOutcome('reality', false, network: network),
       );
     }
-    return false;
-  }
-
-  /// SoftEther dials tried before OpenVPN. Returns true when one comes up.
-  ///
-  /// Phase 1 dials relays this network already proved with no probe in front
-  /// of them. Phase 2, with the full TLS probe and sweep, only runs after
-  /// those dials fail: the expensive verification is paid for by the rare
-  /// cold start, not by every user who opens the app.
-  Future<bool> _tryOneSoftEther(
-    ProviderContainer container,
-    ConnectionStateNotifier connectionNotifier,
-  ) async {
-    final sslGen = _rotationGeneration;
-    final targets = await _softEtherTargets(container);
-    if (targets.isEmpty || sslGen != _rotationGeneration) return false;
-
-    final tried = <String>{};
-    Future<bool> dialPhase(List<RelayTarget> candidates) async {
-      final fresh = <RelayTarget>[];
-      for (final target in candidates) {
-        if (fresh.length >= 3) break;
-        if (!tried.add(relayReachabilityKey(target.dial, target.port))) {
-          continue;
-        }
-        fresh.add(target);
-      }
-      if (fresh.isEmpty) return false;
-      return _dialSoftEtherTargets(
-        fresh,
-        container,
-        connectionNotifier,
-        sslGen,
-      );
-    }
-
-    final immediate = await _reachableSoftEther(
-      targets,
-      sslGen,
-      container: container,
-    );
-    if (immediate.isNotEmpty && await dialPhase(immediate)) return true;
-    if (sslGen != _rotationGeneration || _manualDisconnect || _connectQueued) {
-      return false;
-    }
-
-    // Every remembered relay failed. Now it is worth probing the rest of the
-    // shortlist and, if that is also dead, sweeping the wider catalog.
-    final remaining = [
-      for (final target in targets)
-        if (!tried.contains(relayReachabilityKey(target.dial, target.port)))
-          target,
-    ];
-    if (remaining.isEmpty) return false;
-    final verified = await _reachableSoftEther(
-      remaining,
-      sslGen,
-      container: container,
-      allowImmediate: false,
-    );
-    if (verified.isEmpty || sslGen != _rotationGeneration) return false;
-    return dialPhase(verified);
-  }
-
-  Future<bool> _dialSoftEtherTargets(
-    List<RelayTarget> targets,
-    ProviderContainer container,
-    ConnectionStateNotifier connectionNotifier,
-    int sslGen,
-  ) async {
-    final traceTotal = targets.length < 3 ? targets.length : 3;
-    var dial = 0;
-    for (final target in targets.take(3)) {
-      if (sslGen != _rotationGeneration) return false;
-      if (_manualDisconnect || _connectQueued) return false;
-      dial++;
-      connectionNotifier.setConnecting();
-      _publishTrace(
-        engine: 'SoftEther',
-        attempt: dial,
-        total: traceTotal,
-        relay: target.displayName,
-      );
-      unawaited(_analyticsService.logVpnConnectAttempt('softether'));
-      _log.addLog(
-        '[VpnController] SoftEther dial ${target.endpoint} (${target.countryCode})',
-      );
-      container.read(softEtherHostProvider.notifier).state =
-          '${target.displayName} · ${target.endpoint}';
-      var result = await SoftEtherVpn.connect(
-        dial: target.dial,
-        sni: target.sni,
-        port: target.port,
-      );
-      // A canceled handshake can keep the native service gate closed for a
-      // moment. Give it time to unwind instead of burning the next relay.
-      if (!result.ok &&
-          (result.detail == 'busy' || result.detail == 'relay_changed')) {
-        await SoftEtherVpn.disconnect();
-        for (var attempt = 0; attempt < 16 && !result.ok; attempt++) {
-          await Future<void>.delayed(const Duration(milliseconds: 500));
-          if (sslGen != _rotationGeneration) return false;
-          if (_manualDisconnect || _connectQueued) return false;
-          result = await SoftEtherVpn.connect(
-            dial: target.dial,
-            sni: target.sni,
-            port: target.port,
-          );
-        }
-      }
-      if (_manualDisconnect) {
-        // The user pressed disconnect while the handshake was in flight. Do
-        // not let a late success resurrect a tunnel they already closed.
-        try {
-          await SoftEtherVpn.disconnect(reason: 'user');
-        } catch (_) {}
-        return false;
-      }
-      if (sslGen != _rotationGeneration || _connectQueued) return false;
-      if (result.ok || result.detail == 'already running') {
-        final relay = await _relayForEffective(target, container);
-        _log.addLog(
-          '[VpnController] CONNECTED via SoftEther ${relay.endpoint} '
-          '(${relay.countryCode})',
-        );
-        await _markRelayConnected(
-          container,
-          connectionNotifier,
-          relay,
-          holdEngine: true,
-        );
-        unawaited(
-          _verifyTunnelThroughput(
-            relay,
-            container,
-            sslGen,
-            connectionNotifier,
-            engine: 'softether',
-          ),
-        );
-        return true;
-      }
-      _log.addLog('[VpnController] SoftEther dial failed: ${result.detail}');
-      await _recordSoftEtherFailure(target);
-      try {
-        await SoftEtherVpn.disconnect();
-      } catch (_) {}
-    }
-    connectionNotifier.holdEngineEvents(false);
     return false;
   }
 
@@ -3622,6 +3689,12 @@ vpn
     container.read(connectedRelayProvider.notifier).state = null;
     await RealityEngine.instance.stop();
     await SoftEtherVpn.disconnect();
+    // OpenVPN owns a VpnService of its own. Leaving it up while a new dial
+    // starts means two tunnels race for the interface and the old one keeps
+    // carrying traffic under a relay the UI no longer names.
+    try {
+      await _vpnService.disconnect();
+    } catch (_) {}
     await _connect();
   }
 

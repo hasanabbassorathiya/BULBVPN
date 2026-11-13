@@ -1,7 +1,32 @@
 # Connecting BULBVPN on Iranian mobile data
 
-For the full catalog of VPN failures (every platform, IR Wi‑Fi / mobile
-data, and global), see [`vpn-issues.md`](vpn-issues.md).
+For the full catalog of VPN failures (every platform, IR mobile data
+/ Wi-Fi, and global), see [`vpn-issues.md`](vpn-issues.md).
+
+> **This is the 20 Oct 2026 method log, not the current spec.** Several
+> numbers below were changed by later rounds and the code is now the
+> authority: the liveness loop tolerates **8** misses, not three; the
+> retired TUN fd is joined after **1.5 s**, not 8; the tunnel MTU is
+> **1280** so IPv6 can exist on the link at all, with a `::/0` route
+> captured and dropped rather than an IPv4-only interface; and the app is
+> deliberately **inside** its own TUN (`protect()` on the session socket)
+> instead of excluded with `addDisallowedApplication`, so the in-app exit
+> lookup is real evidence of the egress. The `retireClient()` /
+> second-`nativeCreate` design in §F was superseded by one client plus
+> `nativeReplaceTun` -- see [`connection-solutions.md`](connection-solutions.md)
+> §1 attempt 7.
+>
+> Two relay-selection numbers in §C and §H are also out of date: the
+> SoftEther list now keeps up to **2 hosts per `/24`** (3 when premium),
+> not one -- `vpn_controller.dart:1047`; and the OpenVPN candidate list is a
+> **round-robin spread across subnets**, best host first inside each `/24`,
+> which will take a second host from a subnet once the other subnets are
+> exhausted, not strictly one per `/24` -- `vpn_controller.dart:1563`. A
+> connected handover no longer trusts the old session either: any network
+> change while Connected forces a clean redial through all three engines
+> (`vpn_controller.dart:750-752`, `774-823`), and the data-plane proof is
+> cleared only in `_disarmWatchdog` (`vpn_controller.dart:361`), never on
+> the restore path.
 
 Release builds hide the in-app log. The traces below are from a debug
 session on the device, not from the Play or TestFlight UI.
@@ -172,6 +197,12 @@ a timer running on a dead pipe. VPN Gate has closed a live session with
 the data loop was wedged.
 
 ### H. Fall back to OpenVPN when SoftEther cannot
+
+> **Android: this step is history, as of 7 Nov 2026.** Android dials
+> REALITY/XHTTP and exits the loop with a verdict — there is no SoftEther pool
+> and no OpenVPN rotation to reach, because both were removed here. The
+> fallback still runs on Apple, and the second half of this step (adopting a
+> live session on resume) is engine-independent and still applies.
 
 If all eight SoftEther relays fail, `holdEngineEvents(false)` and the
 existing OpenVPN rotation runs: last-good config, then the on-device

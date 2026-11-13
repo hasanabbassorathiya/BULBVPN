@@ -3,58 +3,94 @@ import 'package:flutter/services.dart';
 
 import 'air_colors.dart';
 import 'app_text_styles.dart';
+import 'metered_colors.dart';
 
 class AppTheme {
   static const String fontFamily = AppTextStyles.sans;
 
-  static ThemeData get light => _build(AirColors.day);
-  static ThemeData get dark => _build(AirColors.night);
+  static ThemeData get light => _build(MeteredColors.day);
+  static ThemeData get dark => _build(MeteredColors.night);
 
   // Transitional aliases for callers that still use the old names.
   static ThemeData get lightTheme => light;
   static ThemeData get darkTheme => dark;
 
-  static ThemeData _build(AirColors c) {
+  /// The retired Clear Air palette, re-tuned to the Metered card so screens
+  /// that have not been rebuilt yet still live in the new world. Deleted with
+  /// `AirColors` once every surface is Metered.
+  static AirColors _bridge(MeteredColors m) {
+    final raised = Color.lerp(m.card, m.ink, m.isNight ? 0.07 : 0.05)!;
+    return AirColors(
+      brightness: m.brightness,
+      ground: m.cardDeep,
+      surface: m.card,
+      raised: raised,
+      sunken: m.well,
+      ink: m.ink,
+      steel: m.inkSoft,
+      mute: m.inkFaint,
+      hairline: m.rule,
+      hairlineStrong: m.ruleStrong,
+      accent: m.value,
+      accentInk: m.ink,
+      accentWash: m.value.withValues(alpha: 0.14),
+      connected: m.proven,
+      connectedInk: m.valueOn,
+      alert: m.blocked,
+      alertInk: m.blockedLift,
+      graphite: m.wheel,
+      sun: m.value,
+      shadow: m.cardDeep.withValues(alpha: 0.55),
+      skyTop: m.card,
+      skyHorizon: m.card,
+      groundHorizon: m.cardDeep,
+      groundBottom: m.cardDeep,
+      haze: m.card.withValues(alpha: 0.0),
+    );
+  }
+
+  static ThemeData _build(MeteredColors m) {
+    final c = _bridge(m);
     final scheme = ColorScheme(
-      brightness: c.brightness,
-      primary: c.accentInk,
-      onPrimary: c.surface,
-      secondary: c.connectedInk,
-      onSecondary: c.surface,
-      error: c.alertInk,
-      onError: c.surface,
-      surface: c.surface,
-      onSurface: c.ink,
+      brightness: m.brightness,
+      primary: m.ink,
+      onPrimary: m.card,
+      secondary: m.value,
+      onSecondary: m.valueOn,
+      error: m.blocked,
+      onError: m.paper,
+      surface: m.card,
+      onSurface: m.ink,
       surfaceContainerHighest: c.raised,
-      outline: c.hairlineStrong,
-      outlineVariant: c.hairline,
+      outline: m.ruleStrong,
+      outlineVariant: m.rule,
     );
 
     final base = ThemeData(
       useMaterial3: true,
-      brightness: c.brightness,
+      brightness: m.brightness,
       colorScheme: scheme,
-      scaffoldBackgroundColor: c.ground,
-      dividerColor: c.hairline,
+      scaffoldBackgroundColor: m.cardDeep,
+      dividerColor: m.rule,
       splashFactory: InkRipple.splashFactory,
       highlightColor: Colors.transparent,
-      hoverColor: c.hairline,
-      extensions: [c],
+      hoverColor: m.rule,
+      extensions: [m, c],
       textTheme: TextTheme(
-        displayLarge: AppTextStyles.display(color: c.ink, size: 44),
-        displayMedium: AppTextStyles.display(color: c.ink, size: 34),
-        displaySmall: AppTextStyles.display(color: c.ink, size: 28),
-        titleLarge: AppTextStyles.title(color: c.ink, size: 22),
-        titleMedium: AppTextStyles.title(color: c.ink, size: 17),
-        bodyLarge: AppTextStyles.body(color: c.ink, size: 16),
-        bodyMedium: AppTextStyles.body(color: c.ink, size: 14),
-        bodySmall: AppTextStyles.body(color: c.steel, size: 13),
+        displayLarge: AppTextStyles.masthead(color: m.ink, size: 38),
+        displayMedium: AppTextStyles.display(color: m.ink, size: 30),
+        displaySmall: AppTextStyles.display(color: m.ink, size: 26),
+        titleLarge: AppTextStyles.title(color: m.ink, size: 21),
+        titleMedium: AppTextStyles.title(color: m.ink, size: 17),
+        bodyLarge: AppTextStyles.body(color: m.ink, size: 16),
+        bodyMedium: AppTextStyles.body(color: m.ink, size: 14),
+        bodySmall: AppTextStyles.body(color: m.inkSoft, size: 13),
         labelLarge: AppTextStyles.body(
-          color: c.ink,
+          color: m.ink,
           size: 14,
           weight: FontWeight.w600,
         ),
-        labelSmall: AppTextStyles.label(color: c.steel),
+        labelSmall: AppTextStyles.label(color: m.inkFaint),
       ),
     );
 

@@ -1,8 +1,11 @@
 import 'package:bulbvpn/app/router/app_router.dart';
+import 'package:bulbvpn/core/theme/air_colors.dart';
+import 'package:bulbvpn/core/theme/app_text_styles.dart';
 import 'package:bulbvpn/core/theme/app_theme.dart';
+import 'package:bulbvpn/l10n/app_localizations.dart';
 import 'package:bulbvpn/modules/core/vpn_controller.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:bulbvpn/shared/services/animation_service.dart';
 import 'package:bulbvpn/shared/services/vibration_service.dart';
@@ -22,10 +25,11 @@ class _AppState extends ConsumerState<App> {
     return FutureBuilder<bool>(
       future: _startup,
       builder: (context, snapshot) {
-        if (!snapshot.hasData) {
-          return const MaterialApp(
-            home: Scaffold(body: Center(child: CircularProgressIndicator())),
-          );
+        // A failed service init must still boot the app: without this the
+        // frame would hold the wordmark forever and the VPN would never be
+        // reachable.
+        if (!snapshot.hasData && !snapshot.hasError) {
+          return const _StartupFrame();
         }
         return _buildApp(context, ref);
       },
@@ -41,42 +45,93 @@ class _AppState extends ConsumerState<App> {
   Widget _buildApp(BuildContext context, WidgetRef ref) {
     final router = ref.watch(routerProvider);
 
-    final designSize = _getDesignSize(context);
-
-    return ScreenUtilInit(
-      designSize: designSize,
-      minTextAdapt: true,
-      splitScreenMode: true,
-      builder: (_, __) {
-        return _VpnInitializer(
-          child: MaterialApp.router(
-            title: 'BULB VPN',
-            theme: AppTheme.light,
-            darkTheme: AppTheme.dark,
-            themeMode: ThemeMode.system,
-            routerConfig: router,
-            builder: _appBuilder,
-            debugShowCheckedModeBanner: false,
-          ),
-        );
-      },
+    return _VpnInitializer(
+      child: MaterialApp.router(
+        title: 'BULB VPN',
+        theme: AppTheme.light,
+        darkTheme: AppTheme.dark,
+        themeMode: ThemeMode.system,
+        routerConfig: router,
+        localizationsDelegates: const [
+          AppLocalizations.delegate,
+          GlobalMaterialLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+        ],
+        supportedLocales: const [
+          Locale('en'),
+          Locale('fa'),
+        ],
+        builder: _appBuilder,
+        debugShowCheckedModeBanner: false,
+      ),
     );
-  }
-
-  Size _getDesignSize(BuildContext context) {
-    final size = MediaQuery.of(context).size;
-    final isTablet = size.width > 600;
-    final isLargeTablet = size.width > 900;
-    final isDesktop = size.width > 1200;
-
-    if (isDesktop) return const Size(1440, 900);
-    if (isLargeTablet) return const Size(1024, 768);
-    if (isTablet) return const Size(768, 1024);
-    return const Size(393, 852);
   }
 
   Widget _appBuilder(BuildContext context, Widget? child) {
     return child ?? const SizedBox.shrink();
+  }
+}
+
+/// The frame shown while the two services start. It carries the theme and the
+/// same `ground` as the native launch window and the splash, so startup is one
+/// surface; the default un-themed `MaterialApp` here flashed Material's purple
+/// seed and a spinner, which is the one thing DESIGN.md §9 forbids on a state.
+class _StartupFrame extends StatelessWidget {
+  const _StartupFrame();
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      theme: AppTheme.light,
+      darkTheme: AppTheme.dark,
+      themeMode: ThemeMode.system,
+      localizationsDelegates: const [
+        AppLocalizations.delegate,
+        GlobalMaterialLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+      ],
+      supportedLocales: const [
+        Locale('en'),
+        Locale('fa'),
+      ],
+      home: Builder(
+        builder: (context) {
+          final air = context.air;
+          return Scaffold(
+            backgroundColor: air.ground,
+            body: SafeArea(
+              child: Center(
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.baseline,
+                  textBaseline: TextBaseline.alphabetic,
+                  children: [
+                    Text(
+                      'BULB',
+                      style: AppTextStyles.display(
+                        color: air.ink,
+                        size: 26,
+                        weight: FontWeight.w700,
+                      ),
+                    ),
+                    Text(
+                      'VPN',
+                      style: AppTextStyles.display(
+                        color: air.accentInk,
+                        size: 26,
+                        weight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
   }
 }
 

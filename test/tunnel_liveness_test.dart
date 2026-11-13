@@ -32,6 +32,47 @@ void main() {
       );
     });
 
+    test('our own stalled tunnel is not blamed on another app', () {
+      // The desync the user sees: Android's key still says "VPN on", the
+      // SoftEther TUN is installed, but it stopped forwarding so isTunnelUp()
+      // reads false. Before, this arm answered `otherOwner` and the session
+      // record was discarded.
+      const state = SystemVpnState(
+        reported: true,
+        vpnNetworkUp: true,
+        softEtherTunnelUp: true,
+      );
+      expect(
+        TunnelLiveness.classify(state, realitySessionRecorded: true),
+        OrphanTunnel.ours,
+      );
+    });
+
+    test('our kill switch counts as our interface, not another app', () {
+      const state = SystemVpnState(
+        reported: true,
+        vpnNetworkUp: true,
+        lockedDown: true,
+      );
+      expect(
+        TunnelLiveness.classify(state, realitySessionRecorded: false),
+        OrphanTunnel.ours,
+      );
+    });
+
+    test('a live daemon tunnel still outranks our held interface', () {
+      const state = SystemVpnState(
+        reported: true,
+        vpnNetworkUp: true,
+        realityDaemonUp: true,
+        softEtherTunnelUp: true,
+      );
+      expect(
+        TunnelLiveness.classify(state, realitySessionRecorded: true),
+        OrphanTunnel.reality,
+      );
+    });
+
     test('a lingering daemon with no recorded session proves nothing', () {
       const state = SystemVpnState(
         reported: true,
@@ -110,6 +151,33 @@ void main() {
         isTrue,
       );
     });
+
+    test('survives while our own interface is still installed', () {
+      const stalled = SystemVpnState(
+        reported: true,
+        vpnNetworkUp: true,
+        softEtherTunnelUp: true,
+      );
+      const blocked = SystemVpnState(
+        reported: true,
+        vpnNetworkUp: true,
+        lockedDown: true,
+      );
+      expect(
+        TunnelLiveness.clearsSessionOnRestart(
+          stalled,
+          realitySessionRecorded: true,
+        ),
+        isFalse,
+      );
+      expect(
+        TunnelLiveness.clearsSessionOnRestart(
+          blocked,
+          realitySessionRecorded: true,
+        ),
+        isFalse,
+      );
+    });
   });
 
   test('a stop that left the daemon holding the tunnel is detected', () {
@@ -133,11 +201,16 @@ void main() {
       const channel = MethodChannel('app.bulbvpn.com/softether');
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(
-        channel,
-        (call) async => call.method == 'systemState'
-            ? {'vpnNetworkUp': true, 'realityDaemonUp': true}
-            : null,
-      );
+            channel,
+            (call) async => call.method == 'systemState'
+                ? {
+                    'vpnNetworkUp': true,
+                    'realityDaemonUp': true,
+                    'softEtherTunnelUp': false,
+                    'lockedDown': false,
+                  }
+                : null,
+          );
       addTearDown(
         () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
             .setMockMethodCallHandler(channel, null),
@@ -147,9 +220,46 @@ void main() {
       expect(state.reported, isTrue);
       expect(state.vpnNetworkUp, isTrue);
       expect(state.realityDaemonUp, isTrue);
+      expect(state.oursHeld, isFalse);
       expect(
         TunnelLiveness.classify(state, realitySessionRecorded: true),
         OrphanTunnel.reality,
+      );
+    });
+
+    test('reads our own interface flags the activity sends', () async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      const channel = MethodChannel('app.bulbvpn.com/softether');
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+            channel,
+            (call) async => call.method == 'systemState'
+                ? {
+                    'vpnNetworkUp': true,
+                    'realityDaemonUp': false,
+                    'softEtherTunnelUp': true,
+                    'lockedDown': false,
+                  }
+                : null,
+          );
+      addTearDown(
+        () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, null),
+      );
+
+      final state = await querySystemVpnState();
+      expect(state.softEtherTunnelUp, isTrue);
+      expect(state.oursHeld, isTrue);
+      expect(
+        TunnelLiveness.classify(state, realitySessionRecorded: true),
+        OrphanTunnel.ours,
+      );
+      expect(
+        TunnelLiveness.clearsSessionOnRestart(
+          state,
+          realitySessionRecorded: true,
+        ),
+        isFalse,
       );
     });
 
@@ -158,9 +268,9 @@ void main() {
       const channel = MethodChannel('app.bulbvpn.com/softether');
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(
-        channel,
-        (call) async => throw MissingPluginException(),
-      );
+            channel,
+            (call) async => throw MissingPluginException(),
+          );
       addTearDown(
         () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
             .setMockMethodCallHandler(channel, null),

@@ -37,6 +37,8 @@ void main() {
     _expectAA(c, c.connectedInk, c.surface, 'connected text on surface');
     _expectAA(c, c.alertInk, c.ground, 'alert text on ground');
     _expectAA(c, c.accentInk, c.accentWash, 'selected row');
+    _expectAA(c, c.ink, c.accentWash, 'selected row title');
+    _expectAA(c, c.steel, c.accentWash, 'selected row subtitle');
     _expectAA(c, c.alertInk, c.accentWash, 'warning on wash');
   });
 
@@ -50,6 +52,8 @@ void main() {
     _expectAA(c, c.connectedInk, c.surface, 'connected text on surface');
     _expectAA(c, c.alertInk, c.ground, 'alert text on ground');
     _expectAA(c, c.accentInk, c.accentWash, 'selected row');
+    _expectAA(c, c.ink, c.accentWash, 'selected row title');
+    _expectAA(c, c.steel, c.accentWash, 'selected row subtitle');
     _expectAA(c, c.alertInk, c.accentWash, 'warning on wash');
   });
 

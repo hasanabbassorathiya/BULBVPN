@@ -93,6 +93,10 @@ class _StaggeredInState extends State<StaggeredIn>
 }
 
 /// Formats bytes-per-second for the metric rail: `842 KB/s`, `1.2 MB/s`.
+///
+/// The probe column of the tariff sheet uses this: a relay probe is judged by
+/// how many bytes it moved in a fixed window, and comparing that against
+/// another relay is easier in bytes than in bits.
 String formatRate(num bytesPerSecond) {
   if (bytesPerSecond >= 1048576) {
     return '${(bytesPerSecond / 1048576).toStringAsFixed(1)} MB/s';
@@ -103,10 +107,52 @@ String formatRate(num bytesPerSecond) {
   return '${bytesPerSecond.toStringAsFixed(0)} B/s';
 }
 
+/// Formats bytes-per-second as a link rate: `6.7 Mbps`, `940 Kbps`.
+///
+/// The hero card prints this because that is the unit a user measures a VPN in
+/// — the same unit their speed test and their provider's plan use — while the
+/// probe table stays in bytes, which is what it is compared in. Bits are
+/// decimal (1 Mbps = 1,000,000 bit/s), so this is the one place in the app that
+/// does not divide by 1024, and the prefix says so.
+String formatMbps(num bytesPerSecond) {
+  final bits = bytesPerSecond * 8;
+  if (bits >= 1000000) {
+    final mbps = bits / 1000000;
+    return '${mbps >= 100 ? mbps.toStringAsFixed(0) : mbps.toStringAsFixed(1)}'
+        ' Mbps';
+  }
+  return '${(bits / 1000).toStringAsFixed(0)} Kbps';
+}
+
+/// Formats a cumulative byte count for the credit meter: `0 B`, `146 KiB`,
+/// `1.2 MiB`. Deliberately narrower than [formatRate] — the meter window is
+/// sized for a reading, not a sentence.
+///
+/// The prefixes are binary because the division is: a step of 1024 is a kibibyte,
+/// and a card that prints `KB` under a `/1024` figure is off by 10% at the top
+/// of each band and 100% at the next one.
+String formatVolume(num bytes) {
+  if (bytes >= 1073741824) {
+    return '${(bytes / 1073741824).toStringAsFixed(2)} GiB';
+  }
+  if (bytes >= 1048576) {
+    return '${(bytes / 1048576).toStringAsFixed(1)} MiB';
+  }
+  if (bytes >= 1024) {
+    return '${(bytes / 1024).toStringAsFixed(0)} KiB';
+  }
+  return '${bytes.toStringAsFixed(0)} B';
+}
+
 /// Formats a Duration as `HH:MM:SS` (tabular mono metric).
+///
+/// Clamped at zero: a session length is measured from a wall-clock stamp, and
+/// Android re-syncs the clock while a VPN is up. A backwards correction would
+/// otherwise print a negative countdown in the session pill.
 String formatDuration(Duration d) {
   String two(int v) => v.toString().padLeft(2, '0');
-  return '${two(d.inHours)}:${two(d.inMinutes.remainder(60))}:${two(d.inSeconds.remainder(60))}';
+  final seconds = d.isNegative ? 0 : d.inSeconds;
+  return '${two(seconds ~/ 3600)}:${two((seconds ~/ 60) % 60)}:${two(seconds % 60)}';
 }
 
 double lerpAngle(double a, double b, double t) => a + (b - a) * t;

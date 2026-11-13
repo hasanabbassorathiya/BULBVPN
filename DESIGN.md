@@ -84,6 +84,11 @@ Colors are always explicit arguments; there is no palette bridge. Numeric
 styles use tabular figures. Never center a paragraph; never set body copy in
 mono; never use weight below 400.
 
+The table is in logical pixels and the platform text scaler is applied exactly
+once, by `Text`. `flutter_screenutil`'s `.sp` is banned in this codebase: it
+pre-multiplies by the scale factor, so a 1.3× setting rendered 1.69× and the
+absolute scale above drifted with screen width.
+
 ## 4. Layout
 
 - Rails: `AirLayout.rail = 560` for connect, servers, speed;
@@ -242,6 +247,9 @@ being decorative.
 ## 8. Accessibility and privacy
 
 - Contrast: both palettes asserted at WCAG AA in `test/air_theme_test.dart`.
+- Selection is never the fill alone. `accentWash` on `ground` is 1.08:1 by day,
+  so a selected `AirRow` also carries a w600 title and `Semantics(selected:)`;
+  the wash alone would be invisible to both a bright room and a screen reader.
 - Text scale: verified at 1.3× on home and settings; the shelf meta wraps and
   rows grow rather than clip.
 - Semantics: aperture is a button with a Connect/Disconnect label and the

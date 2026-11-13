@@ -18,14 +18,17 @@ class RelayMemory {
   static const _statsKey = 'bulb_relay_stats_v1';
   static const _healthKey = 'bulb_engine_health_v1';
   static const _proofKey = 'bulb_relay_proof_v1';
+  static const _shapeKey = 'bulb_reality_shape_v1';
   static const _maxEntries = 8;
   static const _maxStats = 128;
   static const _maxHealth = 16;
   static const _maxProofs = 24;
+  static const _maxShapes = 8;
   static const _maxAgeMs = 14 * 24 * 60 * 60 * 1000;
   static const _statsMaxAgeMs = 30 * 24 * 60 * 60 * 1000;
   static const _healthMaxAgeMs = 7 * 24 * 60 * 60 * 1000;
   static const _proofMaxAgeMs = 14 * 24 * 60 * 60 * 1000;
+  static const _shapeMaxAgeMs = 30 * 24 * 60 * 60 * 1000;
 
   /// Below this a relay can still complete a handshake but cannot carry a
   /// usable page. Measured rates under it are ranked behind unmeasured relays.
@@ -33,8 +36,7 @@ class RelayMemory {
 
   /// One anchor per network *and engine*: a REALITY pick must not evict the
   /// SoftEther relay this network proved, and the reverse.
-  static String _memoryKey(String network, String engine) =>
-      '$network|$engine';
+  static String _memoryKey(String network, String engine) => '$network|$engine';
 
   static Future<RelayTarget?> recall({
     String? network,
@@ -46,7 +48,8 @@ class RelayMemory {
     final key = _memoryKey(fingerprint, engine);
     // Entries written before this split are keyed by the bare network and
     // belong to the SoftEther path, which was the only writer then.
-    final entry = entries[key] ?? (engine == 'softether' ? entries[fingerprint] : null);
+    final entry =
+        entries[key] ?? (engine == 'softether' ? entries[fingerprint] : null);
     if (entry == null) return null;
     final at = int.tryParse(entry['at']?.toString() ?? '') ?? 0;
     if (at > 0 && DateTime.now().millisecondsSinceEpoch - at > _maxAgeMs) {
@@ -249,6 +252,35 @@ class RelayMemory {
     return {for (final target in await provenRelays(engine)) target.dial};
   }
 
+  /// What this device itself measured through each relay, newest first.
+  ///
+  /// [provenRelays] answers "has this relay ever carried traffic"; this answers
+  /// "what did it carry for this user, and when". It is the only throughput
+  /// figure the relay list is allowed to show as a fact about the user's own
+  /// experience — anything else on screen is a fleet probe.
+  static Future<List<SessionProof>> sessionProofs(String engine) async {
+    if (engine.isEmpty) return const <SessionProof>[];
+    final proofs = await _readMap(_proofKey);
+    final entries = <SessionProof>[];
+    final now = DateTime.now().millisecondsSinceEpoch;
+    proofs.forEach((dial, entry) {
+      if (entry['engine']?.toString() != engine) return;
+      final at = int.tryParse(entry['at']?.toString() ?? '') ?? 0;
+      if (at == 0 || now - at > _proofMaxAgeMs) return;
+      final bps = int.tryParse(entry['bps']?.toString() ?? '') ?? 0;
+      if (bps <= 0) return;
+      entries.add(
+        SessionProof(
+          dial: dial,
+          bytesPerSecond: bps,
+          at: DateTime.fromMillisecondsSinceEpoch(at),
+        ),
+      );
+    });
+    entries.sort((a, b) => b.at.compareTo(a.at));
+    return entries;
+  }
+
   /// A relay-level failure (TLS/auth/hub) after the TCP probe succeeded.
   static Future<void> recordDialFailure(String dial, {String? network}) {
     return recordProbes({dial: false}, network: network);
@@ -322,6 +354,46 @@ class RelayMemory {
     final at = int.tryParse(entry['at']?.toString() ?? '') ?? 0;
     if (streak < minStreak || at == 0) return false;
     return DateTime.now().millisecondsSinceEpoch - at <= window.inMilliseconds;
+  }
+
+  /// The ClientHello shape that last carried a verified transfer on this
+  /// network.
+  ///
+  /// The shape is a property of the carrier, not of the relay: a network that
+  /// drops a two-segment hello drops it from every address at once, and a
+  /// hello that moved bytes through one relay will move them through the next.
+  /// So this is keyed by network alone, and the following connect leads with
+  /// the answer this phone already measured instead of re-walking the ladder
+  /// and spending the budget on a question that is already settled.
+  static Future<void> recordHandshakeShape(
+    String shape, {
+    String? network,
+  }) async {
+    if (shape.isEmpty) return;
+    final fingerprint = network ?? await NetworkIdentity.current();
+    if (!_usable(fingerprint)) return;
+    final shapes = await _readMap(_shapeKey);
+    shapes['$fingerprint|reality'] = {
+      'shape': shape,
+      'at': DateTime.now().millisecondsSinceEpoch,
+    };
+    _pruneMap(shapes, _maxShapes, _shapeMaxAgeMs);
+    await _writeMap(_shapeKey, shapes);
+  }
+
+  /// The remembered hello, or '' when this network has not proven one.
+  static Future<String> recallHandshakeShape({String? network}) async {
+    final fingerprint = network ?? await NetworkIdentity.current();
+    if (!_usable(fingerprint)) return '';
+    final shapes = await _readMap(_shapeKey);
+    final entry = shapes['$fingerprint|reality'];
+    if (entry == null) return '';
+    final at = int.tryParse(entry['at']?.toString() ?? '') ?? 0;
+    if (at == 0 ||
+        DateTime.now().millisecondsSinceEpoch - at > _shapeMaxAgeMs) {
+      return '';
+    }
+    return entry['shape']?.toString().trim() ?? '';
   }
 
   /// Stable, per-network ordering used instead of raw catalog order.
@@ -503,4 +575,19 @@ class RelayMemory {
       await prefs.setString(key, jsonEncode(entries));
     } catch (_) {}
   }
+}
+
+/// One completed session this device carried through a relay.
+class SessionProof {
+  const SessionProof({
+    required this.dial,
+    required this.bytesPerSecond,
+    required this.at,
+  });
+
+  final String dial;
+  final int bytesPerSecond;
+  final DateTime at;
+
+  bool get isRecent => DateTime.now().difference(at) < const Duration(days: 3);
 }

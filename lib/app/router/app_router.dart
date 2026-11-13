@@ -4,13 +4,14 @@ import 'package:go_router/go_router.dart';
 
 import '../../shared/services/firebase_analytics_service.dart';
 
+import '../../modules/main/presentation/widgets/server_sheet.dart';
 import '../../modules/main/presentation/screens/main_screen.dart';
 import '../../modules/legal/legal_screen.dart';
 import '../../modules/onboarding/onboarding_screen.dart';
 import '../../modules/splash/presentation/splash_screen.dart';
 import '../../modules/settings/presentation/screens/settings_screen.dart';
 import '../../modules/speed_test/presentation/screens/speed_test_screen.dart';
-import '../../shared/layout/navbar/defyx_navbar.dart';
+import '../../shared/metered/metered_shell.dart';
 
 enum SlideDirection { leftToRight, rightToLeft }
 
@@ -101,6 +102,39 @@ CustomTransitionPage<void> _createPageAnimation(
   );
 }
 
+/// The four tabs torn along the card's foot. Their widths are the comp's: 323,
+/// 214, 225 and 262 of the plate's 1024 across, so the torn tab is the widest
+/// and SETTINGS earns its length rather than all four splitting evenly.
+/// RELAYS is not a route — the tariff sheet is a modal over the face you are
+/// already looking at — so it never holds the tear. Only a surface that prints
+/// its own face can be the torn tab.
+int _meteredTabFor(String path) {
+  if (path == DefyxVPNRoutes.speedTest.route) return 2;
+  if (path == DefyxVPNRoutes.settings.route) return 3;
+  return 0;
+}
+
+String _routeForTab(int index) {
+  if (index == 2) return DefyxVPNRoutes.speedTest.route;
+  if (index == 3) return DefyxVPNRoutes.settings.route;
+  return DefyxVPNRoutes.main.route;
+}
+
+Future<void> _onMeteredTab(BuildContext context, int index) async {
+  if (index != 1) {
+    context.go(_routeForTab(index));
+    return;
+  }
+  // Leaving the sheet's owner route mid-audit is not offered: come back to the
+  // connect face first, then tear it open on the next frame.
+  if (GoRouterState.of(context).uri.path != DefyxVPNRoutes.main.route) {
+    context.go(DefyxVPNRoutes.main.route);
+    await WidgetsBinding.instance.endOfFrame;
+    if (!context.mounted) return;
+  }
+  await showServerSheet(context);
+}
+
 final routerProvider = Provider<GoRouter>((ref) {
   final observer = FirebaseAnalyticsService().getAnalyticsObserver();
   return GoRouter(
@@ -121,18 +155,14 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       ShellRoute(
         builder: (context, state, child) {
+          final path = state.uri.path;
           return Scaffold(
             extendBody: true,
-            body: Stack(
-              children: [
-                child,
-                const Positioned(
-                  bottom: 0,
-                  left: 0,
-                  right: 0,
-                  child: DefyxNavBar(),
-                ),
-              ],
+            body: MeteredShell(
+              segments: meteredTabs,
+              active: _meteredTabFor(path),
+              onSelect: (index) => _onMeteredTab(context, index),
+              child: child,
             ),
           );
         },

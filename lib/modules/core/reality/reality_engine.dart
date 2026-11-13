@@ -11,8 +11,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:bulbvpn/modules/core/log.dart';
 import 'package:bulbvpn/modules/core/reality/reality_relay.dart';
+import 'package:bulbvpn/modules/core/reality/relay_vault.dart';
 
-/// The VLESS+REALITY tunnel on Android.
+/// The Xray tunnel on Android: VLESS+REALITY from the bundled pool, or whatever
+/// transport a relay the user imported describes.
 ///
 /// One engine, one native session. [start] dials a single relay and either
 /// reports CONNECTED within [connectTimeout] or tears the native service down,
@@ -70,9 +72,10 @@ class RealityEngine {
   String? _activeRelayId;
   RealityRelay? _activeRelay;
 
-  /// Raw native security: REALITY is the only engine supplied by a plugin; on
-  /// Apple the packet-tunnel extension target does not exist in this build.
-  bool get isSupported => !kIsWeb && Platform.isAndroid;
+  /// Raw native security: REALITY is the only engine supplied by a plugin.
+  /// Android runs it through the bundled VpnService; Apple platforms run it
+  /// through the RealityExtension packet tunnel target.
+  bool get isSupported => !kIsWeb && (Platform.isAndroid || Platform.isIOS);
 
   bool get isSessionActive => _sessionActive;
 
@@ -141,10 +144,7 @@ class RealityEngine {
   ///
   /// [blockedApps] is the split-tunnel deny list. The plugin cannot express an
   /// allow list, so callers must skip REALITY for that mode.
-  Future<String?> start(
-    RealityRelay relay, {
-    List<String>? blockedApps,
-  }) async {
+  Future<String?> start(RealityRelay relay, {List<String>? blockedApps}) async {
     if (!isSupported) return 'unsupported';
     final client = await _ensureClient();
     await stop();
@@ -168,8 +168,10 @@ class RealityEngine {
         remark: 'BULBVPN · ${relay.displayName}',
         config: config,
         blockedApps: (blockedApps?.isEmpty ?? true) ? null : blockedApps,
-        androidDnsPolicy: AndroidDnsPolicy.proxy,
-        androidDnsProxyOutboundTag: 'proxy',
+        androidDnsPolicy:
+            Platform.isAndroid ? AndroidDnsPolicy.proxy : AndroidDnsPolicy.config,
+        androidDnsProxyOutboundTag:
+            Platform.isAndroid ? 'proxy' : null,
         notificationDisconnectButtonName: 'Disconnect',
       );
       accepted = true;
@@ -227,11 +229,7 @@ class RealityEngine {
     if (!_sessionActive) return null;
     final traces = [
       _fetch(traceProbeUrl, minBytes: 64, timeout: _traceProbeTimeout),
-      _fetch(
-        traceProbeFallbackUrl,
-        minBytes: 64,
-        timeout: _traceProbeTimeout,
-      ),
+      _fetch(traceProbeFallbackUrl, minBytes: 64, timeout: _traceProbeTimeout),
     ];
     if (!bulk) {
       final trace = _preferTrace(await Future.wait(traces));
@@ -280,21 +278,22 @@ class RealityEngine {
       ..autoUncompress = false;
     late final _Probe result;
     try {
-      result = await _attempt(
-        client,
-        url,
-        minBytes: minBytes,
-        watch: watch,
-        progress: progress,
-      ).timeout(
-        timeout,
-        onTimeout: () => _Probe(
-          ok: false,
-          ms: watch.elapsedMilliseconds,
-          bytes: progress.bytes,
-          error: 'timeout after ${timeout.inSeconds}s',
-        ),
-      );
+      result =
+          await _attempt(
+            client,
+            url,
+            minBytes: minBytes,
+            watch: watch,
+            progress: progress,
+          ).timeout(
+            timeout,
+            onTimeout: () => _Probe(
+              ok: false,
+              ms: watch.elapsedMilliseconds,
+              bytes: progress.bytes,
+              error: 'timeout after ${timeout.inSeconds}s',
+            ),
+          );
     } catch (error) {
       result = _Probe(
         ok: false,
@@ -406,11 +405,6 @@ class RealityEngine {
     return text.length > 140 ? '${text.substring(0, 140)}…' : text;
   }
 
-  /// Stops the native session and waits until the service releases the TUN.
-  ///
-  /// A new dial must never race the previous VpnService teardown: Android
-  /// keeps the old interface until the service finishes, and a second
-  /// `establish()` would fail.
   /// Adopts a tunnel the daemon kept after this process restarted.
   ///
   /// `XrayVPNService` runs in `:RunSoLibXrayDaemon` and outlives the UI
@@ -435,6 +429,11 @@ class RealityEngine {
     }
   }
 
+  /// Stops the native session and waits until the service releases the TUN.
+  ///
+  /// A new dial must never race the previous VpnService teardown: Android
+  /// keeps the old interface until the service finishes, and a second
+  /// `establish()` would fail.
   Future<void> stop() async {
     _sessionActive = false;
     _activeRelayId = null;
@@ -547,10 +546,15 @@ class _Probe {
 }
 
 /// Whether the censorship-resistant engine may be used, and which relay the
-/// user picked. Both are opt-in: community relays are not private, so nothing
-/// here switches them on.
+/// user picked.
+///
+/// On by default, off by choice. A device that never touched the switch is a
+/// device on a network where the other engine is DPI-blackholed, and defaulting
+/// it off there means the connect never reaches the protocol that works. The
+/// consequence is stated wherever the pool is offered — a community relay exits
+/// through a stranger, and the switch is still the user's to throw.
 class RealitySettings {
-  const RealitySettings({this.enabled = false, this.selectedId});
+  const RealitySettings({this.enabled = true, this.selectedId});
 
   final bool enabled;
   final String? selectedId;
@@ -569,9 +573,9 @@ class RealitySettings {
   }
 
   Map<String, Object?> toJson() => {
-        'enabled': enabled,
-        if (selectedId != null) 'selected': selectedId,
-      };
+    'enabled': enabled,
+    if (selectedId != null) 'selected': selectedId,
+  };
 
   static RealitySettings fromJson(Map<String, Object?> json) {
     final selected = json['selected']?.toString();
@@ -599,9 +603,7 @@ class RealitySettingsStore {
       final raw = prefs.getString(_key);
       final settings = raw == null || raw.isEmpty
           ? const RealitySettings()
-          : RealitySettings.fromJson(
-              jsonDecode(raw) as Map<String, Object?>,
-            );
+          : RealitySettings.fromJson(jsonDecode(raw) as Map<String, Object?>);
       _cached = settings;
       return settings;
     } catch (_) {
@@ -623,7 +625,7 @@ class RealitySettingsStore {
 
 class RealitySettingsNotifier extends StateNotifier<RealitySettings> {
   RealitySettingsNotifier()
-      : super(RealitySettingsStore.cached ?? const RealitySettings()) {
+    : super(RealitySettingsStore.cached ?? const RealitySettings()) {
     _hydrate();
   }
 
@@ -656,8 +658,8 @@ class RealitySettingsNotifier extends StateNotifier<RealitySettings> {
 
 final realitySettingsProvider =
     StateNotifierProvider<RealitySettingsNotifier, RealitySettings>(
-  (ref) => RealitySettingsNotifier(),
-);
+      (ref) => RealitySettingsNotifier(),
+    );
 
 /// Whether this build can run the REALITY transport at all. A provider so the
 /// sheet's opt-in UI can be exercised off-device.
@@ -665,6 +667,14 @@ final realitySupportedProvider = Provider<bool>(
   (ref) => RealityEngine.instance.isSupported,
 );
 
-final realityRelaysProvider = FutureProvider<List<RealityRelay>>((ref) {
-  return RealityCatalog.load();
+/// Every relay this dial can reach: the user's own servers, then the bundled
+/// community pool.
+///
+/// It watches the vault so a fresh import lands in the sheet without a pull to
+/// reload, and it keeps the user's address first — the order the sheet shows is
+/// the order the connect path dials.
+final realityRelaysProvider = FutureProvider<List<RealityRelay>>((ref) async {
+  final imported = ref.watch(importedRelaysProvider);
+  final catalog = await RealityCatalog.load();
+  return [...imported, ...catalog];
 });

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:bulbvpn/shared/air/air_layout.dart';
-import 'package:bulbvpn/shared/air/air_phase.dart';
+import 'package:bulbvpn/shared/air/air_phase_map.dart';
 import 'package:bulbvpn/shared/air/horizon_field.dart';
 import 'package:bulbvpn/shared/providers/connection_state_provider.dart' as conn;
 
@@ -54,7 +54,7 @@ class _SpeedTestScreenState extends ConsumerState<SpeedTestScreen> {
     final failed = state.errorMessage != null && state.step == SpeedTestStep.ready;
 
     return HorizonField(
-      phase: AirPhase.idle,
+      phase: airPhaseFor(connectionState.status),
       showHorizon: false,
       child: SafeArea(
         child: Align(

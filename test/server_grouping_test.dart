@@ -71,4 +71,64 @@ void main() {
     expect(groups.single.countryName, 'Japan');
     expect(groups.single.servers, hasLength(2));
   });
+
+  test('a relay this device carried traffic beats a faster handshake', () {
+    // The exact failure the user reported: the list put a 40 ms relay on top
+    // and it carried nothing, while the 220 ms relay that actually worked sat
+    // third. A proof outranks a round-trip time.
+    final groups = groupServersByCountry(
+      [germany, us, japanFast, japanSlow],
+      {
+        japanFast.ip: const ServerPing.ok(40),
+        japanSlow.ip: const ServerPing.ok(220),
+        us.ip: const ServerPing.ok(90),
+        germany.ip: const ServerPing.ok(120),
+      },
+      proven: {japanSlow.ip},
+    );
+
+    expect(groups.map((g) => g.countryName).toList(), [
+      'Japan',
+      'United States',
+      'Germany',
+    ]);
+    expect(groups.first.proven, isTrue);
+    expect(groups.first.servers.first.ip, japanSlow.ip);
+    expect(groups.first.bestPing?.ms, 40);
+    expect(groups.skip(1).map((g) => g.proven), everyElement(isFalse));
+  });
+
+  test('a proven relay with no answer still leads its country', () {
+    // The proof is a fact about the relay, not about this probe round. Losing
+    // the ping must not demote a relay that has carried the user's traffic.
+    final groups = groupServersByCountry(
+      [japanFast, japanSlow],
+      {japanFast.ip: const ServerPing.ok(40)},
+      proven: {japanSlow.ip},
+    );
+
+    expect(groups.single.servers.map((s) => s.ip).toList(), [
+      japanSlow.ip,
+      japanFast.ip,
+    ]);
+    // The header still reports the honest measured figure, not the winner's.
+    expect(groups.single.bestPing?.ms, 40);
+  });
+
+  test('no proven set leaves the old ping order untouched', () {
+    final groups = groupServersByCountry(
+      [japanSlow, japanFast, germany],
+      {
+        japanFast.ip: const ServerPing.ok(40),
+        japanSlow.ip: const ServerPing.ok(220),
+        germany.ip: const ServerPing.ok(10),
+      },
+    );
+
+    expect(groups.map((g) => g.countryName).toList(), ['Germany', 'Japan']);
+    expect(groups.last.servers.map((s) => s.ip).toList(), [
+      japanFast.ip,
+      japanSlow.ip,
+    ]);
+  });
 }

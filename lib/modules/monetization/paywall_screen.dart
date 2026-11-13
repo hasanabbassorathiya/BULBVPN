@@ -392,13 +392,16 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
     return InkWell(
       onTap: () =>
           launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: mute,
-          fontSize: 12,
-          decoration: TextDecoration.underline,
-          decorationColor: mute,
+      // 14 px of vertical padding lifts the glyph box to a 44 px target (§4);
+      // an underlined 12 px label is tappable but not reachable.
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 14),
+        child: Text(
+          label,
+          style: AppTextStyles.body(color: mute, size: 12.5).copyWith(
+            decoration: TextDecoration.underline,
+            decorationColor: mute,
+          ),
         ),
       ),
     );

@@ -32,6 +32,21 @@ class MainActivity : FlutterActivity() {
         super.onCreate(savedInstanceState)
     }
 
+    /**
+     * A dial that outlives this activity must not keep it reachable through
+     * the static callback slot, and a reply posted to a destroyed engine never
+     * runs — the await in Dart would hang with no budget to release it. Clear
+     * the pending connect and the service's one-shot callback, and drop the
+     * timeout runnable that was scheduled on this activity's handler.
+     */
+    override fun onDestroy() {
+        pendingToken++
+        pending = null
+        SoftEtherVpnService.onDone = null
+        mainHandler.removeCallbacksAndMessages(null)
+        super.onDestroy()
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(
@@ -109,9 +124,17 @@ class MainActivity : FlutterActivity() {
                     // a resume that asks "does the OS still hold my tunnel"
                     // cannot stall the frame.
                     workExecutor.execute {
+                        val service = SoftEtherVpnService.instance
                         val state = mapOf(
                             "vpnNetworkUp" to vpnNetworkActive(),
                             "realityDaemonUp" to realityDaemonAlive(),
+                            // Our own interfaces, read from the flags that
+                            // opened them rather than from isTunnelUp(). A
+                            // stalled tunnel still holds the TUN, and without
+                            // these two it gets classified as another app's
+                            // VPN — which discards a session that is ours.
+                            "softEtherTunnelUp" to (service?.holdsTunnel() == true),
+                            "lockedDown" to (service?.isLockedDown() == true),
                         )
                         mainHandler.post { result.success(state) }
                     }

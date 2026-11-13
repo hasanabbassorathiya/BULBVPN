@@ -204,10 +204,13 @@ class _BasePainter extends CustomPainter {
     );
 
     if (showHorizon) {
+      // Day lifts the hairline to 12% so the line survives the sky-to-ground
+      // seam; Night Air uses the palette's own hairline rather than a raw
+      // white, which is the only place either world departs from §2.
       final line = Paint()
         ..color = air.brightness == Brightness.light
             ? air.ink.withValues(alpha: 0.12)
-            : Colors.white.withValues(alpha: 0.10)
+            : air.hairline
         ..strokeWidth = 1;
       canvas.drawLine(Offset(0, horizonY), Offset(size.width, horizonY), line);
     }

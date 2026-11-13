@@ -24,6 +24,11 @@
 		A0CABC282DEF33BC00154A44 /* Tun2SocksKitC in Frameworks */ = {isa = PBXBuildFile; productRef = A0CABC272DEF33BC00154A44 /* Tun2SocksKitC */; };
 		E640D9F7888558C3BD23A668 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = AE9BD0D6942BB307941DBA0D /* GoogleService-Info.plist */; };
 		EB3BBBCF8219005D64713C03 /* VPNExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = A0CABC042DEF330300154A44 /* VPNExtension.appex */; };
+		1AEE6059431B4182A59EEEAC5BED8EEC /* PacketTunnelProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2DA4A401ADD4ADD9142CECD88C324D0 /* PacketTunnelProvider.swift */; };
+		7F7831667DB549119AB57B9EC8165A76 /* Pods_RealityExtension.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B4931621ABA44909ABCA99BD53EAC536 /* Pods_RealityExtension.framework */; };
+		850381BB975744D6A4B7EFB9F7558183 /* NetworkExtension.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A0CABC052DEF330300154A44 /* NetworkExtension.framework */; };
+		24ABC99DE2F44F42A36765945D3767E4 /* libresolv.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = A07E7C6F2E1AEDB5003EAA1E /* libresolv.tbd */; };
+		B1FA4EE74BE149FCBE1C249A91E5B41E /* RealityExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 23EAF6FA4B2949F188553E771C03AF09 /* RealityExtension.appex */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -41,6 +46,13 @@
 			remoteGlobalIDString = A0CABC032DEF330300154A44;
 			remoteInfo = VPNExtension;
 		};
+		CE35913F09754133B931158D5AF02B08 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 97C146E61CF9000F007C117D /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 446B5027C19C414AAF7B8705B1CA304A;
+			remoteInfo = RealityExtension;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -51,6 +63,7 @@
 			dstSubfolderSpec = 13;
 			files = (
 				EB3BBBCF8219005D64713C03 /* VPNExtension.appex in Embed App Extensions */,
+				B1FA4EE74BE149FCBE1C249A91E5B41E /* RealityExtension.appex in Embed App Extensions */,
 			);
 			name = "Embed App Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -88,6 +101,12 @@
 		E290AB978336A1D64EED7007 /* Pods-VPNExtension.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-VPNExtension.debug.xcconfig"; path = "Target Support Files/Pods-VPNExtension/Pods-VPNExtension.debug.xcconfig"; sourceTree = "<group>"; };
 		F363D13D253BC7A752C07D84 /* Pods-Runner.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.release.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"; sourceTree = "<group>"; };
 		F36544882EF29DAC99E9A5E5 /* Pods-VPNExtension.profile.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-VPNExtension.profile.xcconfig"; path = "Target Support Files/Pods-VPNExtension/Pods-VPNExtension.profile.xcconfig"; sourceTree = "<group>"; };
+		23EAF6FA4B2949F188553E771C03AF09 /* RealityExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = RealityExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		C2DA4A401ADD4ADD9142CECD88C324D0 /* PacketTunnelProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PacketTunnelProvider.swift; sourceTree = "<group>"; };
+		B4931621ABA44909ABCA99BD53EAC536 /* Pods_RealityExtension.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_RealityExtension.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		ABDDE61A79B74D2CA10DEF8D /* Pods-RealityExtension.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RealityExtension.debug.xcconfig"; path = "Target Support Files/Pods-RealityExtension/Pods-RealityExtension.debug.xcconfig"; sourceTree = "<group>"; };
+		1979BF4C3EE24BB9AA03149C /* Pods-RealityExtension.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RealityExtension.release.xcconfig"; path = "Target Support Files/Pods-RealityExtension/Pods-RealityExtension.release.xcconfig"; sourceTree = "<group>"; };
+		85836FA6D36C415CBB342693 /* Pods-RealityExtension.profile.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RealityExtension.profile.xcconfig"; path = "Target Support Files/Pods-RealityExtension/Pods-RealityExtension.profile.xcconfig"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -141,6 +160,16 @@
 				A0CABC262DEF33BC00154A44 /* Tun2SocksKit in Frameworks */,
 				A07E7C712E1AEDC6003EAA1E /* libresolv.tbd in Frameworks */,
 				580F015C93122D1C9E1AA088 /* Pods_VPNExtension.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		51FBAE920EDF40669B3E23783B6833FB /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				850381BB975744D6A4B7EFB9F7558183 /* NetworkExtension.framework in Frameworks */,
+				24ABC99DE2F44F42A36765945D3767E4 /* libresolv.tbd in Frameworks */,
+				7F7831667DB549119AB57B9EC8165A76 /* Pods_RealityExtension.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -202,6 +231,7 @@
 				0D62D67FB1A329CFE23A9207 /* Pods */,
 				1B666241F829C6C4259E4AF0 /* Frameworks */,
 				AE9BD0D6942BB307941DBA0D /* GoogleService-Info.plist */,
+				B927922E55E34F16A7C20522EDAF6A30 /* RealityExtension */,
 			);
 			sourceTree = "<group>";
 		};
@@ -211,6 +241,7 @@
 				97C146EE1CF9000F007C117D /* Runner.app */,
 				331C8081294A63A400263BE5 /* RunnerTests.xctest */,
 				A0CABC042DEF330300154A44 /* VPNExtension.appex */,
+				23EAF6FA4B2949F188553E771C03AF09 /* RealityExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -229,6 +260,14 @@
 				74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */,
 			);
 			path = Runner;
+			sourceTree = "<group>";
+		};
+		B927922E55E34F16A7C20522EDAF6A30 /* RealityExtension */ = {
+			isa = PBXGroup;
+			children = (
+				C2DA4A401ADD4ADD9142CECD88C324D0 /* PacketTunnelProvider.swift */,
+			);
+			path = RealityExtension;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -269,6 +308,7 @@
 			);
 			dependencies = (
 				BF7A7DAFFFC8971AA6784474 /* PBXTargetDependency */,
+				DA4673ABE8984F3BB0CC656EA43E41A7 /* PBXTargetDependency */,
 			);
 			name = Runner;
 			productName = Runner;
@@ -297,6 +337,24 @@
 			);
 			productName = VPNExtension;
 			productReference = A0CABC042DEF330300154A44 /* VPNExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		446B5027C19C414AAF7B8705B1CA304A /* RealityExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 0CB19CC3EC1A46699BD6CD6049F3761E /* Build configuration list for PBXNativeTarget "RealityExtension" */;
+			buildPhases = (
+				4FB7DF7379F84D1EBEB0D7774532AA5B /* Sources */,
+				51FBAE920EDF40669B3E23783B6833FB /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = RealityExtension;
+			packageProductDependencies = (
+			);
+			productName = RealityExtension;
+			productReference = 23EAF6FA4B2949F188553E771C03AF09 /* RealityExtension.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
@@ -344,6 +402,7 @@
 				97C146ED1CF9000F007C117D /* Runner */,
 				331C8080294A63A400263BE5 /* RunnerTests */,
 				A0CABC032DEF330300154A44 /* VPNExtension */,
+				446B5027C19C414AAF7B8705B1CA304A /* RealityExtension */,
 			);
 		};
 /* End PBXProject section */
@@ -500,6 +559,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		4FB7DF7379F84D1EBEB0D7774532AA5B /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1AEE6059431B4182A59EEEAC5BED8EEC /* PacketTunnelProvider.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -513,6 +580,12 @@
 			name = VPNExtension;
 			target = A0CABC032DEF330300154A44 /* VPNExtension */;
 			targetProxy = EAC84F46F132A2AED4A9BB6E /* PBXContainerItemProxy */;
+		};
+		DA4673ABE8984F3BB0CC656EA43E41A7 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = RealityExtension;
+			target = 446B5027C19C414AAF7B8705B1CA304A /* RealityExtension */;
+			targetProxy = CE35913F09754133B931158D5AF02B08 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -1242,6 +1315,113 @@
 			};
 			name = Profile;
 		};
+		18AC5123388F4C0A9587DC74 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = ABDDE61A79B74D2CA10DEF8D /* Pods-RealityExtension.debug.xcconfig */;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = RealityExtension/RealityExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 20;
+				DEVELOPMENT_TEAM = 3477R2P24R;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = RealityExtension/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = BULBVPN;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 15.6;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MARKETING_VERSION = 1.2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = app.bulbvpn.com.RealityExtension;
+				PRODUCT_MODULE_NAME = PacketTunnelProvider;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		EEC1825B429349FCA508A242 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 1979BF4C3EE24BB9AA03149C /* Pods-RealityExtension.release.xcconfig */;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = RealityExtension/RealityExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 20;
+				DEVELOPMENT_TEAM = 3477R2P24R;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = RealityExtension/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = BULBVPN;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 15.6;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MARKETING_VERSION = 1.2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = app.bulbvpn.com.RealityExtension;
+				PRODUCT_MODULE_NAME = PacketTunnelProvider;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		669781B65BE14D8EA65464BA /* Profile */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 85836FA6D36C415CBB342693 /* Pods-RealityExtension.profile.xcconfig */;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = RealityExtension/RealityExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 20;
+				DEVELOPMENT_TEAM = 3477R2P24R;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = RealityExtension/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = BULBVPN;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 15.6;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MARKETING_VERSION = 1.2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = app.bulbvpn.com.RealityExtension;
+				PRODUCT_MODULE_NAME = PacketTunnelProvider;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Profile;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -1281,6 +1461,16 @@
 				A0CABC102DEF330300154A44 /* Debug */,
 				A0CABC112DEF330300154A44 /* Release */,
 				A0CABC122DEF330300154A44 /* Profile */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		0CB19CC3EC1A46699BD6CD6049F3761E /* Build configuration list for PBXNativeTarget "RealityExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				18AC5123388F4C0A9587DC74 /* Debug */,
+				EEC1825B429349FCA508A242 /* Release */,
+				669781B65BE14D8EA65464BA /* Profile */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

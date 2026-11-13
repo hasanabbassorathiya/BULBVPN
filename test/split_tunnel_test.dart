@@ -1,4 +1,5 @@
 import 'package:bulbvpn/modules/core/split_tunnel.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -77,8 +78,43 @@ void main() {
         const SplitTunnelConfig(mode: TunnelMode.allow, packages: {'a.b'}),
       );
       final loaded = await SplitTunnelStore.load();
-      expect(loaded.appliedMode, TunnelMode.allow);
+      expect(loaded.mode, TunnelMode.allow);
       expect(identical(loaded, SplitTunnelStore.cached), isTrue);
     });
   });
+
+  /// appliedMode is what the next session does, and on Android the only
+  /// dialled engine takes a deny list: an allow list there would mean no
+  /// tunnel at all. The stored mode stays allow so the choice survives a
+  /// build that can honour it, but nothing may read `mode` as a promise.
+  test(
+    'allow-list runs as the full tunnel on Android and as itself elsewhere',
+    () {
+      const saved = SplitTunnelConfig(
+        mode: TunnelMode.allow,
+        packages: {'a.b'},
+      );
+      for (final platform in const [
+        TargetPlatform.android,
+        TargetPlatform.iOS,
+        TargetPlatform.macOS,
+      ]) {
+        debugDefaultTargetPlatformOverride = platform;
+        expect(
+          saved.appliedMode,
+          platform == TargetPlatform.android
+              ? TunnelMode.all
+              : TunnelMode.allow,
+          reason: '$platform was not the platform the summary was computed for',
+        );
+        expect(
+          saved.scopeSummary,
+          platform == TargetPlatform.android
+              ? 'All apps use the tunnel · only-selected cannot run'
+              : 'Only · 1 app inside',
+        );
+      }
+      debugDefaultTargetPlatformOverride = null;
+    },
+  );
 }

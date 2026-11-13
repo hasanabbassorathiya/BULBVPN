@@ -1,5 +1,5 @@
-import 'package:bulbvpn/core/theme/air_colors.dart';
 import 'package:bulbvpn/core/theme/app_theme.dart';
+import 'package:bulbvpn/core/theme/metered_colors.dart';
 import 'package:bulbvpn/shared/layout/navbar/defyx_navbar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -72,9 +72,11 @@ void main() {
     expect(find.byTooltip('Settings'), findsOneWidget);
     expect(find.byTooltip('Share BULBVPN'), findsNothing);
 
-    // On the connect surface, Connect is the marked destination.
-    expect(_labelColor(tester, 'Connect'), AirColors.day.ink);
-    expect(_labelColor(tester, 'Speed'), AirColors.day.steel);
+    // On the connect surface, Connect is the marked destination. The nav bar
+    // reads the theme's ink, so the assertion names the palette the theme is
+    // built from rather than a colour literal that survives a re-tune.
+    expect(_labelColor(tester, 'Connect'), MeteredColors.day.ink);
+    expect(_labelColor(tester, 'Speed'), MeteredColors.day.inkSoft);
   });
 
   testWidgets('tapping Speed moves the active mark and the route', (
@@ -90,7 +92,7 @@ void main() {
       GoRouter.of(tester.element(find.byType(DefyxNavBar))).state.uri.path,
       '/speedTest',
     );
-    expect(_labelColor(tester, 'Speed'), AirColors.day.ink);
-    expect(_labelColor(tester, 'Connect'), AirColors.day.steel);
+    expect(_labelColor(tester, 'Speed'), MeteredColors.day.ink);
+    expect(_labelColor(tester, 'Connect'), MeteredColors.day.inkSoft);
   });
 }

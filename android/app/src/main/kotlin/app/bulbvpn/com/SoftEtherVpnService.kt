@@ -861,6 +861,15 @@ class SoftEtherVpnService : VpnService() {
 
     fun isTunnelUp(): Boolean = tunnelUp && client != 0L && carrierUp
 
+    /**
+     * True while the TUN this process opened is still installed, whether or not
+     * it is forwarding. `isTunnelUp()` is the stricter "carrying traffic" claim;
+     * used alone it reads false during a carrier blip or a half-torn-down
+     * session, and the interface we are still holding then looks like some other
+     * app's VPN.
+     */
+    fun holdsTunnel(): Boolean = tunnelUp
+
     fun statusReason(): String = stopReason
     fun isCarrierUp(): Boolean = carrierUp
     fun effectiveServerIp(): String = effectiveIp

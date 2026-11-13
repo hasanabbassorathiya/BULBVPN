@@ -1,10 +1,16 @@
+import 'dart:convert';
+
 import 'package:bulbvpn/core/theme/app_theme.dart';
 import 'package:bulbvpn/modules/core/reality/reality_engine.dart';
 import 'package:bulbvpn/modules/core/reality/reality_relay.dart';
+import 'package:bulbvpn/modules/core/reality/relay_vault.dart';
+import 'package:bulbvpn/modules/core/relay_memory.dart';
 import 'package:bulbvpn/modules/core/server_catalog.dart';
 import 'package:bulbvpn/modules/core/vpn_server.dart';
+import 'package:bulbvpn/modules/main/application/relay_evidence_provider.dart';
 import 'package:bulbvpn/modules/main/application/server_ping_provider.dart';
 import 'package:bulbvpn/modules/main/presentation/widgets/server_sheet.dart';
+import 'package:bulbvpn/shared/metered/slip_list.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
@@ -90,39 +96,124 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
-    expect(
-      find.text('4 relays · 3 countries'),
-      findsOneWidget,
-    );
-    expect(find.text('FASTEST NOW'), findsOneWidget);
+    expect(find.text('4 relays · 3 countries'), findsOneWidget);
     expect(find.text('BOOTSTRAP'), findsOneWidget);
-    // Public relays are disclosed as such, in the persistent notice and on
-    // every row that can be picked from Fastest now.
+    // Public relays are disclosed as such in a notice that is not dismissible.
     expect(find.textContaining('not private'), findsOneWidget);
     expect(find.text('NOT PRIVATE'), findsWidgets);
 
-    // The country header sits below the Fastest-now rows, so the ordering
-    // check uses the last occurrence of each name.
-    final japanY = tester.getTopLeft(find.text('Japan').last).dy;
-    final usY = tester.getTopLeft(find.text('United States').last).dy;
-    final germanyY = tester.getTopLeft(find.text('Germany').last).dy;
+    // A country band is a heading, and the plate prints headings in caps.
+    final japanY = tester.getTopLeft(find.text('JAPAN').last).dy;
+    final usY = tester.getTopLeft(find.text('UNITED STATES').last).dy;
+    final germanyY = tester.getTopLeft(find.text('GERMANY').last).dy;
     expect(japanY, lessThan(usY));
     expect(usY, lessThan(germanyY));
 
-    // Relay numbering restarts inside each country. The Fastest-now rows
-    // reuse the same numbers, so the shortcut never shows one relay under
-    // two names.
-    expect(find.text('Relay 1'), findsNWidgets(5));
-    expect(find.text('Relay 2'), findsNWidgets(2));
-    expect(find.text('Japan · 1.0 Mbps'), findsNWidgets(2));
-    expect(find.text('Germany · 1.0 Mbps'), findsNothing);
-    // Country headers show the fastest measured relay, and the dead country
-    // is honest about having no answer.
+    // Relay numbering restarts inside each country.
+    expect(find.text('Relay 1'), findsNWidgets(3));
+    expect(find.text('Relay 2'), findsOneWidget);
+    // The self-reported VPN Gate figure is gone: it described a server's own
+    // claim about a network this phone had never crossed.
+    expect(find.textContaining('Mbps'), findsNothing);
+
+    // Every figure names the instrument that produced it. A TLS round trip is
+    // printed as `45 ms / TLS only`, never as a speed, and a relay that never
+    // answered is honest about that instead of showing a stale number.
     expect(find.text('45 ms'), findsWidgets);
-    expect(find.text('—'), findsWidgets);
+    expect(find.text('TLS only'), findsWidgets);
+    expect(find.text('no handshake'), findsWidgets);
+    // The transport and the address are two lines of print, so neither one is
+    // shrunk below the card's measured size to fit the column.
+    expect(find.text('SoftEther SSL-VPN'), findsWidgets);
+    expect(find.text('10.0.0.1'), findsOneWidget);
+    // The Auto row names the engine this platform actually dials. Android
+    // exits the REALITY/XHTTP loop with a verdict, so a row that still read
+    // `SoftEther SSL-VPN` would promise a fallback that no longer exists.
+    final autoRow = find.ancestor(
+      of: find.text('AUTO'),
+      matching: find.byType(SlipRow),
+    );
+    expect(autoRow, findsOneWidget);
+    expect(
+      find.descendant(of: autoRow, matching: find.text('REALITY/XHTTP')),
+      findsOneWidget,
+    );
   });
 
-  testWidgets('reality engine is opt-in and lists its community relays', (
+  testWidgets('a relay this device carried traffic leads its country', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    tester.view.physicalSize = const Size(1170, 4200);
+    tester.view.devicePixelRatio = 3;
+    addTearDown(tester.view.reset);
+
+    // 10.0.0.2 has the slowest handshake of the three and still leads, because
+    // this phone completed a session through it. That is the ranking the old
+    // list got backwards.
+    final fast = _server('10.0.0.1', 'United States', 'US');
+    final proven = _server('10.0.0.2', 'Japan', 'JP');
+    final dead = _server('10.0.0.3', 'Germany', 'DE');
+
+    await tester.pumpWidget(
+      ScreenUtilInit(
+        designSize: const Size(390, 844),
+        minTextAdapt: true,
+        splitScreenMode: true,
+        builder: (_, __) => ProviderScope(
+          overrides: [
+            serversProvider.overrideWith(
+              () => _FakeCatalog([dead, proven, fast]),
+            ),
+            serverPingProvider.overrideWith(
+              (ref) => _FakePings({
+                fast.ip: const ServerPing.ok(38),
+                proven.ip: const ServerPing.ok(260),
+                dead.ip: ServerPing.timeout,
+              }),
+            ),
+            relayEvidenceProvider.overrideWith(
+              (ref) async => RelayEvidence(
+                proven: {
+                  proven.ip: SessionProof(
+                    dial: proven.ip,
+                    bytesPerSecond: 900000,
+                    at: DateTime.now(),
+                  ),
+                },
+                health: null,
+              ),
+            ),
+          ],
+          child: MaterialApp(
+            theme: AppTheme.light,
+            home: const Scaffold(body: ServerSheet()),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    // No parallel list of the same relays: the proof is printed in the row and
+    // decides where the row sits, so a relay is never named twice.
+    expect(find.text('CARRIED YOUR TRAFFIC BEFORE'), findsNothing);
+    expect(find.text('879 KB/s'), findsOneWidget);
+    expect(find.text('you · now'), findsOneWidget);
+
+    // Japan holds the slowest handshake on screen and is still the first
+    // country, because a session completed there.
+    expect(
+      tester.getTopLeft(find.text('JAPAN')).dy,
+      lessThan(tester.getTopLeft(find.text('UNITED STATES')).dy),
+    );
+    expect(find.text('1 relay · yours'), findsOneWidget);
+    // The proven relay leads its country.
+    expect(find.text('Relay 1'), findsNWidgets(3));
+    expect(find.textContaining('Mbps'), findsNothing);
+  });
+
+  testWidgets('reality is on by default and its switch gates the pool', (
     tester,
   ) async {
     SharedPreferences.setMockInitialValues({});
@@ -155,9 +246,7 @@ void main() {
               () => _FakeCatalog([_server('10.0.0.1', 'Japan', 'JP')]),
             ),
             serverPingProvider.overrideWith(
-              (ref) => _FakePings({
-                '10.0.0.1': const ServerPing.ok(45),
-              }),
+              (ref) => _FakePings({'10.0.0.1': const ServerPing.ok(45)}),
             ),
             realitySupportedProvider.overrideWithValue(true),
             realityRelaysProvider.overrideWith((ref) async => [relay]),
@@ -174,18 +263,97 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(find.text('CENSORSHIP-RESISTANT'), findsOneWidget);
     expect(find.text('TLS + REALITY'), findsOneWidget);
-    // Off by default: a community relay must never be dialled unasked.
-    expect(find.byType(Switch), findsOneWidget);
-    expect(find.text('Frankfurt, Germany'), findsNothing);
-    expect(find.text('91.107.179.0:10105'), findsNothing);
-
-    await tester.tap(find.byType(Switch));
-    await tester.pumpAndSettle();
-
+    // On by default: the network that blackholes the other protocol is the one
+    // that needs this engine, so a device that never chose anything must not be
+    // stranded on the path that cannot complete. The switch still gates the
+    // pool, and it is a printed slip affordance, so it is keyed, not typed.
+    expect(find.byKey(const ValueKey('reality-toggle')), findsOneWidget);
     expect(find.text('Frankfurt, Germany'), findsOneWidget);
-    expect(find.text('91.107.179.0:10105'), findsOneWidget);
+    expect(find.textContaining('91.107.179.0:10105'), findsOneWidget);
+    expect(find.text('VLESS · TCP · REALITY'), findsOneWidget);
     // The disclosure ships with the list, not as a dismissible one-time dialog.
     expect(find.textContaining('Community relays'), findsOneWidget);
     expect(find.text('NOT PRIVATE'), findsWidgets);
+
+    await tester.tap(find.byKey(const ValueKey('reality-toggle')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Frankfurt, Germany'), findsNothing);
+    expect(find.textContaining('91.107.179.0:10105'), findsNothing);
+  });
+
+  testWidgets("a server the user pasted is listed with the pool switched off", (
+    tester,
+  ) async {
+    // The vault is seeded through preferences rather than a provider override,
+    // so this asserts the real composition: an imported server reaches the
+    // sheet through the same relay list the dial order reads.
+    const stored = {
+      'id': 'Home-1',
+      'host': '203.0.113.7',
+      'port': 2087,
+      'link':
+          'trojan://s3cret@203.0.113.7:2087?security=tls'
+          '&sni=cdn.example.net&type=grpc&serviceName=video#Home-1',
+      'private': true,
+      'country_name': 'Home-1',
+    };
+    SharedPreferences.setMockInitialValues({
+      'bulb_relay_vault_v1': jsonEncode([stored]),
+      // The pool deliberately off, so the only relay on screen is one the user
+      // named. Consent cannot be what puts an imported server in the list.
+      'bulb_reality_v1': '{"enabled":false}',
+    });
+    RelayVault.resetCache();
+    RealitySettingsStore.resetCache();
+    tester.view.physicalSize = const Size(1170, 4200);
+    tester.view.devicePixelRatio = 3;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(
+      ScreenUtilInit(
+        designSize: const Size(390, 844),
+        minTextAdapt: true,
+        splitScreenMode: true,
+        builder: (_, __) => ProviderScope(
+          overrides: [
+            serversProvider.overrideWith(
+              () => _FakeCatalog([_server('10.0.0.1', 'Japan', 'JP')]),
+            ),
+            serverPingProvider.overrideWith(
+              (ref) => _FakePings({'10.0.0.1': const ServerPing.ok(45)}),
+            ),
+            realitySupportedProvider.overrideWithValue(true),
+          ],
+          child: MaterialApp(
+            theme: AppTheme.light,
+            home: const Scaffold(body: ServerSheet()),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    // Own servers need no consent switch: the user named the address.
+    expect(find.text('YOUR SERVERS'), findsOneWidget);
+    expect(find.text('Home-1'), findsOneWidget);
+    expect(find.text('YOURS'), findsOneWidget);
+    expect(find.textContaining('203.0.113.7:2087'), findsOneWidget);
+    // The shape is read off the config, so a grpc profile does not claim to be
+    // the REALITY tunnel the bundled pool uses.
+    expect(find.text('Trojan · gRPC · TLS'), findsOneWidget);
+    expect(find.textContaining('Add your own server'), findsOneWidget);
+    // Engine off: the community pool stays behind its switch. (The bootstrap
+    // relays wear their own NOT PRIVATE pill, so the badge is not the tell —
+    // the pool's disclosure is.)
+    expect(find.text('Frankfurt, Germany'), findsNothing);
+    expect(find.textContaining('Community relays'), findsNothing);
+
+    // The remove key is printed in the destination column, not an icon.
+    await tester.tap(find.text('REMOVE'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Home-1'), findsNothing);
   });
 }

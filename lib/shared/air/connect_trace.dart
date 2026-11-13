@@ -125,7 +125,9 @@ class _TraceStop extends StatelessWidget {
     final (color, textColor) = switch (state) {
       _StopState.done => (air.ink, air.ink),
       _StopState.active => (air.accent, air.accentInk),
-      _StopState.pending => (Colors.transparent, air.steel.withValues(alpha: 0.55)),
+      // A 55% wash put this label at 2.17:1 by day, under the AA floor for
+      // 10.5 px text. Pending is already told apart by its empty ring.
+      _StopState.pending => (Colors.transparent, air.steel),
     };
     return Column(
       children: [

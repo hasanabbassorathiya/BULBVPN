@@ -42,6 +42,12 @@ target 'VPNExtension' do
   pod 'OpenVPNAdapter', :git => 'https://github.com/ss-abramchuk/OpenVPNAdapter.git', :tag => '0.7.0'
 end
 
+target 'RealityExtension' do
+  use_frameworks!
+  use_modular_headers!
+  pod 'flutter_vless', :path => '.symlinks/plugins/flutter_vless/ios'
+end
+
 
 
 post_install do |installer|

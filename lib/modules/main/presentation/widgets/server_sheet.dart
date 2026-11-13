@@ -1,47 +1,50 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
-import 'package:bulbvpn/core/theme/air_colors.dart';
 import 'package:bulbvpn/core/theme/app_text_styles.dart';
+import 'package:bulbvpn/core/theme/metered_colors.dart';
 import 'package:bulbvpn/modules/core/reality/reality_engine.dart';
 import 'package:bulbvpn/modules/core/reality/reality_relay.dart';
+import 'package:bulbvpn/modules/core/reality/relay_link.dart';
+import 'package:bulbvpn/modules/core/reality/relay_vault.dart';
+import 'package:bulbvpn/modules/core/relay_verdict.dart';
 import 'package:bulbvpn/modules/core/server_catalog.dart';
 import 'package:bulbvpn/modules/core/trust_tier.dart';
 import 'package:bulbvpn/modules/core/vpn_server.dart';
+import 'package:bulbvpn/modules/main/application/relay_evidence_provider.dart';
 import 'package:bulbvpn/modules/main/application/server_grouping.dart';
 import 'package:bulbvpn/modules/main/application/server_ping_provider.dart';
-import 'package:bulbvpn/shared/air/trust_badge.dart';
+import 'package:bulbvpn/modules/main/presentation/widgets/relay_import_sheet.dart';
+import 'package:bulbvpn/shared/metered/card_ground.dart';
+import 'package:bulbvpn/shared/metered/metered_layout.dart';
+import 'package:bulbvpn/shared/metered/slip_list.dart';
 import 'package:bulbvpn/shared/providers/connection_state_provider.dart';
-import 'package:bulbvpn/shared/widgets/staggered_in.dart';
 
 /// Currently picked server (null = auto / test config).
 final selectedServerProvider = StateProvider<VpnServer?>((ref) => null);
 
+/// The relay slip: the connect card's four columns and its verdict words,
+/// unrolled long enough to read every relay this phone can dial.
 Future<void> showServerSheet(BuildContext context) {
-  final air = context.air;
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
-    backgroundColor: air.surface,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-    ),
+    // The slip is a card, not a panel, so the plate's own ground carries its
+    // corners, its scuffs and its shadow. A sheet that painted its own
+    // background would be a rectangle with the card's print pasted on it.
+    backgroundColor: Colors.transparent,
     builder: (sheetContext) => Padding(
       padding: EdgeInsets.only(
         bottom: MediaQuery.viewInsetsOf(sheetContext).bottom,
       ),
-      child: FractionallySizedBox(
+      child: const FractionallySizedBox(
         heightFactor: 0.82,
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 640),
-            child: const ServerSheet(),
-          ),
-        ),
+        child: ServerSheet(),
       ),
     ),
   );
@@ -96,13 +99,24 @@ class _ServerSheetState extends ConsumerState<ServerSheet> {
     await ref.read(serverPingProvider.notifier).pingAll(servers);
   }
 
+  /// Pull both catalogs again without leaving the sheet. The screen is usually
+  /// opened from a network that already blocked one fetch, so the empty state
+  /// has to offer a real retry. Errors stay rendered by the list itself; the
+  /// awaits only bound the pull-down spinner.
+  Future<void> _reloadCatalog() async {
+    ref.invalidate(serversProvider);
+    ref.invalidate(realityRelaysProvider);
+    ref.invalidate(relayEvidenceProvider);
+    await ref.read(serversProvider.future).catchError((_) => <VpnServer>[]);
+    await ref
+        .read(realityRelaysProvider.future)
+        .catchError((_) => <RealityRelay>[]);
+  }
+
   @override
   Widget build(BuildContext context) {
-    final air = context.air;
     final serversAsync = ref.watch(serversProvider);
-    final selected = ref.watch(selectedServerProvider);
     final pingState = ref.watch(serverPingProvider);
-    final reality = ref.watch(realitySettingsProvider);
     final realitySupported = ref.watch(realitySupportedProvider);
     final realityRelays =
         ref.watch(realityRelaysProvider).valueOrNull ?? const <RealityRelay>[];
@@ -111,354 +125,419 @@ class _ServerSheetState extends ConsumerState<ServerSheet> {
       if (next.valueOrNull?.isNotEmpty == true) _refreshPings();
     });
 
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(top: 12, bottom: 4),
-          child: Center(
-            child: Container(
-              width: 36,
-              height: 4,
-              decoration: BoxDecoration(
-                color: air.hairlineStrong,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 8, 8, 8),
-          child: Row(
+    return CardGround(
+      child: LayoutBuilder(
+        builder: (context, c) {
+          final type = MeteredType(c.maxWidth);
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Relays',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTextStyles.title(color: air.ink),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      serversAsync.maybeWhen(
-                        data: (servers) {
-                          if (servers.isEmpty) return 'Loading catalog';
-                          // The sweep streams: show how many relays have
-                          // answered instead of pretending it is all-or-nothing.
-                          final measured = pingState.byIp.values
-                              .where((p) => p.status != PingStatus.pending)
-                              .length;
-                          final progress = pingState.probing
-                              ? ' · $measured/${servers.length} measured'
-                              : '';
-                          return '${servers.length} relays · '
-                              '${_countryLabel(_countryCount(servers))}'
-                              '$progress';
-                        },
-                        orElse: () => 'Loading catalog',
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTextStyles.body(color: air.steel, size: 13),
-                    ),
-                  ],
+              _SlipHeader(
+                type: type,
+                note: _headerNote(
+                  serversAsync,
+                  realityRelays,
+                  realitySupported,
+                  pingState,
+                ),
+                probing: pingState.probing,
+                canMeasure: _canMeasure,
+                onMeasure: _pingAll,
+                onClose: () => Navigator.maybePop(context),
+              ),
+              // The trust contract stays on screen while people pick; it is
+              // never a one-time dialog they can dismiss and forget.
+              SlipNote(
+                type: type,
+                mark: 'NOT PRIVATE',
+                markSemantic: TrustTier.bootstrap.disclosure,
+                text:
+                    'Bootstrap relays are community-contributed. They are not '
+                    'private and may see your traffic.',
+              ),
+              Padding(
+                padding: EdgeInsets.fromLTRB(
+                  type.px(26),
+                  type.px(20),
+                  type.px(24),
+                  type.px(18),
+                ),
+                child: SlottedField(
+                  controller: _search,
+                  type: type,
+                  hint: 'Search country',
+                  onChanged: (v) =>
+                      setState(() => _query = v.trim().toLowerCase()),
                 ),
               ),
-              const SizedBox(width: 8),
-              // Ping all — real device latency, not the server-reported ms.
-              if (MediaQuery.sizeOf(context).width < 380)
-                SizedBox(
-                  width: 44,
-                  height: 44,
-                  child: IconButton(
-                    onPressed: pingState.probing ? null : _pingAll,
-                    padding: EdgeInsets.zero,
-                    tooltip: 'Ping all',
-                    icon: pingState.probing
-                        ? SizedBox(
-                            width: 14,
-                            height: 14,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: air.accent,
-                            ),
-                          )
-                        : Icon(Icons.speed, size: 20, color: air.accent),
+              Expanded(
+                child: serversAsync.when(
+                  loading: () => _SlipSkeletons(type: type),
+                  error: (e, _) => _SheetMessage(
+                    type: type,
+                    title: 'Catalog unavailable',
+                    detail: 'Check the connection and try again.',
+                    actionLabel: 'RETRY',
+                    onAction: () => ref.invalidate(serversProvider),
                   ),
-                )
-              else
-                TextButton.icon(
-                  onPressed: pingState.probing ? null : _pingAll,
-                  icon: pingState.probing
-                      ? SizedBox(
-                          width: 14,
-                          height: 14,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: air.accent,
-                          ),
-                        )
-                      : Icon(Icons.speed, size: 18, color: air.accent),
-                  label: Text(
-                    pingState.probing ? 'Measuring' : 'Ping all',
-                    style: AppTextStyles.body(
-                      color: air.accentInk,
-                      size: 13,
-                      weight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              SizedBox(
-                width: 44,
-                height: 44,
-                child: IconButton(
-                  onPressed: () => Navigator.maybePop(context),
-                  padding: EdgeInsets.zero,
-                  tooltip: 'Close',
-                  icon: Icon(Icons.close, color: air.steel, size: 22),
+                  data: (servers) => _slip(type, servers),
                 ),
               ),
             ],
+          );
+        },
+      ),
+    );
+  }
+
+  /// The body of the slip: the entries the search leaves, grouped, on the
+  /// card's own column register.
+  Widget _slip(MeteredType type, List<VpnServer> servers) {
+    final m = context.metered;
+    final selected = ref.watch(selectedServerProvider);
+    final pingState = ref.watch(serverPingProvider);
+    final reality = ref.watch(realitySettingsProvider);
+    final realitySupported = ref.watch(realitySupportedProvider);
+    final realityRelays =
+        ref.watch(realityRelaysProvider).valueOrNull ?? const <RealityRelay>[];
+    final evidence =
+        ref.watch(relayEvidenceProvider).valueOrNull ?? RelayEvidence.empty;
+
+    if (servers.isEmpty && realityRelays.isEmpty) {
+      return _SheetMessage(
+        type: type,
+        title: 'No relays loaded',
+        detail:
+            'The catalog did not reach this network. Pull down to load it '
+            'again.',
+        onRefresh: _reloadCatalog,
+      );
+    }
+
+    final measuredByIp = pingState.byIp;
+    final matching = _query.isEmpty
+        ? servers
+        : servers
+              .where(
+                (s) =>
+                    _matches(_query, s.countryLong) ||
+                    _matches(_query, s.countryShort) ||
+                    _matches(_query, s.displayCountry) ||
+                    _matches(_query, s.hostName) ||
+                    _matches(_query, s.ip),
+              )
+              .toList();
+    final matchingReality = !realitySupported
+        ? const <RealityRelay>[]
+        : (_query.isEmpty
+              ? realityRelays
+              : realityRelays
+                    .where(
+                      (r) =>
+                          _matches(_query, r.countryName) ||
+                          _matches(_query, r.countryCode) ||
+                          _matches(_query, r.city) ||
+                          _matches(_query, r.host),
+                    )
+                    .toList());
+    if (matching.isEmpty && matchingReality.isEmpty) {
+      return _SheetMessage(
+        type: type,
+        title: 'No servers match',
+        detail: 'Try another country.',
+      );
+    }
+
+    // Grouping is the ordering promise: countries rank by the strongest
+    // evidence available, so a relay this phone already carried traffic
+    // through beats one with a pretty handshake. The proof needs no section of
+    // its own — it is printed in the row and it decides the row's place, which
+    // is what keeps a relay from appearing twice under two different claims.
+    final groups = groupServersByCountry(
+      matching,
+      measuredByIp,
+      proven: evidence.proven.keys.toSet(),
+    );
+    final orderedReality = _orderByProof(
+      matchingReality.where((relay) => !relay.private).toList(),
+      evidence,
+    );
+    // The user's own relays are listed whether or not the community switch is
+    // on. They do not need that consent — the user named these addresses — so
+    // hiding them behind a toggle about *strangers'* relays would make a
+    // bought server undiscoverable.
+    final orderedYours = _orderByProof(
+      matchingReality.where((relay) => relay.private).toList(),
+      evidence,
+    );
+    final entries = <_Entry>[
+      if (realitySupported) ...[
+        const _SectionEntry('Your servers'),
+        for (final relay in orderedYours)
+          _RealityEntry(relay: relay, selected: reality.selectedId == relay.id),
+        const _AddRelayEntry(),
+        const _SectionEntry('Censorship-resistant'),
+        _RealitySwitchEntry(enabled: reality.enabled),
+        if (reality.enabled) ...[
+          _RealityAutoEntry(
+            selected: reality.selectedId == null,
+            count: orderedReality.length + orderedYours.length,
           ),
-        ),
-        // The trust contract stays on screen while people pick; it is never a
-        // one-time dialog they can dismiss and forget.
-        const _BootstrapNotice(),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
-          child: SizedBox(
-            height: 44,
-            child: TextField(
-              controller: _search,
-              onChanged: (v) => setState(() => _query = v.trim().toLowerCase()),
-              style: AppTextStyles.body(color: air.ink, size: 14),
-              decoration: InputDecoration(
-                hintText: 'Search country',
-                hintStyle: AppTextStyles.body(color: air.mute, size: 14),
-                prefixIcon: Icon(Icons.search, color: air.steel, size: 20),
-                prefixIconConstraints: const BoxConstraints(minWidth: 42),
-                filled: true,
-                fillColor: air.raised,
-                isDense: true,
-                contentPadding: EdgeInsets.zero,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide.none,
+          for (final relay in orderedReality)
+            _RealityEntry(
+              relay: relay,
+              selected: reality.selectedId == relay.id,
+            ),
+          const _RealityNoticeEntry(),
+        ],
+      ],
+      if (matching.isNotEmpty) const _SectionEntry('Bootstrap'),
+      const _AutoEntry(),
+      for (final group in groups) ...[
+        _CountryEntry(group),
+        for (var i = 0; i < group.servers.length; i++)
+          _ServerEntry(group.servers[i], i + 1),
+      ],
+    ];
+
+    return RefreshIndicator(
+      color: m.value,
+      backgroundColor: m.card,
+      onRefresh: _pingAll,
+      child: ListView.builder(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: EdgeInsets.only(bottom: type.px(32)),
+        itemCount: entries.length,
+        itemBuilder: (context, i) {
+          final entry = entries[i];
+          return KeyedSubtree(
+            key: ValueKey(entry.entryKey),
+            child: switch (entry) {
+              _RealitySwitchEntry(:final enabled) => SlipToggleRow(
+                type: type,
+                code: 'VLESS',
+                title: 'TLS + REALITY',
+                // One line of what the handshake does, because a control that
+                // out-prints the relays under it is a control people skip. The
+                // trade — a community operator can see the traffic — is printed
+                // once, in the notice that sits with the relays it is about.
+                sub:
+                    'Ordinary TLS on port 443, so networks that '
+                    'drop VPN let it through.',
+                on: enabled,
+                toggleKey: const ValueKey('reality-toggle'),
+                onChanged: (value) => unawaited(
+                  ref.read(realitySettingsProvider.notifier).setEnabled(value),
                 ),
               ),
-            ),
-          ),
-        ),
-        Expanded(
-          child: serversAsync.when(
-            loading: () => const _ServerSkeletons(),
-            error: (e, _) => _SheetMessage(
-              title: 'Catalog unavailable',
-              detail: 'Check the connection and try again.',
-              actionLabel: 'Retry',
-              onAction: () => ref.invalidate(serversProvider),
-            ),
-            data: (servers) {
-              if (servers.isEmpty) {
-                return _SheetMessage(
-                  title: 'No relays measured yet',
-                  detail: 'Pull to refresh.',
-                  onRefresh: _pingAll,
-                );
-              }
-              final measuredByIp = pingState.byIp;
-              final matching = _query.isEmpty
-                  ? servers
-                  : servers
-                        .where(
-                          (s) =>
-                              s.countryLong.toLowerCase().contains(_query) ||
-                              s.countryShort.toLowerCase().contains(_query) ||
-                              s.displayCountry.toLowerCase().contains(_query),
-                        )
-                        .toList();
-              final matchingReality = !realitySupported
-                  ? const <RealityRelay>[]
-                  : (_query.isEmpty
-                        ? realityRelays
-                        : realityRelays
-                              .where(
-                                (r) =>
-                                    r.countryName.toLowerCase().contains(
-                                      _query,
-                                    ) ||
-                                    r.countryCode.toLowerCase().contains(
-                                      _query,
-                                    ) ||
-                                    r.city.toLowerCase().contains(_query),
-                              )
-                              .toList());
-              if (matching.isEmpty && matchingReality.isEmpty) {
-                return const _SheetMessage(
-                  title: 'No servers match',
-                  detail: 'Try another country.',
-                );
-              }
-              // Grouping is the ordering promise: countries themselves are
-              // ranked by their fastest measured relay, so the country with
-              // the lowest ping sits on top.
-              final groups = groupServersByCountry(matching, measuredByIp);
-              final minPing = groups
-                  .map((g) => g.bestPing?.ms)
-                  .whereType<int>()
-                  .fold<int>(
-                    0,
-                    (best, ms) => best == 0 || ms < best ? ms : best,
-                  );
-              final fastest = _fastestNow(matching, measuredByIp);
-              // The fast list repeats relays from the country sections, so it
-              // has to name them the same way those sections do.
-              final relayNumbers = <String, int>{
-                for (final group in groups)
-                  for (var i = 0; i < group.servers.length; i++)
-                    group.servers[i].ip: i + 1,
-              };
-              final entries = <_Entry>[
-                if (realitySupported) ...[
-                  const _SectionEntry('Censorship-resistant'),
-                  _RealitySwitchEntry(enabled: reality.enabled),
-                  if (reality.enabled) ...[
-                    _RealityAutoEntry(
-                      selected: reality.selectedId == null,
-                      count: matchingReality.length,
-                    ),
-                    for (final relay in matchingReality)
-                      _RealityEntry(
-                        relay: relay,
-                        selected: reality.selectedId == relay.id,
-                      ),
-                    const _RealityNoticeEntry(),
-                  ],
-                ],
-                const _AutoEntry(),
-                if (fastest.isNotEmpty) ...[
-                  const _SectionEntry('Fastest now'),
-                  for (final server in fastest)
-                    _FastestEntry(server, relayNumbers[server.ip] ?? 1),
-                ],
-                if (matching.isNotEmpty) const _SectionEntry('Bootstrap'),
-                for (final group in groups) ...[
-                  _CountryEntry(group, minPing),
-                  for (var i = 0; i < group.servers.length; i++)
-                    _ServerEntry(group.servers[i], i + 1),
-                ],
-              ];
-              return RefreshIndicator(
-                color: air.accent,
-                backgroundColor: air.raised,
-                onRefresh: _pingAll,
-                child: ListView.builder(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 32),
-                  itemCount: entries.length,
-                  itemBuilder: (context, i) {
-                    final entry = entries[i];
-                    final row = switch (entry) {
-                      _RealitySwitchEntry(:final enabled) => _RealitySwitch(
-                        enabled: enabled,
-                        onChanged: (value) => unawaited(
-                          ref
-                              .read(realitySettingsProvider.notifier)
-                              .setEnabled(value),
-                        ),
-                      ),
-                      _RealityAutoEntry(:final selected, :final count) =>
-                        _RelayRow(
-                          code: 'AUTO',
-                          title: 'Auto',
-                          subtitle:
-                              'Ranked by success on this network'
-                              '${count > 0 ? ' · $count relays' : ''}',
-                          latency: '',
-                          selected: selected,
-                          onTap: () => _pickReality(null),
-                        ),
-                      _RealityEntry(:final relay, :final selected) => _RelayRow(
-                        code: relay.countryCode.isEmpty
-                            ? '—'
-                            : relay.countryCode,
-                        title: relay.city.isEmpty
-                            ? relay.countryName
-                            : '${relay.city}, ${relay.countryName}',
-                        subtitle: relay.endpoint,
-                        latency: '',
-                        selected: selected,
-                        badge: const TrustBadge(
-                          tier: TrustTier.community,
-                          compact: true,
-                        ),
-                        onTap: () => _pickReality(relay.id),
-                      ),
-                      _RealityNoticeEntry() => const _RealityNotice(),
-                      _AutoEntry() => _RelayRow(
-                        code: 'AUTO',
-                        title: 'Auto',
-                        subtitle: 'Fastest measured relay',
-                        latency: '',
-                        selected: selected == null && !reality.usable,
-                        onTap: () {
-                          ref.read(selectedServerProvider.notifier).state =
-                              null;
-                          Navigator.maybePop(context);
-                        },
-                      ),
-                      _SectionEntry(:final label) => _SectionHeader(label),
-                      _FastestEntry(:final server, :final number) => _RelayRow(
-                        code: _codeFor(server),
-                        title: 'Relay $number',
-                        subtitle:
-                            '${server.publicLabel} · ${server.speedMbps} Mbps',
-                        latency: _latencyLabel(measuredByIp[server.ip], false),
-                        latencyColor: _latencyColor(
-                          measuredByIp[server.ip],
-                          air,
-                        ),
-                        latencySize: 13,
-                        badge: TrustBadge(
-                          tier: server.trustTier,
-                          compact: true,
-                        ),
-                        selected: selected?.ip == server.ip,
-                        onTap: () => _pick(server, selected),
-                      ),
-                      _CountryEntry(:final group, :final minPing) =>
-                        _CountryHeader(group: group, minPing: minPing),
-                      _ServerEntry(:final server, :final number) => _RelayRow(
-                        code: _codeFor(server),
-                        title: 'Relay $number',
-                        subtitle:
-                            '${server.speedMbps} Mbps · '
-                            '${server.numVpnSessions} sessions',
-                        latency: _latencyLabel(measuredByIp[server.ip], false),
-                        latencyColor: _latencyColor(
-                          measuredByIp[server.ip],
-                          air,
-                        ),
-                        latencySize: 12,
-                        selected: selected?.ip == server.ip,
-                        onTap: () => _pick(server, selected),
-                      ),
-                    };
-                    return StaggeredIn(
-                      delayMs: (i * 24).clamp(0, 320),
-                      offset: 8,
-                      child: row,
-                    );
-                  },
+              _RealityAutoEntry(:final selected, :final count) => SlipRow(
+                type: type,
+                code: 'AUTO',
+                title: 'Auto',
+                sub: 'VLESS + REALITY',
+                reading: '—',
+                qualifier: count > 0 ? '$count ready' : 'none ready',
+                verdict: RelayVerdict.untried,
+                selected: selected,
+                onTap: () => _pickReality(null),
+              ),
+              _RealityEntry(:final relay, :final selected) => _realityRow(
+                type,
+                relay,
+                evidence,
+                selected,
+              ),
+              _RealityNoticeEntry() => SlipNote(
+                type: type,
+                mark: 'NOT PRIVATE',
+                markSemantic: TrustTier.community.disclosure,
+                text:
+                    'Community relays. The operator can see your traffic. '
+                    'They are dialled unless you switch them off above.',
+              ),
+              _AddRelayEntry() => SlipAction(
+                type: type,
+                title: 'Add your own server',
+                // What goes in the hole, not what the tunnel can read: the
+                // protocol list is printed once, on the slip that asks for the
+                // text. An action row that quotes the manual is an action row
+                // nobody taps.
+                text: 'Paste a link or an https subscription address.',
+                keyLabel: 'ADD',
+                onTap: _openImport,
+              ),
+              _AutoEntry() => SlipRow(
+                type: type,
+                code: 'AUTO',
+                title: 'Auto',
+                // The transport Auto will actually dial. Android dials one
+                // engine and Apple another, so a single label here is a
+                // promise one platform cannot keep.
+                sub: defaultTargetPlatform == TargetPlatform.android
+                    ? 'REALITY/XHTTP'
+                    : 'SoftEther SSL-VPN',
+                reading: '—',
+                qualifier: _canMeasure ? 'best below' : 'paused: tunnel open',
+                verdict: RelayVerdict.untried,
+                selected: selected == null && !reality.usable,
+                onTap: () {
+                  ref.read(selectedServerProvider.notifier).state = null;
+                  Navigator.maybePop(context);
+                },
+              ),
+              _SectionEntry(:final label) => SlipSection(
+                type: type,
+                title: label,
+              ),
+              _CountryEntry(:final group) => SlipSection(
+                type: type,
+                title: group.countryName,
+                proven: group.proven,
+                leading: _flag(group.countryCode),
+                note: _groupNote(group),
+                disclosure: group.proven
+                    ? null
+                    : _trustMark(group.servers.first.trustTier),
+                disclosureSemantics: group.proven
+                    ? null
+                    : group.servers.first.trustTier.disclosure,
+              ),
+              _ServerEntry(:final server, :final number) => _bootstrapRow(
+                type,
+                server,
+                number,
+                evidence.reading(
+                  dial: server.ip,
+                  ping: measuredByIp[server.ip],
                 ),
-              );
+                selected?.ip == server.ip,
+              ),
             },
-          ),
-        ),
-      ],
+          );
+        },
+      ),
     );
+  }
+
+  /// A bootstrap relay. The country section already says the tier is not
+  /// private, so the row spends its measure on the reading instead of
+  /// repeating the warning four times down one column.
+  SlipRow _bootstrapRow(
+    MeteredType type,
+    VpnServer server,
+    int number,
+    RelayReading reading,
+    bool selected,
+  ) {
+    return SlipRow(
+      type: type,
+      code: _codeFor(server),
+      title: 'Relay $number',
+      sub: 'SoftEther SSL-VPN',
+      subTail: server.ip,
+      reading: reading.value,
+      qualifier: reading.qualifier,
+      verdict: reading.verdict,
+      selected: selected,
+      onTap: () => _pick(server, ref.read(selectedServerProvider)),
+    );
+  }
+
+  SlipRow _realityRow(
+    MeteredType type,
+    RealityRelay relay,
+    RelayEvidence evidence,
+    bool selected,
+  ) {
+    final reading = evidence.reading(dial: relay.host, relayId: relay.id);
+    final tier = relay.toTarget().trustTier!;
+    return SlipRow(
+      type: type,
+      code: relay.private
+          ? 'OWN'
+          : relay.countryCode.isEmpty
+          ? '—'
+          : relay.countryCode,
+      title: relay.city.isEmpty
+          ? relay.countryName
+          : '${relay.city}, ${relay.countryName}',
+      // Printed from the config the core is handed, not from the link's own
+      // text: an imported profile runs whatever transport it parsed to, and a
+      // row that guessed would promise REALITY to a server that answers with
+      // plain TLS. The transport and the address take two lines because one
+      // line of both is wider than the column and the plate would shrink it
+      // past reading.
+      sub: DialShape.of(relay).summary,
+      subTail: relay.endpoint,
+      reading: reading.value,
+      qualifier: reading.qualifier,
+      verdict: reading.verdict,
+      disclosure: _trustMark(tier),
+      disclosureSemantics: tier.disclosure,
+      selected: selected,
+      onTap: () => _pickReality(relay.id),
+      trailingKey: (!selected && relay.private) ? 'REMOVE' : null,
+      onTrailing: relay.private ? () => _removeRelay(relay) : null,
+    );
+  }
+
+  String _headerNote(
+    AsyncValue<List<VpnServer>> serversAsync,
+    List<RealityRelay> realityRelays,
+    bool realitySupported,
+    ServerPingState pingState,
+  ) {
+    return serversAsync.maybeWhen(
+      data: (servers) {
+        if (servers.isEmpty && realityRelays.isEmpty) return 'Loading catalog';
+        // Count only what this platform can actually pick: REALITY is
+        // Android-only, so listing its relays as available on iOS would be a
+        // false promise.
+        final listable = realitySupported
+            ? realityRelays
+            : const <RealityRelay>[];
+        final total = servers.length + listable.length;
+        // The sweep streams: show how many relays have answered instead of
+        // pretending it is all-or-nothing.
+        final measured = pingState.byIp.values
+            .where((p) => p.status != PingStatus.pending)
+            .length;
+        final progress = pingState.probing
+            ? ' · $measured/$total measured'
+            : '';
+        return '$total relays · '
+            '${_countryLabel(_countryCount(servers) + _countryCountOfReality(listable))}'
+            '$progress';
+      },
+      orElse: () => 'Loading catalog',
+    );
+  }
+
+  Widget _flag(String code) {
+    final flagCode = code.length == 2 ? code : 'xx';
+    return SizedBox(
+      width: 22,
+      height: 16,
+      child: SvgPicture.asset(
+        'assets/flags/$flagCode.svg',
+        fit: BoxFit.contain,
+        // A missing flag is a missing part, not a missing country: the plate
+        // leaves the hole rather than painting a globe over it.
+        placeholderBuilder: (_) => const SizedBox.shrink(),
+        errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+      ),
+    );
+  }
+
+  String _groupNote(ServerGroup group) {
+    final count = group.servers.length;
+    final best = group.bestPing;
+    return '$count ${count == 1 ? 'relay' : 'relays'} · '
+        '${group.proven
+            ? 'yours'
+            : best == null
+            ? '—'
+            : '${best.ms} ms'}';
   }
 
   void _pick(VpnServer server, VpnServer? selected) {
@@ -479,43 +558,35 @@ class _ServerSheetState extends ConsumerState<ServerSheet> {
     ref.read(selectedServerProvider.notifier).state = null;
     Navigator.maybePop(context);
   }
+
+  Future<void> _openImport() => showRelayImportSheet(context);
+
+  /// Forgets one imported server.
+  ///
+  /// Removing the relay the tunnel is currently pointed at drops the pick back
+  /// to the pool, so a delete never leaves the engine dialling an address that
+  /// is no longer on the list.
+  Future<void> _removeRelay(RealityRelay relay) async {
+    await ref.read(importedRelaysProvider.notifier).remove(relay.id);
+    if (!mounted) return;
+    if (ref.read(realitySettingsProvider).selectedId != relay.id) return;
+    await ref.read(realitySettingsProvider.notifier).select(null);
+  }
 }
+
+/// The mark a row carries for a given operator. A private tier is named, a
+/// public one is warned about — and neither borrows the red the plate uses for
+/// a relay that did not deliver.
+String _trustMark(TrustTier tier) =>
+    tier.isPrivate ? tier.short : 'NOT PRIVATE';
 
 String _codeFor(VpnServer server) {
   final code = server.countryShort.trim().toLowerCase();
   return code.length == 2 ? code : '—';
 }
 
-List<VpnServer> _fastestNow(
-  List<VpnServer> servers,
-  Map<String, ServerPing> byIp,
-) {
-  final measured = servers.where((s) => byIp[s.ip]?.status == PingStatus.ok);
-  final sorted = measured.toList()
-    ..sort((a, b) => byIp[a.ip]!.ms.compareTo(byIp[b.ip]!.ms));
-  return sorted.take(3).toList();
-}
-
-String _latencyLabel(ServerPing? ping, bool probing) {
-  if (probing) return '…';
-  if (ping == null) return '—';
-  return switch (ping.status) {
-    PingStatus.ok => '${ping.ms} ms',
-    PingStatus.timeout => '—',
-    PingStatus.pending => '…',
-  };
-}
-
-/// Green means a latency a tunnel can actually carry traffic at; a measured
-/// 1.1 s handshake is evidence, not a healthy signal.
-Color _latencyColor(ServerPing? ping, AirColors air) {
-  if (ping == null) return air.mute;
-  return switch (ping.status) {
-    PingStatus.ok => ping.ms <= 300 ? air.connectedInk : air.ink,
-    PingStatus.timeout => air.mute,
-    PingStatus.pending => air.steel,
-  };
-}
+bool _matches(String query, String value) =>
+    query.isEmpty || value.toLowerCase().contains(query);
 
 int _countryCount(List<VpnServer> servers) {
   final names = servers.map(
@@ -527,115 +598,112 @@ int _countryCount(List<VpnServer> servers) {
   return unique;
 }
 
+int _countryCountOfReality(List<RealityRelay> relays) {
+  // A remark is not a country. Counting the user's own servers here would
+  // print "4 countries" over four names they typed themselves.
+  final names = relays
+      .where((r) => !r.private)
+      .map((r) => r.countryName.trim().isEmpty ? r.countryCode : r.countryName);
+  return names.map((n) => n.toLowerCase()).toSet().length;
+}
+
+/// Relays this phone has already carried traffic through come first.
+List<RealityRelay> _orderByProof(
+  List<RealityRelay> relays,
+  RelayEvidence evidence,
+) {
+  return [...relays]..sort((a, b) {
+    final byProof = (evidence.isProven(b.host) ? 1 : 0).compareTo(
+      evidence.isProven(a.host) ? 1 : 0,
+    );
+    return byProof;
+  });
+}
+
 String _countryLabel(int count) =>
     count == 1 ? '1 country' : '$count countries';
 
-class _BootstrapNotice extends StatelessWidget {
-  const _BootstrapNotice();
+/// The slip's own head: what the sheet is, how many relays it holds, and the
+/// two keys that end it. There is no drag handle — a card is picked up by its
+/// edge, and the plate prints a grip tab only where it also prints a hole.
+class _SlipHeader extends StatelessWidget {
+  const _SlipHeader({
+    required this.type,
+    required this.note,
+    required this.probing,
+    required this.canMeasure,
+    required this.onMeasure,
+    required this.onClose,
+  });
+
+  final MeteredType type;
+  final String note;
+  final bool probing;
+
+  /// A live tunnel owns the radio and the routing table, so the sweep is not
+  /// offered while one runs.
+  final bool canMeasure;
+  final VoidCallback onMeasure;
+  final VoidCallback onClose;
 
   @override
   Widget build(BuildContext context) {
-    final air = context.air;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 2, 20, 10),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Padding(
-            padding: EdgeInsets.only(top: 2),
-            child: TrustBadge(tier: TrustTier.bootstrap, compact: true),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              'Bootstrap relays are community-contributed. They are not '
-              'private and may see your traffic.',
-              style: AppTextStyles.body(color: air.steel, size: 13),
-            ),
-          ),
-        ],
+    final m = context.metered;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: Border(
+          bottom: BorderSide(color: m.ruleStrong, width: type.px(2)),
+        ),
       ),
-    );
-  }
-}
-
-/// Opt-in switch for the REALITY transport. Off by default: its relays are
-/// community-run, which is a different privacy stance from the owned tiers.
-class _RealitySwitch extends StatelessWidget {
-  const _RealitySwitch({required this.enabled, required this.onChanged});
-
-  final bool enabled;
-  final ValueChanged<bool> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final air = context.air;
-    return InkWell(
-      onTap: () => onChanged(!enabled),
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+        padding: EdgeInsets.fromLTRB(
+          type.px(26),
+          type.px(24),
+          type.px(24),
+          type.px(20),
+        ),
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            SizedBox(
-              width: 48,
-              child: Text(
-                'VLESS',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: AppTextStyles.label(color: air.steel, size: 11),
-              ),
-            ),
-            const SizedBox(width: 10),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(
-                    'TLS + REALITY',
-                    style: AppTextStyles.body(color: air.ink, size: 15),
+                  FittedLine(
+                    'Relays',
+                    AppTextStyles.title(
+                      color: m.ink,
+                      size: type.navLabelAttached,
+                      weight: FontWeight.w700,
+                      tracking: 0,
+                    ),
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    'A real TLS handshake on 443, then a private tunnel. Gets '
-                    'through networks that drop VPN handshakes.',
-                    style: AppTextStyles.body(color: air.steel, size: 12),
+                  SizedBox(height: type.claim * 0.34),
+                  FittedLine(
+                    note,
+                    AppTextStyles.monoValue(
+                      color: m.inkSoft,
+                      size: type.claim,
+                      height: 1.0,
+                      tracking: type.claimLeft,
+                    ),
                   ),
                 ],
               ),
             ),
-            const SizedBox(width: 8),
-            Switch.adaptive(value: enabled, onChanged: onChanged),
+            SizedBox(width: type.px(18)),
+            CardKey(
+              label: probing ? 'Measuring' : 'Measure',
+              type: type,
+              busy: probing,
+              emphasis: canMeasure,
+              onTap: canMeasure && !probing ? onMeasure : null,
+            ),
+            SizedBox(width: type.px(12)),
+            CardKey(label: 'Close', type: type, onTap: onClose),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _RealityNotice extends StatelessWidget {
-  const _RealityNotice();
-
-  @override
-  Widget build(BuildContext context) {
-    final air = context.air;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Padding(
-            padding: EdgeInsets.only(top: 2),
-            child: TrustBadge(tier: TrustTier.community, compact: true),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              'Community relays. The operator can see your traffic; use them '
-              'only if you accept that trade.',
-              style: AppTextStyles.body(color: air.steel, size: 13),
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -643,251 +711,91 @@ class _RealityNotice extends StatelessWidget {
 
 sealed class _Entry {
   const _Entry();
+
+  /// Stable identity per row. Pings stream in while this list is open, and a
+  /// row that loses its identity mid-scroll remounts and jumps.
+  String get entryKey;
 }
 
 class _AutoEntry extends _Entry {
   const _AutoEntry();
+
+  @override
+  String get entryKey => 'auto';
 }
 
 class _RealitySwitchEntry extends _Entry {
   const _RealitySwitchEntry({required this.enabled});
   final bool enabled;
+
+  @override
+  String get entryKey => 'reality-switch';
 }
 
 class _RealityAutoEntry extends _Entry {
   const _RealityAutoEntry({required this.selected, required this.count});
   final bool selected;
   final int count;
+
+  @override
+  String get entryKey => 'reality-auto';
 }
 
 class _RealityEntry extends _Entry {
   const _RealityEntry({required this.relay, required this.selected});
   final RealityRelay relay;
   final bool selected;
+
+  @override
+  String get entryKey => 'reality:${relay.id}';
 }
 
 class _RealityNoticeEntry extends _Entry {
   const _RealityNoticeEntry();
+
+  @override
+  String get entryKey => 'reality-notice';
+}
+
+/// Opens the import sheet. Present whether or not the vault is empty: the
+/// bundled pool is nine relays on SNIs a censor already blocks, and a user who
+/// has their own server needs one place to say so.
+class _AddRelayEntry extends _Entry {
+  const _AddRelayEntry();
+
+  @override
+  String get entryKey => 'relay-add';
 }
 
 class _SectionEntry extends _Entry {
   const _SectionEntry(this.label);
   final String label;
-}
 
-class _FastestEntry extends _Entry {
-  const _FastestEntry(this.server, this.number);
-  final VpnServer server;
-  final int number;
+  @override
+  String get entryKey => 'section:$label';
 }
 
 class _CountryEntry extends _Entry {
-  const _CountryEntry(this.group, this.minPing);
+  const _CountryEntry(this.group);
   final ServerGroup group;
-  final int minPing;
+
+  @override
+  String get entryKey => 'country:${group.countryName}';
 }
 
+/// One bootstrap relay, numbered inside its own country.
 class _ServerEntry extends _Entry {
   const _ServerEntry(this.server, this.number);
   final VpnServer server;
   final int number;
-}
-
-class _SectionHeader extends StatelessWidget {
-  const _SectionHeader(this.label);
-
-  final String label;
 
   @override
-  Widget build(BuildContext context) {
-    final air = context.air;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 20, 12, 6),
-      child: Text(
-        label.toUpperCase(),
-        style: AppTextStyles.label(color: air.steel),
-      ),
-    );
-  }
-}
-
-class _RelayRow extends StatelessWidget {
-  const _RelayRow({
-    required this.code,
-    required this.title,
-    required this.latency,
-    required this.selected,
-    required this.onTap,
-    this.subtitle,
-    this.latencyColor,
-    this.latencySize = 12,
-    this.badge,
-  });
-
-  final String code;
-  final String title;
-  final String? subtitle;
-  final String latency;
-  final Color? latencyColor;
-  final double latencySize;
-  final bool selected;
-  final VoidCallback onTap;
-  final Widget? badge;
-
-  @override
-  Widget build(BuildContext context) {
-    final air = context.air;
-    return InkWell(
-      onTap: onTap,
-      child: Container(
-        constraints: const BoxConstraints(minHeight: 56),
-        padding: const EdgeInsetsDirectional.fromSTEB(12, 10, 8, 10),
-        decoration: selected
-            ? BoxDecoration(
-                color: air.accentWash,
-                border: BorderDirectional(
-                  start: BorderSide(color: air.accent, width: 2),
-                ),
-              )
-            : null,
-        child: Row(
-          children: [
-            SizedBox(
-              width: 48,
-              child: Text(
-                code.toUpperCase(),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: AppTextStyles.label(color: air.steel, size: 11),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppTextStyles.body(color: air.ink, size: 15),
-                  ),
-                  if (subtitle != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 2),
-                      child: Text(
-                        subtitle!,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTextStyles.monoValue(
-                          color: air.steel,
-                          size: 11,
-                        ),
-                      ),
-                    ),
-                  if (badge != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 4),
-                      child: Align(
-                        alignment: AlignmentDirectional.centerStart,
-                        child: badge,
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 8),
-            Text(
-              latency,
-              maxLines: 1,
-              style: AppTextStyles.monoValue(
-                color: latencyColor ?? air.steel,
-                size: latencySize,
-              ),
-            ),
-            SizedBox(
-              width: 26,
-              child: selected
-                  ? Icon(Icons.check, size: 16, color: air.accent)
-                  : null,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _CountryHeader extends StatelessWidget {
-  const _CountryHeader({required this.group, required this.minPing});
-
-  final ServerGroup group;
-  final int minPing;
-
-  @override
-  Widget build(BuildContext context) {
-    final air = context.air;
-    final best = group.bestPing;
-    final isFastestCountry = best != null && minPing > 0 && best.ms == minPing;
-    final code = group.countryCode;
-    final flagCode = code.length == 2 ? code : 'xx';
-    final count = group.servers.length;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 16, 12, 6),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              SizedBox(
-                width: 22,
-                height: 16,
-                child: SvgPicture.asset(
-                  'assets/flags/$flagCode.svg',
-                  fit: BoxFit.contain,
-                  placeholderBuilder: (_) =>
-                      Icon(Icons.public, size: 16, color: air.steel),
-                  errorBuilder: (_, __, ___) =>
-                      Icon(Icons.public, size: 16, color: air.steel),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  group.countryName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTextStyles.body(
-                    color: isFastestCountry ? air.accentInk : air.ink,
-                    size: 14,
-                    weight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Wrap(
-            spacing: 10,
-            runSpacing: 4,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              Text(
-                '$count ${count == 1 ? 'relay' : 'relays'} · '
-                '${best == null ? '—' : '${best.ms} ms'}',
-                style: AppTextStyles.monoValue(color: air.mute, size: 11),
-              ),
-              TrustBadge(tier: group.servers.first.trustTier, compact: true),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
+  String get entryKey => 'server:${server.ip}';
 }
 
 class _SheetMessage extends StatelessWidget {
   const _SheetMessage({
+    this.type,
     required this.title,
     required this.detail,
     this.actionLabel,
@@ -895,6 +803,8 @@ class _SheetMessage extends StatelessWidget {
     this.onRefresh,
   });
 
+  /// The card's scale, handed down the way every other row gets it.
+  final MeteredType? type;
   final String title;
   final String detail;
   final String? actionLabel;
@@ -903,35 +813,43 @@ class _SheetMessage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final air = context.air;
+    final m = context.metered;
+    final type = this.type ?? MeteredType(1024);
     final content = ListView(
       physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(24, 48, 24, 48),
+      padding: EdgeInsets.symmetric(
+        horizontal: type.px(60),
+        vertical: type.px(64),
+      ),
       children: [
         Text(
           title,
           textAlign: TextAlign.center,
-          style: AppTextStyles.body(color: air.ink, size: 15),
+          style: AppTextStyles.title(
+            color: m.ink,
+            size: type.tableRowMixed,
+            weight: FontWeight.w600,
+            tracking: 0,
+          ),
         ),
-        const SizedBox(height: 6),
+        SizedBox(height: type.claim * 0.5),
         Text(
           detail,
           textAlign: TextAlign.center,
-          style: AppTextStyles.body(color: air.mute, size: 13),
+          style: AppTextStyles.body(
+            color: m.inkSoft,
+            size: type.exitPlace,
+            height: 1.34,
+          ),
         ),
         if (actionLabel != null) ...[
-          const SizedBox(height: 16),
+          SizedBox(height: type.px(44)),
           Center(
-            child: TextButton(
-              onPressed: onAction,
-              child: Text(
-                actionLabel!,
-                style: AppTextStyles.body(
-                  color: air.accentInk,
-                  size: 14,
-                  weight: FontWeight.w600,
-                ),
-              ),
+            child: CardKey(
+              label: actionLabel!,
+              type: type,
+              onTap: onAction,
+              emphasis: true,
             ),
           ),
         ],
@@ -939,47 +857,35 @@ class _SheetMessage extends StatelessWidget {
     );
     if (onRefresh == null) return content;
     return RefreshIndicator(
-      color: air.accent,
-      backgroundColor: air.raised,
+      color: m.value,
+      backgroundColor: m.card,
       onRefresh: onRefresh!,
       child: content,
     );
   }
 }
 
-class _ServerSkeletons extends StatelessWidget {
-  const _ServerSkeletons();
+/// The catalog is on its way. The plate prints ruled rows with no ink in them
+/// rather than a spinner, so what loads is the length of the list the reader
+/// is about to get.
+class _SlipSkeletons extends StatelessWidget {
+  const _SlipSkeletons({required this.type});
+
+  final MeteredType type;
 
   @override
   Widget build(BuildContext context) {
-    final air = context.air;
-    return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+    final m = context.metered;
+    return ListView.builder(
+      padding: EdgeInsets.only(top: type.px(18)),
       itemCount: 8,
-      separatorBuilder: (_, __) => Divider(height: 1, color: air.hairline),
-      itemBuilder: (_, i) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 4),
-        child: Row(
-          children: [
-            Container(width: 48, height: 12, color: air.raised),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  FractionallySizedBox(
-                    widthFactor: 0.4 + (i % 3) * 0.1,
-                    child: Container(height: 12, color: air.raised),
-                  ),
-                  const SizedBox(height: 6),
-                  FractionallySizedBox(
-                    widthFactor: 0.3,
-                    child: Container(height: 9, color: air.raised),
-                  ),
-                ],
-              ),
-            ),
-          ],
+      itemBuilder: (context, i) => Container(
+        height: type.px(96),
+        margin: EdgeInsets.fromLTRB(type.px(26), 0, type.px(24), type.px(20)),
+        decoration: BoxDecoration(
+          color: m.well,
+          borderRadius: BorderRadius.circular(type.px(10)),
+          border: Border.all(color: m.rule, width: type.px(2)),
         ),
       ),
     );

@@ -104,7 +104,10 @@ class AirRow extends StatelessWidget {
                       style: AppTextStyles.body(
                         color: titleColor ?? air.ink,
                         size: 15,
-                        weight: FontWeight.w500,
+                        // The mist palette keeps selection subtle by design
+                        // (accentWash on ground is 1.08:1 by day), so weight
+                        // carries the state that the wash only hints at.
+                        weight: selected ? FontWeight.w600 : FontWeight.w500,
                       ),
                     ),
                   if (subtitle != null) ...[
@@ -140,15 +143,23 @@ class AirRow extends StatelessWidget {
       ),
     );
 
+    // `surface` on `ground` is a 1.02:1 difference: a selected row looked
+    // identical to an unselected one. DESIGN.md §2 reserves `accentWash` for
+    // the selection, and the wash plus the weight step above carry it.
+    final Widget row;
     if (onTap == null && onLongPress == null) {
-      return ColoredBox(
-        color: selected ? air.surface : Colors.transparent,
+      row = ColoredBox(
+        color: selected ? air.accentWash : Colors.transparent,
         child: body,
       );
+    } else {
+      row = Material(
+        color: selected ? air.accentWash : Colors.transparent,
+        child: InkWell(onTap: onTap, onLongPress: onLongPress, child: body),
+      );
     }
-    return Material(
-      color: selected ? air.surface : Colors.transparent,
-      child: InkWell(onTap: onTap, onLongPress: onLongPress, child: body),
-    );
+    if (!selected) return row;
+    // A wash and a weight step are both invisible to a screen reader.
+    return Semantics(selected: true, child: row);
   }
 }

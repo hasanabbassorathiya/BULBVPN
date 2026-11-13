@@ -1,12 +1,15 @@
 import 'dart:io' show Platform;
 
-import 'package:bulbvpn/core/theme/air_colors.dart';
 import 'package:bulbvpn/core/theme/app_text_styles.dart';
+import 'package:bulbvpn/core/theme/metered_colors.dart';
 import 'package:bulbvpn/modules/core/home_region.dart';
 import 'package:bulbvpn/modules/core/log.dart';
 import 'package:bulbvpn/modules/core/relay_target.dart';
 import 'package:bulbvpn/modules/core/softether_vpn.dart';
-import 'package:bulbvpn/shared/air/air_layout.dart';
+import 'package:bulbvpn/shared/metered/card_ground.dart';
+import 'package:bulbvpn/shared/metered/metered_layout.dart';
+import 'package:bulbvpn/shared/metered/slip_list.dart';
+import 'package:bulbvpn/shared/metered/terms_panel.dart';
 import 'package:bulbvpn/shared/providers/connection_state_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -16,166 +19,125 @@ import 'package:package_info_plus/package_info_plus.dart';
 /// Full, copyable tunnel log. This screen is available in release builds too:
 /// when a connection fails on a carrier the log is the only evidence the user
 /// can hand back, and hiding it behind kDebugMode made support impossible.
+///
+/// Pushed route, so it prints its own ground. The reading is the plate's own
+/// small mono: a log is a receipt, and a receipt is not set in a display face.
 class LogsScreen extends ConsumerWidget {
   const LogsScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final air = context.air;
-    return Scaffold(
-      backgroundColor: air.ground,
-      body: SafeArea(
-        bottom: false,
-        child: Align(
-          alignment: Alignment.topCenter,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: AirLayout.wideRail),
-            child: ValueListenableBuilder<int>(
-              valueListenable: Log().version,
-              builder: (context, _, __) {
-                final lines = Log().lines;
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(8, 8, 8, 10),
-                      child: Row(
-                        children: [
-                          IconButton(
-                            tooltip: 'Back',
-                            onPressed: () => Navigator.of(context).maybePop(),
-                            icon: const Icon(Icons.arrow_back),
+    return CardGround(
+      insets: EdgeInsets.only(
+        top: MediaQuery.paddingOf(context).top,
+        bottom: MediaQuery.paddingOf(context).bottom,
+      ),
+      child: LayoutBuilder(
+        builder: (context, c) {
+          final type = MeteredType(c.maxWidth);
+          return ValueListenableBuilder<int>(
+            valueListenable: Log().version,
+            builder: (context, _, __) {
+              final lines = Log().lines;
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  FaceHeader(
+                    type: type,
+                    title: 'Connection log',
+                    note:
+                        '${lines.length} '
+                        '${lines.length == 1 ? 'line' : 'lines'} on this device',
+                    onBack: () => Navigator.of(context).maybePop(),
+                    trailing: lines.isEmpty
+                        ? null
+                        : CardKey(
+                            label: 'Copy',
+                            type: type,
+                            onTap: () => copyLogs(context, ref),
                           ),
-                          Expanded(
-                            child: Text(
-                              'Connection logs',
-                              style: AppTextStyles.title(
-                                color: air.ink,
-                                size: 19,
+                  ),
+                  Expanded(
+                    child: lines.isEmpty
+                        ? _NoEvents(type: type)
+                        : SelectionArea(
+                            child: ListView.builder(
+                              padding: EdgeInsets.only(
+                                top: type.px(18),
+                                bottom: type.px(40),
                               ),
+                              itemCount: lines.length + 1,
+                              itemBuilder: (context, index) {
+                                if (index == lines.length) {
+                                  return _LogFooter(
+                                    type: type,
+                                    onClear: () => _confirmClear(context),
+                                  );
+                                }
+                                return _LogLine(
+                                  line: lines[lines.length - 1 - index],
+                                  type: type,
+                                );
+                              },
                             ),
                           ),
-                          if (lines.isNotEmpty) ...[
-                            SizedBox(
-                              width: 44,
-                              height: 44,
-                              child: IconButton(
-                                tooltip: 'Copy all logs',
-                                onPressed: () => copyLogs(context, ref),
-                                icon: const Icon(Icons.copy_all, size: 20),
-                              ),
-                            ),
-                            TextButton(
-                              onPressed: () => _confirmClear(context),
-                              child: const Text('Clear'),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                    Expanded(
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: air.surface,
-                          border: Border(
-                            top: BorderSide(color: air.hairline),
-                          ),
-                        ),
-                        child: lines.isEmpty
-                            ? Center(
-                                child: Text(
-                                  'No events yet.',
-                                  style: AppTextStyles.body(
-                                    color: air.steel,
-                                    size: 14,
-                                  ),
-                                ),
-                              )
-                            : SelectionArea(
-                                child: ListView.builder(
-                                  padding: const EdgeInsets.fromLTRB(
-                                    AirLayout.gutter,
-                                    16,
-                                    AirLayout.gutter,
-                                    28,
-                                  ),
-                                  itemCount: lines.length + 1,
-                                  itemBuilder: (context, index) {
-                                    if (index == lines.length) {
-                                      return Padding(
-                                        padding: const EdgeInsets.only(
-                                          top: 18,
-                                        ),
-                                        child: Text(
-                                          'Newest first. Saved on this device '
-                                          'and kept across restarts; copied '
-                                          'logs are chronological and include '
-                                          'a device/relay header.',
-                                          style: AppTextStyles.monoValue(
-                                            color: air.mute,
-                                            size: 11,
-                                          ),
-                                        ),
-                                      );
-                                    }
-                                    return _LogLine(
-                                      line: lines[lines.length - 1 - index],
-                                    );
-                                  },
-                                ),
-                              ),
-                      ),
-                    ),
-                  ],
-                );
-              },
-            ),
-          ),
-        ),
+                  ),
+                ],
+              );
+            },
+          );
+        },
       ),
     );
   }
 
   Future<void> _confirmClear(BuildContext context) async {
-    final air = context.air;
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(
-          'Clear logs?',
-          style: AppTextStyles.title(color: air.ink, size: 18),
-        ),
-        content: Text(
-          'This removes the current tunnel log from this device.',
-          style: AppTextStyles.body(color: air.steel, size: 14),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Keep'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            style: TextButton.styleFrom(foregroundColor: air.alertInk),
-            child: const Text('Clear'),
-          ),
-        ],
-      ),
+      builder: (_) => const _ClearDialog(),
     );
     if (confirmed == true) Log().clearLogs();
   }
 }
 
+class _NoEvents extends StatelessWidget {
+  const _NoEvents({required this.type});
+
+  final MeteredType type;
+
+  @override
+  Widget build(BuildContext context) {
+    final m = context.metered;
+    return Center(
+      child: Padding(
+        padding: EdgeInsets.symmetric(horizontal: type.px(120)),
+        child: Text(
+          'No events yet.',
+          textAlign: TextAlign.center,
+          style: AppTextStyles.monoValue(
+            color: m.inkSoft,
+            size: type.tableRow,
+            weight: FontWeight.w400,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// One line of the receipt: the clock in its own slot, the message wrapped in
+/// the rest of the card.
 class _LogLine extends StatelessWidget {
-  const _LogLine({required this.line});
+  const _LogLine({required this.line, required this.type});
 
   final String line;
+  final MeteredType type;
 
   static const int _maxMessageChars = 400;
 
   @override
   Widget build(BuildContext context) {
-    final air = context.air;
+    final m = context.metered;
     final close = line.indexOf('] ');
     final stamp = close > 9 ? line.substring(1, close) : null;
     final message = close > 0 ? line.substring(close + 2) : line;
@@ -183,44 +145,156 @@ class _LogLine extends StatelessWidget {
         ? '${message.substring(0, _maxMessageChars)}…'
         : message;
     final lower = shown.toLowerCase();
-    final color = lower.contains('fail') ||
+    // The red is reserved for what did not deliver. A line that says the
+    // tunnel came up is a fact the card read, not a payment, so it prints in
+    // the card's own ivory rather than borrowing the accent.
+    final color =
+        lower.contains('fail') ||
             lower.contains('error') ||
             lower.contains('exception') ||
             lower.contains('refused') ||
             lower.contains('timeout')
-        ? air.alertInk
+        ? m.blockedLift
         : lower.contains('connected') || lower.contains('success')
-        ? air.connectedInk
-        : air.steel;
+        ? m.ink
+        : m.inkSoft;
     final time = stamp != null && stamp.length >= 19
         ? stamp.substring(11, 19)
         : stamp ?? '';
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
+      padding: EdgeInsets.fromLTRB(type.px(26), 0, type.px(24), type.px(9)),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            width: 58,
+            width: type.px(150),
             child: Text(
               time,
-              style: AppTextStyles.monoValue(color: air.ink, size: 10),
+              style: AppTextStyles.monoValue(
+                color: m.inkFaint,
+                size: type.claim,
+                weight: FontWeight.w400,
+                height: 1.5,
+              ),
             ),
           ),
-          const SizedBox(width: 8),
+          SizedBox(width: type.px(16)),
           Expanded(
             child: Text(
               shown,
-              style: TextStyle(
-                fontFamily: AppTextStyles.mono,
-                fontSize: 11,
-                height: 1.6,
+              style: AppTextStyles.monoValue(
                 color: color,
+                size: type.claim,
+                weight: FontWeight.w400,
+                height: 1.5,
               ),
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// How the log was kept, then the one key that throws it away. The destructive
+/// action sits at the end of the reading, not beside the heading that describes
+/// the thing it destroys.
+class _LogFooter extends StatelessWidget {
+  const _LogFooter({required this.type, required this.onClear});
+
+  final MeteredType type;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SlipNote(
+          type: type,
+          text:
+              'Newest first. Saved on this device and kept across restarts; '
+              'copied logs are chronological and include a device/relay header.',
+        ),
+        Padding(
+          padding: EdgeInsets.fromLTRB(
+            type.px(26),
+            type.px(20),
+            type.px(24),
+            type.px(20),
+          ),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: CardKey(label: 'Clear', type: type, onTap: onClear),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// The confirmation on its own plate. The card does not own a modal material,
+/// so the dialog is a second card laid over the first rather than a sheet of
+/// something else.
+class _ClearDialog extends StatelessWidget {
+  const _ClearDialog();
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      elevation: 0,
+      insetPadding: EdgeInsets.symmetric(
+        horizontal: MediaQuery.sizeOf(context).width * 0.08,
+        vertical: 24,
+      ),
+      child: CardGround(
+        child: LayoutBuilder(
+          builder: (context, c) {
+            final type = MeteredType(c.maxWidth);
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SlipSection(type: type, title: 'Clear the log'),
+                SlipNote(
+                  type: type,
+                  text: 'This removes the current tunnel log from this device.',
+                ),
+                Padding(
+                  padding: EdgeInsets.fromLTRB(
+                    type.px(26),
+                    type.px(20),
+                    type.px(24),
+                    type.px(20),
+                  ),
+                  child: Row(
+                    children: [
+                      CardKey(
+                        label: 'Keep',
+                        type: type,
+                        onTap: () => Navigator.pop(context, false),
+                      ),
+                      SizedBox(width: type.px(14)),
+                      Expanded(
+                        child: Align(
+                          alignment: Alignment.centerRight,
+                          child: CardKey(
+                            label: 'Clear',
+                            type: type,
+                            emphasis: true,
+                            onTap: () => Navigator.pop(context, true),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
       ),
     );
   }
@@ -286,9 +360,9 @@ Future<void> copyLogs(
       );
   } catch (error) {
     if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Could not copy logs: $error')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('Could not copy logs: $error')));
   }
 }
 

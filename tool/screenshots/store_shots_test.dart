@@ -19,14 +19,14 @@ import 'dart:ui' as ui;
 import 'package:bulbvpn/core/theme/app_theme.dart';
 import 'package:bulbvpn/modules/core/trust_tier.dart';
 import 'package:bulbvpn/modules/main/presentation/widgets/home_composition.dart';
+import 'package:bulbvpn/modules/main/presentation/widgets/metered_card.dart';
 import 'package:bulbvpn/shared/air/air_phase.dart';
 import 'package:bulbvpn/shared/air/connect_trace.dart';
-import 'package:bulbvpn/shared/layout/navbar/defyx_navbar.dart';
+import 'package:bulbvpn/shared/metered/metered_shell.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
@@ -39,8 +39,9 @@ HomeViewState _connected() => const HomeViewState(
   networkLabel: 'Wi-Fi',
   clockLabel: '00:12:47',
   pingLabel: '789',
-  downLabel: '312 KB/s',
-  upLabel: '84 KB/s',
+  downLabel: '2.6 Mbps',
+  upLabel: '688 Kbps',
+  trafficLabel: '64 KiB',
   protocolLabel: 'SoftEther',
   relayLabel: 'Japan',
   exitIp: '115.179.206.241',
@@ -48,6 +49,9 @@ HomeViewState _connected() => const HomeViewState(
   flagCode: 'jp',
   trustTier: TrustTier.bootstrap,
   live: true,
+  // The render says "traffic confirmed", so it must hold the proof that
+  // sentence now requires.
+  proven: true,
 );
 
 HomeViewState _connecting() => const HomeViewState(
@@ -59,6 +63,7 @@ HomeViewState _connecting() => const HomeViewState(
   pingLabel: '789',
   downLabel: '—',
   upLabel: '—',
+  trafficLabel: '0 B',
   protocolLabel: 'Automatic',
   relayLabel: 'Japan',
   exitIp: '',
@@ -79,6 +84,7 @@ HomeViewState _verifying() => const HomeViewState(
   pingLabel: '789',
   downLabel: '—',
   upLabel: '—',
+  trafficLabel: '0 B',
   protocolLabel: 'Automatic',
   relayLabel: 'Japan',
   exitIp: '',
@@ -94,30 +100,22 @@ GoRouter _router(HomeViewState state) => GoRouter(
   initialLocation: '/main',
   routes: [
     ShellRoute(
-      builder: (context, routeState, child) => Scaffold(
-        extendBody: true,
-        body: Stack(
-          children: [
-            child,
-            const Positioned(
-              bottom: 0,
-              left: 0,
-              right: 0,
-              child: DefyxNavBar(),
-            ),
-          ],
+      builder: (context, routeState, child) => MeteredShell(
+        segments: meteredTabs,
+        active: 0,
+        onSelect: (_) {},
+        child: MeteredCard(
+          state: state,
+          rows: const [],
+          onConnect: () {},
+          onOpenRelays: () {},
+          onScratch: () {},
         ),
       ),
       routes: [
         GoRoute(
           path: '/main',
-          builder: (context, routeState) => HomeComposition(
-            state: state,
-            onConnect: () {},
-            onOpenServers: () {},
-            onRefreshIps: () {},
-            onCopyIp: () {},
-          ),
+          builder: (context, routeState) => const SizedBox.shrink(),
         ),
       ],
     ),
@@ -168,7 +166,9 @@ Future<void> _loadFonts() async {
 
   // flutter_tester runs with --use-test-fonts, so Material glyphs would be
   // tofu. The icon font ships next to the engine binary, not in the app.
-  final sdkCache = File(Platform.resolvedExecutable).parent.parent.parent.parent;
+  final sdkCache = File(
+    Platform.resolvedExecutable,
+  ).parent.parent.parent.parent;
   await load(
     'MaterialIcons',
     '${sdkCache.path}/artifacts/material_fonts/MaterialIcons-Regular.otf',
@@ -206,18 +206,13 @@ Future<(Uint8List, int, int)> _pumpAndCapture(
 }) async {
   final boundaryKey = GlobalKey();
   await tester.pumpWidget(
-    ScreenUtilInit(
-      designSize: const Size(390, 844),
-      minTextAdapt: true,
-      splitScreenMode: true,
-      builder: (_, __) => ProviderScope(
-        child: MaterialApp.router(
-          debugShowCheckedModeBanner: false,
-          theme: AppTheme.light,
-          routerConfig: _router(state),
-          builder: (context, child) =>
-              RepaintBoundary(key: boundaryKey, child: child!),
-        ),
+    ProviderScope(
+      child: MaterialApp.router(
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.light,
+        routerConfig: _router(state),
+        builder: (context, child) =>
+            RepaintBoundary(key: boundaryKey, child: child!),
       ),
     ),
   );

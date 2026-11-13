@@ -39,14 +39,22 @@ class ServerPingState {
 /// A plain TCP connect is not evidence of reachability: Iranian ISPs terminate
 /// TCP locally, so a relay on another continent "answered" in 4.5 ms while the
 /// handshake that SoftEther actually needs took 1.76 s. Timing the TLS
-/// handshake keeps the displayed latency honest. Results stream in live as
-/// each probe lands.
+/// handshake keeps the displayed latency honest. Results land live, in bursts
+/// of [_publishBatch] so one sweep is not one rebuild per relay.
 class ServerPingNotifier extends StateNotifier<ServerPingState> {
-  ServerPingNotifier() : super(const ServerPingState());
+  ServerPingNotifier({Future<ServerPing> Function(VpnServer server)? probe})
+    : _probe = probe,
+      super(const ServerPingState());
+
+  /// Seam for the handshake so a sweep can be driven without a radio.
+  final Future<ServerPing> Function(VpnServer server)? _probe;
 
   static const _timeout = Duration(seconds: 4);
   static const _maxConcurrent = 10;
   static const _staleAfter = Duration(minutes: 2);
+
+  /// How many measured relays one state emission may carry.
+  static const _publishBatch = 16;
 
   bool _running = false;
   bool _rerunRequested = false;
@@ -100,6 +108,7 @@ class ServerPingNotifier extends StateNotifier<ServerPingState> {
   /// actually asked for.
   void stopProbing() {
     _rerunRequested = false;
+    _flushPending();
     _generation++;
     if (_running) state = state.copyWith(probing: false);
   }
@@ -109,6 +118,7 @@ class ServerPingNotifier extends StateNotifier<ServerPingState> {
   void invalidate() {
     _rerunRequested = false;
     _generation++;
+    _pending.clear();
     _finishedAt = null;
     state = const ServerPingState();
   }
@@ -118,6 +128,7 @@ class ServerPingNotifier extends StateNotifier<ServerPingState> {
       for (final s in servers) s.ip: ServerPing.pending,
     };
     state = ServerPingState(byIp: fresh, probing: true);
+    _pending.clear();
 
     final slots = List<int>.generate(servers.length, (i) => i);
     var next = 0;
@@ -140,6 +151,7 @@ class ServerPingNotifier extends StateNotifier<ServerPingState> {
     await Future.wait(workers);
 
     if (generation == _generation) {
+      _flushPending();
       Log().addLog(
         '[Ping] Measured ${state.byIp.values.where((p) => p.status == PingStatus.ok).length}/${servers.length} servers',
       );
@@ -147,6 +159,11 @@ class ServerPingNotifier extends StateNotifier<ServerPingState> {
   }
 
   Future<void> _probeOne(VpnServer server, int generation) async {
+    final probe = _probe;
+    if (probe != null) {
+      _publish(server.ip, await probe(server), generation);
+      return;
+    }
     Socket? socket;
     final stopwatch = Stopwatch()..start();
     try {
@@ -160,7 +177,7 @@ class ServerPingNotifier extends StateNotifier<ServerPingState> {
       );
       // The dart:io timeout only covers the TCP connect. Carriers that accept
       // the handshake and then stall TLS leave this future pending for
-      // minutes, which stalls the whole ping sweep, so cap the handshake too.
+      // minutes, which stalls the whole sweep, so cap the handshake too.
       unawaited(
         attempt
             .then((s) {
@@ -184,10 +201,24 @@ class ServerPingNotifier extends StateNotifier<ServerPingState> {
     }
   }
 
+  /// Probe results waiting for the next state emission.
+  ///
+  /// The home screen and the server sheet both watch this state, and the
+  /// sheet re-groups all 106 relays by country on every change. Publishing per
+  /// relay measured 109 emissions for one sweep (test/server_ping_batch_test)
+  /// — 109 full rebuilds while 10 TLS handshakes were still running.
+  final Map<String, ServerPing> _pending = <String, ServerPing>{};
+
   void _publish(String ip, ServerPing ping, int generation) {
     if (generation != _generation) return;
-    final cur = Map<String, ServerPing>.from(state.byIp);
-    cur[ip] = ping;
+    _pending[ip] = ping;
+    if (_pending.length >= _publishBatch) _flushPending();
+  }
+
+  void _flushPending() {
+    if (_pending.isEmpty) return;
+    final cur = Map<String, ServerPing>.from(state.byIp)..addAll(_pending);
+    _pending.clear();
     state = state.copyWith(byIp: cur);
   }
 }

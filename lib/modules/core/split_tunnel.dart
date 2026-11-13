@@ -17,9 +17,9 @@ enum TunnelMode {
   allow;
 
   static TunnelMode fromName(String? name) => values.firstWhere(
-        (mode) => mode.name == name,
-        orElse: () => TunnelMode.all,
-      );
+    (mode) => mode.name == name,
+    orElse: () => TunnelMode.all,
+  );
 }
 
 class SplitTunnelConfig {
@@ -34,12 +34,48 @@ class SplitTunnelConfig {
   /// A split mode with nothing selected would either mean nothing (bypass) or
   /// leave only BULBVPN itself inside the tunnel (allow), so it degrades to
   /// the full tunnel instead of silently breaking connectivity.
-  TunnelMode get appliedMode =>
-      mode == TunnelMode.all || packages.isEmpty ? TunnelMode.all : mode;
+  ///
+  /// Allow degrades on Android for a second reason: the only engine dialed
+  /// there takes a deny list and cannot admit a subset, so honouring the
+  /// choice would mean no tunnel at all. Widening is the safe half of that
+  /// mistake — more traffic behind the tunnel than asked for, never less —
+  /// and saying so here keeps the settings face from promising what the
+  /// handshake cannot deliver.
+  TunnelMode get appliedMode {
+    if (mode == TunnelMode.all || packages.isEmpty) return TunnelMode.all;
+    if (mode == TunnelMode.allow &&
+        defaultTargetPlatform == TargetPlatform.android) {
+      return TunnelMode.all;
+    }
+    return mode;
+  }
 
   bool get isSplit => mode != TunnelMode.all;
 
   int get appCount => packages.length;
+
+  /// What this config makes the next session do, in one line. The terms face
+  /// and the routing face both print it, and a fact the card says twice has to
+  /// be one fact rather than two paraphrases that can drift apart.
+  String get scopeSummary {
+    final count = packages.length;
+    // Summarised from what will actually run, not from what was saved: a
+    // scope the engine cannot honour has to read as the scope it degrades to.
+    return switch (appliedMode) {
+      TunnelMode.all =>
+        mode == TunnelMode.allow && count > 0
+            ? 'All apps use the tunnel · only-selected cannot run'
+            : 'All apps use the tunnel',
+      TunnelMode.bypass =>
+        count == 0
+            ? 'Bypass · no apps selected yet'
+            : 'Bypass · $count ${count == 1 ? 'app' : 'apps'} outside',
+      TunnelMode.allow =>
+        count == 0
+            ? 'Only apps · none selected yet'
+            : 'Only · $count ${count == 1 ? 'app' : 'apps'} inside',
+    };
+  }
 
   SplitTunnelConfig copyWith({TunnelMode? mode, Set<String>? packages}) {
     return SplitTunnelConfig(
@@ -49,17 +85,15 @@ class SplitTunnelConfig {
   }
 
   Map<String, Object?> toJson() => {
-        'mode': mode.name,
-        'packages': packages.toList()..sort(),
-      };
+    'mode': mode.name,
+    'packages': packages.toList()..sort(),
+  };
 
   factory SplitTunnelConfig.fromJson(Map<String, Object?> json) {
     final rawPackages = json['packages'];
     return SplitTunnelConfig(
       mode: TunnelMode.fromName(json['mode']?.toString()),
-      packages: {
-        if (rawPackages is List) ...rawPackages.whereType<String>(),
-      },
+      packages: {if (rawPackages is List) ...rawPackages.whereType<String>()},
     );
   }
 
@@ -74,7 +108,8 @@ class SplitTunnelConfig {
   int get hashCode => Object.hash(mode, Object.hashAllUnordered(packages));
 
   @override
-  String toString() => 'SplitTunnelConfig(${mode.name}, ${packages.length} apps)';
+  String toString() =>
+      'SplitTunnelConfig(${mode.name}, ${packages.length} apps)';
 }
 
 /// Reads and writes the routing choice. The in-memory copy is what the
@@ -95,9 +130,7 @@ class SplitTunnelStore {
       final raw = prefs.getString(_key);
       final config = raw == null
           ? const SplitTunnelConfig()
-          : SplitTunnelConfig.fromJson(
-              jsonDecode(raw) as Map<String, Object?>,
-            );
+          : SplitTunnelConfig.fromJson(jsonDecode(raw) as Map<String, Object?>);
       _cached = config;
       return config;
     } catch (_) {
@@ -119,7 +152,7 @@ class SplitTunnelStore {
 
 class SplitTunnelNotifier extends StateNotifier<SplitTunnelConfig> {
   SplitTunnelNotifier()
-      : super(SplitTunnelStore.cached ?? const SplitTunnelConfig()) {
+    : super(SplitTunnelStore.cached ?? const SplitTunnelConfig()) {
     _hydrate();
   }
 
@@ -152,5 +185,5 @@ class SplitTunnelNotifier extends StateNotifier<SplitTunnelConfig> {
 
 final splitTunnelProvider =
     StateNotifierProvider<SplitTunnelNotifier, SplitTunnelConfig>(
-  (ref) => SplitTunnelNotifier(),
-);
+      (ref) => SplitTunnelNotifier(),
+    );
