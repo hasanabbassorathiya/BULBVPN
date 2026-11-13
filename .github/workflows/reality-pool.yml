@@ -1,0 +1,65 @@
+name: Refresh community REALITY pool
+
+# Rebuilds the bundled community pool from MhdiTaheri/V2rayCollector's mixed
+# subscription. Every shipped relay is dialled with the pinned Xray-core and
+# must move a fixed payload before it enters the asset, so the pool carries
+# measured forwarders, not TLS responders. The script keeps the current pool's
+# relays in the race, so a proven address survives an aggregator rotation, and
+# refuses to write when fewer than five REALITY relays pass — a bad fetch day
+# leaves the last good pool in place.
+#
+# Scheduled workflows run only from the default branch; this file does nothing
+# until it lands on main.
+
+on:
+  schedule:
+    # Daily, offset from the 3-hourly health probe so the two never race.
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: reality-pool
+  cancel-in-progress: true
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pinned Xray-core
+        env:
+          XRAY_VERSION: "26.10.31"
+        run: |
+          set -euo pipefail
+          base="https://github.com/XTLS/Xray-core/releases/download/v${XRAY_VERSION}"
+          curl -sSfL -o xray.zip "${base}/Xray-linux-64.zip"
+          curl -sSfL -o xray.zip.dgst "${base}/Xray-linux-64.zip.dgst"
+          expected="$(grep -E '^SHA2-256=' xray.zip.dgst | awk '{print $2}')"
+          actual="$(sha256sum xray.zip | awk '{print $1}')"
+          test -n "$expected"
+          test "$expected" = "$actual"
+          unzip -oq xray.zip -d xray-core
+          sudo install -m 0755 xray-core/xray /usr/local/bin/xray
+          xray version | head -2
+
+      - name: Refresh the pool
+        run: python3 scripts/refresh_reality_pool.py
+
+      - name: Publish pool and measurements
+        run: |
+          set -euo pipefail
+          git add assets/relays/community_reality.json data/reality_health.json
+          if git diff --cached --quiet; then
+            echo "Pool unchanged."
+            exit 0
+          fi
+          git -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit -m "chore: refresh health-checked community REALITY pool"
+          git push
