@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Probe bundled REALITY relays with a real VLESS+REALITY session.
+"""Probe bundled REALITY/XHTTP relays with a real VLESS session.
 
 Runs in GitHub Actions on a schedule. A TLS handshake only proves a host is
 reachable; this script starts Xray-core with the same outbound the app builds,
@@ -26,6 +26,7 @@ import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import parse_qsl, unquote, urlsplit
 
 PROBE_URL = "https://speed.cloudflare.com/__down?bytes=65536"
 MIN_BYTES = 64 * 1024
@@ -40,22 +41,91 @@ def free_port() -> int:
     return port
 
 
+def vless_link_outbound(link: str) -> dict:
+    """The outbound a vless:// share link describes, tagged for the probe.
+
+    Only what the pool ships is expressed here: VLESS over xhttp (tls or
+    reality). The app parses links with flutter_vless; this mirrors the same
+    stream settings so the measurement describes the dial the phone makes.
+    """
+    parts = urlsplit(link.strip())
+    if parts.scheme != "vless" or not parts.hostname or not parts.username:
+        raise ValueError("not a vless link with host and uuid")
+    params = {k.lower(): v for k, v in parse_qsl(parts.query, keep_blank_values=True)}
+    network = params.get("type", "tcp").lower()
+    security = params.get("security", "none").lower()
+    user = {"id": unquote(parts.username), "encryption": "none", "level": 0}
+    flow = params.get("flow", "").strip()
+    if flow:
+        user["flow"] = flow
+    stream: dict = {"network": network, "security": security}
+    sni = params.get("sni") or params.get("peer") or ""
+    fp = params.get("fp") or "chrome"
+    if security == "tls":
+        tls: dict = {"serverName": sni, "fingerprint": fp}
+        alpn = params.get("alpn", "")
+        if alpn:
+            tls["alpn"] = alpn.split(",")
+        stream["tlsSettings"] = tls
+    elif security == "reality":
+        stream["realitySettings"] = {
+            "serverName": sni,
+            "fingerprint": fp,
+            "publicKey": params.get("pbk", ""),
+            "shortId": params.get("sid", ""),
+        }
+    if network == "xhttp":
+        settings: dict = {"path": params.get("path", "/") or "/"}
+        if params.get("host"):
+            settings["host"] = params["host"]
+        if params.get("mode"):
+            settings["mode"] = params["mode"]
+        stream["xhttpSettings"] = settings
+    elif network == "ws":
+        stream["wsSettings"] = {
+            "path": params.get("path", "/") or "/",
+            "headers": {"Host": params.get("host", sni)},
+        }
+    elif network == "grpc":
+        stream["grpcSettings"] = {"serviceName": params.get("serviceName", "")}
+    return {
+        "tag": "proxy",
+        "protocol": "vless",
+        "settings": {
+            "vnext": [
+                {
+                    "address": parts.hostname,
+                    "port": parts.port or 443,
+                    "users": [user],
+                }
+            ]
+        },
+        "streamSettings": stream,
+    }
+
+
 def xray_config(relay: dict, port: int) -> dict:
+    inbound = {
+        "tag": "socks-in",
+        "listen": "127.0.0.1",
+        "port": port,
+        "protocol": "socks",
+        "settings": {"udp": False},
+    }
+    link = (relay.get("link") or "").strip()
+    if link:
+        return {
+            "log": {"loglevel": "warning"},
+            "inbounds": [inbound],
+            "outbounds": [vless_link_outbound(link)],
+        }
     user = {"id": relay["uuid"], "encryption": "none", "level": 0}
     flow = (relay.get("flow") or "").strip()
     if flow:
         user["flow"] = flow
     return {
         "log": {"loglevel": "warning"},
-        "inbounds": [
-            {
-                "tag": "socks-in",
-                "listen": "127.0.0.1",
-                "port": port,
-                "protocol": "socks",
-                "settings": {"udp": False},
-            }
-        ],
+        "inbounds": [inbound],
         "outbounds": [
             {
                 "tag": "proxy",
@@ -87,14 +157,21 @@ def xray_config(relay: dict, port: int) -> dict:
 def valid_relay(relay: dict) -> bool:
     if not isinstance(relay, dict):
         return False
-    for field in ("id", "host", "port", "uuid", "public_key", "server_name"):
+    for field in ("id", "host", "port"):
         if not str(relay.get(field) or "").strip():
             return False
     try:
         port = int(relay["port"])
     except (TypeError, ValueError):
         return False
-    return 1 <= port <= 65535
+    if not 1 <= port <= 65535:
+        return False
+    if str(relay.get("link") or "").strip():
+        return True
+    return all(
+        str(relay.get(field) or "").strip()
+        for field in ("uuid", "public_key", "server_name")
+    )
 
 
 def wait_for_port(port: int, proc: subprocess.Popen, seconds: float = 5.0) -> bool:

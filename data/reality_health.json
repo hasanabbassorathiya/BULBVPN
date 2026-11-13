@@ -1,71 +1,197 @@
 {
   "schema": 1,
-  "generated_at": "2026-11-01T11:39:02.812046+00:00",
-  "catalog_generated_at": "2026-11-01",
-  "healthy": 8,
-  "total": 9,
+  "generated_at": "2026-11-13T11:48:38.801827+00:00",
+  "catalog_generated_at": "2026-11-13T11:48:38.801827+00:00",
+  "healthy": 27,
+  "total": 27,
   "probes": [
     {
-      "id": "community-hk-3",
+      "id": "vc-681b03396b",
       "ok": true,
       "bytes": 65536,
-      "ms": 1994,
+      "ms": 600,
       "error": ""
     },
     {
-      "id": "community-us-1",
+      "id": "vc-bab76dbb99",
       "ok": true,
       "bytes": 65536,
-      "ms": 4723,
+      "ms": 619,
       "error": ""
     },
     {
-      "id": "community-de-2",
+      "id": "vc-30c7ccc05d",
       "ok": true,
       "bytes": 65536,
-      "ms": 761,
+      "ms": 626,
       "error": ""
     },
     {
-      "id": "community-pl-4",
+      "id": "vc-90662b0f9a",
       "ok": true,
       "bytes": 65536,
-      "ms": 831,
+      "ms": 654,
       "error": ""
     },
     {
-      "id": "community-ee-5",
-      "ok": false,
-      "bytes": 0,
-      "ms": 550,
-      "error": "curl: (35) TLS connect error: error:0A000126:SSL routines::unexpected eof while reading"
-    },
-    {
-      "id": "community-it-6",
+      "id": "vc-79147f4c50",
       "ok": true,
       "bytes": 65536,
-      "ms": 2133,
+      "ms": 662,
       "error": ""
     },
     {
-      "id": "community-pl-7",
+      "id": "vc-14f9d87ba5",
       "ok": true,
       "bytes": 65536,
-      "ms": 1856,
+      "ms": 675,
       "error": ""
     },
     {
-      "id": "community-ua-8",
+      "id": "vc-7534d4399c",
       "ok": true,
       "bytes": 65536,
-      "ms": 1238,
+      "ms": 677,
       "error": ""
     },
     {
-      "id": "community-us-9",
+      "id": "vc-5965ac5a55",
       "ok": true,
       "bytes": 65536,
-      "ms": 1221,
+      "ms": 713,
+      "error": ""
+    },
+    {
+      "id": "vc-b088a8f379",
+      "ok": true,
+      "bytes": 65536,
+      "ms": 715,
+      "error": ""
+    },
+    {
+      "id": "vc-d3921e87fd",
+      "ok": true,
+      "bytes": 65536,
+      "ms": 723,
+      "error": ""
+    },
+    {
+      "id": "vc-dff45992e2",
+      "ok": true,
+      "bytes": 65536,
+      "ms": 740,
+      "error": ""
+    },
+    {
+      "id": "vc-67c2d00854",
+      "ok": true,
+      "bytes": 65536,
+      "ms": 745,
+      "error": ""
+    },
+    {
+      "id": "vc-796eb93de0",
+      "ok": true,
+      "bytes": 65536,
+      "ms": 746,
+      "error": ""
+    },
+    {
+      "id": "vc-e916e40c72",
+      "ok": true,
+      "bytes": 65536,
+      "ms": 797,
+      "error": ""
+    },
+    {
+      "id": "vc-76e4dc873f",
+      "ok": true,
+      "bytes": 65536,
+      "ms": 801,
+      "error": ""
+    },
+    {
+      "id": "vc-3516767577",
+      "ok": true,
+      "bytes": 65536,
+      "ms": 802,
+      "error": ""
+    },
+    {
+      "id": "vc-877b51a928",
+      "ok": true,
+      "bytes": 65536,
+      "ms": 848,
+      "error": ""
+    },
+    {
+      "id": "vc-3b205bcec0",
+      "ok": true,
+      "bytes": 65536,
+      "ms": 849,
+      "error": ""
+    },
+    {
+      "id": "vc-fbc4bdf1c5",
+      "ok": true,
+      "bytes": 65536,
+      "ms": 857,
+      "error": ""
+    },
+    {
+      "id": "vc-8f4c02e715",
+      "ok": true,
+      "bytes": 65536,
+      "ms": 864,
+      "error": ""
+    },
+    {
+      "id": "vc-377a1476fb",
+      "ok": true,
+      "bytes": 65536,
+      "ms": 848,
+      "error": ""
+    },
+    {
+      "id": "vc-ebd44e3f5d",
+      "ok": true,
+      "bytes": 65536,
+      "ms": 893,
+      "error": ""
+    },
+    {
+      "id": "vc-0039ccf526",
+      "ok": true,
+      "bytes": 65536,
+      "ms": 894,
+      "error": ""
+    },
+    {
+      "id": "vc-deea096395",
+      "ok": true,
+      "bytes": 65536,
+      "ms": 1065,
+      "error": ""
+    },
+    {
+      "id": "vc-0427e87165",
+      "ok": true,
+      "bytes": 65536,
+      "ms": 907,
+      "error": ""
+    },
+    {
+      "id": "vc-a6b57769ac",
+      "ok": true,
+      "bytes": 65536,
+      "ms": 1329,
+      "error": ""
+    },
+    {
+      "id": "vc-e146f03bac",
+      "ok": true,
+      "bytes": 65536,
+      "ms": 2021,
       "error": ""
     }
   ]
