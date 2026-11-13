@@ -1,197 +1,204 @@
 {
   "schema": 1,
-  "generated_at": "2026-11-13T11:48:38.801827+00:00",
-  "catalog_generated_at": "2026-11-13T11:48:38.801827+00:00",
-  "healthy": 27,
-  "total": 27,
+  "generated_at": "2026-11-13T11:57:26.776368+00:00",
+  "catalog_generated_at": "2026-11-13T11:57:26.776368+00:00",
+  "healthy": 28,
+  "total": 28,
   "probes": [
-    {
-      "id": "vc-681b03396b",
-      "ok": true,
-      "bytes": 65536,
-      "ms": 600,
-      "error": ""
-    },
-    {
-      "id": "vc-bab76dbb99",
-      "ok": true,
-      "bytes": 65536,
-      "ms": 619,
-      "error": ""
-    },
-    {
-      "id": "vc-30c7ccc05d",
-      "ok": true,
-      "bytes": 65536,
-      "ms": 626,
-      "error": ""
-    },
-    {
-      "id": "vc-90662b0f9a",
-      "ok": true,
-      "bytes": 65536,
-      "ms": 654,
-      "error": ""
-    },
-    {
-      "id": "vc-79147f4c50",
-      "ok": true,
-      "bytes": 65536,
-      "ms": 662,
-      "error": ""
-    },
-    {
-      "id": "vc-14f9d87ba5",
-      "ok": true,
-      "bytes": 65536,
-      "ms": 675,
-      "error": ""
-    },
-    {
-      "id": "vc-7534d4399c",
-      "ok": true,
-      "bytes": 65536,
-      "ms": 677,
-      "error": ""
-    },
-    {
-      "id": "vc-5965ac5a55",
-      "ok": true,
-      "bytes": 65536,
-      "ms": 713,
-      "error": ""
-    },
-    {
-      "id": "vc-b088a8f379",
-      "ok": true,
-      "bytes": 65536,
-      "ms": 715,
-      "error": ""
-    },
-    {
-      "id": "vc-d3921e87fd",
-      "ok": true,
-      "bytes": 65536,
-      "ms": 723,
-      "error": ""
-    },
-    {
-      "id": "vc-dff45992e2",
-      "ok": true,
-      "bytes": 65536,
-      "ms": 740,
-      "error": ""
-    },
-    {
-      "id": "vc-67c2d00854",
-      "ok": true,
-      "bytes": 65536,
-      "ms": 745,
-      "error": ""
-    },
-    {
-      "id": "vc-796eb93de0",
-      "ok": true,
-      "bytes": 65536,
-      "ms": 746,
-      "error": ""
-    },
     {
       "id": "vc-e916e40c72",
       "ok": true,
       "bytes": 65536,
-      "ms": 797,
+      "ms": 617,
       "error": ""
     },
     {
       "id": "vc-76e4dc873f",
       "ok": true,
       "bytes": 65536,
-      "ms": 801,
+      "ms": 645,
       "error": ""
     },
     {
-      "id": "vc-3516767577",
+      "id": "vc-49f5d48766",
       "ok": true,
       "bytes": 65536,
-      "ms": 802,
-      "error": ""
-    },
-    {
-      "id": "vc-877b51a928",
-      "ok": true,
-      "bytes": 65536,
-      "ms": 848,
-      "error": ""
-    },
-    {
-      "id": "vc-3b205bcec0",
-      "ok": true,
-      "bytes": 65536,
-      "ms": 849,
+      "ms": 654,
       "error": ""
     },
     {
       "id": "vc-fbc4bdf1c5",
       "ok": true,
       "bytes": 65536,
-      "ms": 857,
+      "ms": 658,
+      "error": ""
+    },
+    {
+      "id": "vc-67c2d00854",
+      "ok": true,
+      "bytes": 65536,
+      "ms": 660,
+      "error": ""
+    },
+    {
+      "id": "vc-30c7ccc05d",
+      "ok": true,
+      "bytes": 65536,
+      "ms": 662,
+      "error": ""
+    },
+    {
+      "id": "vc-bab76dbb99",
+      "ok": true,
+      "bytes": 65536,
+      "ms": 663,
+      "error": ""
+    },
+    {
+      "id": "vc-7534d4399c",
+      "ok": true,
+      "bytes": 65536,
+      "ms": 663,
+      "error": ""
+    },
+    {
+      "id": "vc-3516767577",
+      "ok": true,
+      "bytes": 65536,
+      "ms": 670,
+      "error": ""
+    },
+    {
+      "id": "vc-90662b0f9a",
+      "ok": true,
+      "bytes": 65536,
+      "ms": 677,
+      "error": ""
+    },
+    {
+      "id": "vc-796eb93de0",
+      "ok": true,
+      "bytes": 65536,
+      "ms": 690,
+      "error": ""
+    },
+    {
+      "id": "vc-79147f4c50",
+      "ok": true,
+      "bytes": 65536,
+      "ms": 700,
+      "error": ""
+    },
+    {
+      "id": "vc-5965ac5a55",
+      "ok": true,
+      "bytes": 65536,
+      "ms": 704,
+      "error": ""
+    },
+    {
+      "id": "vc-dff45992e2",
+      "ok": true,
+      "bytes": 65536,
+      "ms": 708,
+      "error": ""
+    },
+    {
+      "id": "vc-877b51a928",
+      "ok": true,
+      "bytes": 65536,
+      "ms": 726,
+      "error": ""
+    },
+    {
+      "id": "vc-d3921e87fd",
+      "ok": true,
+      "bytes": 65536,
+      "ms": 728,
+      "error": ""
+    },
+    {
+      "id": "vc-14f9d87ba5",
+      "ok": true,
+      "bytes": 65536,
+      "ms": 748,
+      "error": ""
+    },
+    {
+      "id": "vc-3b205bcec0",
+      "ok": true,
+      "bytes": 65536,
+      "ms": 751,
       "error": ""
     },
     {
       "id": "vc-8f4c02e715",
       "ok": true,
       "bytes": 65536,
-      "ms": 864,
+      "ms": 778,
+      "error": ""
+    },
+    {
+      "id": "vc-47f0e342ae",
+      "ok": true,
+      "bytes": 65536,
+      "ms": 797,
       "error": ""
     },
     {
       "id": "vc-377a1476fb",
       "ok": true,
       "bytes": 65536,
-      "ms": 848,
-      "error": ""
-    },
-    {
-      "id": "vc-ebd44e3f5d",
-      "ok": true,
-      "bytes": 65536,
-      "ms": 893,
+      "ms": 966,
       "error": ""
     },
     {
       "id": "vc-0039ccf526",
       "ok": true,
       "bytes": 65536,
-      "ms": 894,
+      "ms": 969,
       "error": ""
     },
     {
-      "id": "vc-deea096395",
+      "id": "vc-e210dfc3b6",
       "ok": true,
       "bytes": 65536,
-      "ms": 1065,
+      "ms": 1283,
+      "error": ""
+    },
+    {
+      "id": "vc-8625bea1ac",
+      "ok": true,
+      "bytes": 65536,
+      "ms": 2007,
+      "error": ""
+    },
+    {
+      "id": "vc-ebd44e3f5d",
+      "ok": true,
+      "bytes": 65536,
+      "ms": 2085,
+      "error": ""
+    },
+    {
+      "id": "vc-51e2971da5",
+      "ok": true,
+      "bytes": 65536,
+      "ms": 3693,
+      "error": ""
+    },
+    {
+      "id": "vc-31550ec7ac",
+      "ok": true,
+      "bytes": 65536,
+      "ms": 4069,
       "error": ""
     },
     {
       "id": "vc-0427e87165",
       "ok": true,
       "bytes": 65536,
-      "ms": 907,
-      "error": ""
-    },
-    {
-      "id": "vc-a6b57769ac",
-      "ok": true,
-      "bytes": 65536,
-      "ms": 1329,
-      "error": ""
-    },
-    {
-      "id": "vc-e146f03bac",
-      "ok": true,
-      "bytes": 65536,
-      "ms": 2021,
+      "ms": 1311,
       "error": ""
     }
   ]

@@ -141,6 +141,10 @@ def parse_link(link: str) -> dict | None:
             # The link is the profile; probe_reality.vless_link_outbound and
             # the app's flutter_vless parser both read it verbatim.
             return {**base, "uuid": uuid, "link": link}
+        if network == "ws" and security == "tls":
+            # WS+TLS links ship the whole profile in the link; probe them the
+            # same way the app dials them (vless_link_outbound handles ws).
+            return {**base, "uuid": uuid, "link": link}
         return None
     except (ValueError, TypeError):
         return None
@@ -212,8 +216,19 @@ def main() -> int:
     parser.add_argument("--workers", type=int, default=6)
     args = parser.parse_args()
 
-    links = fetch_links(args.source)
-    print(f"fetched {len(links)} links from {args.source}", file=sys.stderr)
+    extra_sources = [
+        "https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/main/Vless-Reality-White-Lists-Rus-Mobile.txt",
+    ]
+    sources_used = [args.source, *extra_sources]
+    links = []
+    for source in sources_used:
+        try:
+            fetched = fetch_links(source)
+            links.extend(fetched)
+            print(f"fetched {len(fetched)} links from {source}", file=sys.stderr)
+        except Exception as error:
+            print(f"skipping source {source}: {error}", file=sys.stderr)
+    print(f"fetched {len(links)} links total", file=sys.stderr)
 
     out_path = Path(args.out)
     candidates: dict[str, dict] = {}
@@ -310,7 +325,7 @@ def main() -> int:
     catalog = {
         "version": 1,
         "generated_at": generated_at,
-        "source": args.source,
+        "source": sources_used,
         "notice": NOTICE,
         "relays": selected,
     }
