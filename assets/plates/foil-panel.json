@@ -1,0 +1,19 @@
+{
+  "tool": "harness ImageGen (image-to-image) + PIL crop",
+  "size": "1536x585",
+  "aspect": 2.626,
+  "region": "foil-panel",
+  "kind": "plate",
+  "reference": ".impeccable/build/crops/foil-panel.png",
+  "approved": true,
+  "date": "2026-11-02",
+  "supersedes": "1536x1024 first pass, kept at .impeccable/build/plates-src/foil-panel-original.png",
+  "measured": {
+    "paper_left_edge": 0.464,
+    "paper_right_edge": 0.999,
+    "method": "PIL scan of the mid row for warm paper (r>212, r-b>10, g>200)",
+    "repro": "python3 -c \"from PIL import Image; im=Image.open('assets/plates/foil-panel.png').convert('RGB'); ...\""
+  },
+  "why_reworked": "The first pass put the revealed paper across only ~22% of the plate's width and its aspect did not match the panel box, so BoxFit.fill squashed the foil and the printed reading landed on the metal. Re-generated with the tear at ~42% and cropped to the panel box's own aspect so the plate maps 1:1.",
+  "prompt": "Use the provided crop as the approved visual reference and recreate it as a clean production asset at a wide landscape aspect. This is a designed material plate: the silver scratch-off foil panel of a payphone card, torn open. Output the same drawing, same material, same lighting. Preserve exactly: the matte brushed silver foil field on the left with its fine vertical scratch sheen; the torn edge where the foil has been scratched away, roughly two fifths of the way across, with the curled foil lip lifting and catching a bright highlight; the rough deckled white paper fibres along the tear; and the pale ivory paper under-layer exposed across the right half where the foil is gone. Remove every piece of UI text, label, digits, IP address, caption and interface chrome that is not part of the artwork itself - the revealed area must be blank ivory paper, the reading is drawn in code on top. Remove borders, card corners, drop shadows and any layout background the page draws in code. Do not add objects. Do not change the concept. Do not restyle. The artwork fills the whole frame edge to edge."
+}

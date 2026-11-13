@@ -1,0 +1,13 @@
+{
+  "@@locale": "fa",
+  "appTitle": "BULB VPN",
+  "connect": "اتصال",
+  "disconnect": "قطع اتصال",
+  "connecting": "در حال اتصال…",
+  "connected": "متصل",
+  "servers": "سرورها",
+  "settings": "تنظیمات",
+  "connection": "اتصال",
+  "connectionLog": " گزارش اتصال",
+  "vpn": "VPN"
+}

@@ -1,0 +1,13 @@
+{
+  "@@locale": "en",
+  "appTitle": "BULB VPN",
+  "connect": "Connect",
+  "disconnect": "Disconnect",
+  "connecting": "Connecting",
+  "connected": "Connected",
+  "servers": "Servers",
+  "settings": "Settings",
+  "connection": "Connection",
+  "connectionLog": "Connection log",
+  "vpn": "VPN"
+}

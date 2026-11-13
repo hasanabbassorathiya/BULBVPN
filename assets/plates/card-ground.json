@@ -1,0 +1,10 @@
+{
+  "tool": "harness ImageGen",
+  "size": "1024x1024",
+  "region": "card-ground",
+  "kind": "texture",
+  "reference": ".impeccable/build/crops/card-ground.png",
+  "approved": true,
+  "date": "2026-11-02",
+  "prompt": "Use the provided crop as the approved visual reference and recreate it as a clean production asset. This is a seamless surface texture: a tileable plate of deep cobalt blue printed PVC card stock, the face of a payphone card. Output a tileable texture plate with no objects, no text, no lettering, no rules, no lines, no vignette, no card edges, no corner radius, no drop shadow. Preserve the palette exactly: cobalt ground around #082853 / #092847 with slightly darker print mottle, fine off-white scuff marks, hairline scratches, dust specks and a subtle press grain — the flat, even, front-lit look of ink on plastic, not leather and not paper. Lighting perfectly even across the whole frame so the plate tiles without a visible seam. Keep the scuffing sparse and low contrast; the ground must read as one continuous colour. Do not add objects. Do not restyle. The texture fills the whole frame edge to edge."
+}
