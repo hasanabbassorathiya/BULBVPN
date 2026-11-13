@@ -211,13 +211,14 @@ def main() -> int:
     parser.add_argument("--reality-target", type=int, default=20)
     parser.add_argument("--xhttp-target", type=int, default=8)
     parser.add_argument("--max-reality-probes", type=int, default=150)
-    parser.add_argument("--max-xhttp-probes", type=int, default=60)
+    parser.add_argument("--max-xhttp-probes", type=int, default=150)
     parser.add_argument("--probe-timeout", type=int, default=10)
     parser.add_argument("--workers", type=int, default=6)
     args = parser.parse_args()
 
     extra_sources = [
         "https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/main/Vless-Reality-White-Lists-Rus-Mobile.txt",
+        "https://raw.githubusercontent.com/barry-far/v2ray-config/main/Splitted-By-Protocol/vless.txt",
         "https://raw.githubusercontent.com/Au1rxx/free-vpn-subscriptions/main/output/protocol/vless/v2ray-base64-0001.txt",
         "https://raw.githubusercontent.com/Au1rxx/free-vpn-subscriptions/main/output/protocol/vless/v2ray-base64-0002.txt",
         "https://raw.githubusercontent.com/Au1rxx/free-vpn-subscriptions/main/output/protocol/vless/v2ray-base64-0003.txt",

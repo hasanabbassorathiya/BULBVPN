@@ -3230,8 +3230,20 @@ vpn
     ConnectionStateNotifier connectionNotifier,
   ) async {
     if (!RealityEngine.instance.isSupported) return false;
-    final settings = await RealitySettingsStore.load();
-    final vault = await RelayVault.load();
+    // Load every independent data source in parallel so the first dial starts
+    // as soon as possible. settings/vault gate the early exit, network and
+    // health feed the dial order that follows.
+    final settingsFuture = RealitySettingsStore.load();
+    final vaultFuture = RelayVault.load();
+    final networkFuture = _networkForMemory();
+    final healthFuture = RealityHealthStore.load();
+    // The catalog is an asset load with an in-process cache; it needs none of
+    // settings/vault/network/health to load, only to decide whether to spread
+    // into the dial queue. Start it at once.
+    final catalogFuture = RealityCatalog.load();
+
+    final settings = await settingsFuture;
+    final vault = await vaultFuture;
     if (!settings.usable && vault.isEmpty) {
       // Returning silently here is what makes a mobile-data failure
       // unreadable in a captured log: the file would show a connect that
@@ -3266,7 +3278,7 @@ vpn
     final List<RealityRelay> catalog;
     try {
       catalog = settings.usable
-          ? [...vault, ...await RealityCatalog.load()]
+          ? [...vault, ...await catalogFuture]
           : vault;
     } catch (e) {
       _log.addLog('[VpnController] REALITY catalog unavailable: $e');
@@ -3275,12 +3287,19 @@ vpn
     if (catalog.isEmpty || generation != _rotationGeneration) return false;
 
     final picked = settings.selectedId;
-    final network = await _networkForMemory();
-    final anchor = await RelayMemory.recall(
+    final network = await networkFuture;
+    // recall needs this phone's network; proven dials is engine-scoped and
+    // needs nothing here, so both lookups start at once. The remembered hello
+    // shape also only needs the network, so it starts alongside them and is
+    // awaited just before the dial plan is built.
+    final anchorFuture = RelayMemory.recall(
       network: network,
       engine: 'reality',
     );
-    final proven = await RelayMemory.provenDials('reality');
+    final provenFuture = RelayMemory.provenDials('reality');
+    final shapeFuture = RelayMemory.recallHandshakeShape(network: network);
+    final anchor = await anchorFuture;
+    final proven = await provenFuture;
     final head = <RealityRelay>[];
     final headHosts = <String>{};
     void push(RealityRelay? relay) {
@@ -3308,7 +3327,7 @@ vpn
     // Measured end-to-end health from the scheduled GitHub Action. It orders
     // relays this phone has never tried; a relay that failed here recently
     // still sinks because the local failure penalty is larger.
-    final health = await RealityHealthStore.load();
+    final health = await healthFuture;
     final extraScore = <String, double>{};
     if (health != null) {
       for (final relay in catalog) {
@@ -3350,9 +3369,7 @@ vpn
     // A hello that already moved bytes on this cell tower is measured
     // evidence; the ladder is a guess. Lead with the evidence, keep the ladder
     // behind it in case the carrier changed its mind.
-    final preferredShape = await RelayMemory.recallHandshakeShape(
-      network: network,
-    );
+    final preferredShape = await shapeFuture;
     final dials = RealityRelay.dialPlan(queue, preferredShape: preferredShape);
     if (preferredShape.isNotEmpty) {
       _log.addLog(
