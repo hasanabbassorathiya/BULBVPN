@@ -106,7 +106,7 @@ jobs:
         run: flutter pub cache clean
 
       - name: Download Android Framework
-        # if: ${{ github.event.inputs.download_android_framework == 'true' }}
+        if: ${{ github.event.inputs.download_android_framework == 'true' && secrets.DXCORE_PRIVATE_ACCESS_TOKEN != '' }}
         env:
           GITHUB_TOKEN: ${{ secrets.DXCORE_PRIVATE_ACCESS_TOKEN }}
         run: |
