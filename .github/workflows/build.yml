@@ -105,8 +105,17 @@ jobs:
       - name: Clear Pub cache
         run: flutter pub cache clean
 
+      - name: Check DXcore token availability
+        id: check_dxcore
+        run: |
+          if [ -n "${{ secrets.DXCORE_PRIVATE_ACCESS_TOKEN }}" ]; then
+            echo "has_dxcore=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_dxcore=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Download Android Framework
-        if: ${{ github.event.inputs.download_android_framework == 'true' && secrets.DXCORE_PRIVATE_ACCESS_TOKEN != '' }}
+        if: ${{ steps.check_dxcore.outputs.has_dxcore == 'true' && github.event.inputs.download_android_framework == 'true' }}
         env:
           GITHUB_TOKEN: ${{ secrets.DXCORE_PRIVATE_ACCESS_TOKEN }}
         run: |
