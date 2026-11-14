@@ -72,7 +72,7 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: "3.35.5"
+          flutter-version: "stable"
           channel: "stable"
           architecture: "x64"
           cache: false
@@ -201,7 +201,7 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: "3.27.0"
+          flutter-version: "stable"
           channel: "stable"
           architecture: "x64"
           cache: false
@@ -279,14 +279,17 @@ jobs:
           chmod +x scripts/build_ci.sh
           ./scripts/build_ci.sh
 
-      - name: Upload IPA to App Store/TestFlight
-        uses: apple-actions/upload-app-store@v1
-        with:
-          app-store-connect-api-key: ${{ secrets.APP_STORE_KEY_P8 }}
-          app-store-connect-key-id: ${{ secrets.APP_STORE_KEY_ID }}
-          app-store-connect-issuer-id: ${{ secrets.APP_STORE_ISSUER_ID }}
-          ipa-path: build/ios/ipa/Runner.ipa
-          destination: ${{ github.event.inputs.app_store_destination }}
+      - name: Install alto
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/getalto/alto/main/install.sh | sh -s -- -b /usr/local/bin
+
+      - name: Write App Store Connect API key
+        run: |
+          echo "${{ secrets.APP_STORE_KEY_P8 }}" > /tmp/AuthKey_${{ secrets.APP_STORE_KEY_ID }}.p8
+
+      - name: Upload IPA to TestFlight
+        run: |
+          alto --api-key ${{ secrets.APP_STORE_KEY_ID }} --issuer-id ${{ secrets.APP_STORE_ISSUER_ID }} --p8-path /tmp/AuthKey_${{ secrets.APP_STORE_KEY_ID }}.p8 upload build/ios/ipa/Runner.ipa
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
