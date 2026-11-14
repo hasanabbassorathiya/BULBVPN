@@ -1,5 +1,5 @@
-import 'package:bulbvpn/core/theme/air_colors.dart';
 import 'package:bulbvpn/core/theme/app_text_styles.dart';
+import 'package:bulbvpn/core/theme/simple_colors.dart';
 import 'package:bulbvpn/modules/speed_test/models/speed_test_result.dart';
 import 'package:flutter/material.dart';
 
@@ -15,7 +15,7 @@ class SpeedTestHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final air = context.air;
+    final s = context.simple;
     final testing = step != SpeedTestStep.ready;
     final kicker = testing
         ? 'LIVE MEASUREMENT'
@@ -31,7 +31,7 @@ class SpeedTestHeader extends StatelessWidget {
         Text(
           kicker,
           style: AppTextStyles.label(
-            color: testing ? air.accentInk : air.steel,
+            color: testing ? s.connected : s.inkSoft,
             size: 10.5,
           ),
         ),
@@ -39,7 +39,7 @@ class SpeedTestHeader extends StatelessWidget {
         Text(
           title,
           style: AppTextStyles.display(
-            color: air.ink,
+            color: s.ink,
             size: 30,
             weight: FontWeight.w600,
           ),

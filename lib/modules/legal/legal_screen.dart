@@ -1,9 +1,9 @@
 import 'package:bulbvpn/app/links.dart';
-import 'package:bulbvpn/core/theme/air_colors.dart';
 import 'package:bulbvpn/core/theme/app_text_styles.dart';
+import 'package:bulbvpn/core/theme/simple_colors.dart';
 import 'package:bulbvpn/modules/legal/legal_acceptance.dart';
-import 'package:bulbvpn/shared/air/air_buttons.dart';
-import 'package:bulbvpn/shared/air/air_layout.dart';
+import 'package:bulbvpn/shared/simple/simple_card.dart';
+import 'package:bulbvpn/shared/simple/simple_key.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
@@ -35,35 +35,35 @@ class _LegalScreenState extends State<LegalScreen> {
   }
 
   void _decline() {
-    final air = context.air;
+    final s = context.simple;
     showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        backgroundColor: air.surface,
+        backgroundColor: s.surface,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-          side: BorderSide(color: air.hairline),
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: s.hairline),
         ),
         title: Text(
           'Agreement required',
-          style: AppTextStyles.title(color: air.ink, size: 18),
+          style: AppTextStyles.title(color: s.ink, size: 18),
         ),
         content: Text(
           'BULBVPN cannot be used without accepting the Terms and the '
           'Acceptable Use Policy.',
-          style: AppTextStyles.body(color: air.steel, size: 14),
+          style: AppTextStyles.body(color: s.inkSoft, size: 14),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(),
-            child: Text('Back', style: AppTextStyles.body(color: air.steel, size: 14)),
+            child: Text('Back', style: AppTextStyles.body(color: s.inkSoft, size: 14)),
           ),
           TextButton(
             onPressed: () {
               Navigator.of(dialogContext).pop();
               SystemNavigator.pop();
             },
-            child: Text('Close app', style: AppTextStyles.body(color: air.alertInk, size: 14)),
+            child: Text('Close app', style: AppTextStyles.body(color: s.error, size: 14)),
           ),
         ],
       ),
@@ -72,142 +72,136 @@ class _LegalScreenState extends State<LegalScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final air = context.air;
+    final s = context.simple;
     return Scaffold(
-      backgroundColor: air.ground,
+      backgroundColor: s.background,
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: AirLayout.wideRail),
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: air.surface,
-                border: Border.symmetric(
-                  horizontal: BorderSide(color: air.hairline),
-                ),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(AirLayout.gutter, 24, AirLayout.gutter, 14),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'BEFORE YOU CONNECT',
-                          style: AppTextStyles.label(
-                            color: air.steel,
-                            size: 10.5,
+            constraints: const BoxConstraints(maxWidth: 720),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: SimpleCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(26, 24, 26, 14),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'BEFORE YOU CONNECT',
+                            style: AppTextStyles.label(
+                              color: s.inkSoft,
+                              size: 10.5,
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 10),
-                        Text(
-                          'Ground rules',
-                          style: AppTextStyles.display(
-                            color: air.ink,
-                            size: 30,
-                            weight: FontWeight.w600,
+                          const SizedBox(height: 10),
+                          Text(
+                            'Ground rules',
+                            style: AppTextStyles.display(
+                              color: s.ink,
+                              size: 30,
+                              weight: FontWeight.w600,
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'BULBVPN is a tool, not a shield from the law.',
-                          style: AppTextStyles.body(
-                            color: air.steel,
-                            size: 14,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Divider(height: 1, thickness: 1, color: air.hairline),
-                  Expanded(
-                    child: ListView(
-                      padding: const EdgeInsets.fromLTRB(AirLayout.gutter, 18, AirLayout.gutter, 18),
-                      children: [
-                        for (final section in _sections) ...[
-                          _Section(section: section),
-                          Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 20),
-                            child: Divider(
-                              height: 1,
-                              thickness: 1,
-                              color: air.hairline,
+                          const SizedBox(height: 8),
+                          Text(
+                            'BULBVPN is a tool, not a shield from the law.',
+                            style: AppTextStyles.body(
+                              color: s.inkSoft,
+                              size: 14,
                             ),
                           ),
                         ],
-                        _FullDocs(),
-                      ],
+                      ),
                     ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.fromLTRB(18, 10, 18, 14),
-                    decoration: BoxDecoration(
-                      color: air.surface,
-                      border: Border(top: BorderSide(color: air.hairline)),
-                    ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        InkWell(
-                          onTap: () => setState(() => _agreed = !_agreed),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Checkbox(
-                                value: _agreed,
-                                onChanged: (value) =>
-                                    setState(() => _agreed = value ?? false),
-                                activeColor: air.accent,
-                                side: BorderSide(color: air.hairlineStrong),
+                    Divider(height: 1, thickness: 1, color: s.hairline),
+                    Expanded(
+                      child: ListView(
+                        padding: const EdgeInsets.fromLTRB(26, 18, 26, 18),
+                        children: [
+                          for (final section in _sections) ...[
+                            _Section(section: section),
+                            Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 20),
+                              child: Divider(
+                                height: 1,
+                                thickness: 1,
+                                color: s.hairline,
                               ),
-                              Expanded(
-                                child: Padding(
-                                  padding: const EdgeInsets.only(top: 12),
-                                  child: Text(
-                                    'I have read and agree to the Terms and '
-                                    'the Acceptable Use Policy, and I accept '
-                                    'the risks described above.',
-                                    style: AppTextStyles.body(
-                                      color: air.steel,
-                                      size: 12.5,
-                                      height: 1.4,
+                            ),
+                          ],
+                          _FullDocs(),
+                        ],
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.fromLTRB(26, 10, 26, 14),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          InkWell(
+                            onTap: () => setState(() => _agreed = !_agreed),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Checkbox(
+                                  value: _agreed,
+                                  onChanged: (value) =>
+                                      setState(() => _agreed = value ?? false),
+                                  activeColor: s.connected,
+                                  side: BorderSide(color: s.hairline),
+                                ),
+                                Expanded(
+                                  child: Padding(
+                                    padding: const EdgeInsets.only(top: 12),
+                                    child: Text(
+                                      'I have read and agree to the Terms and '
+                                      'the Acceptable Use Policy, and I accept '
+                                      'the risks described above.',
+                                      style: AppTextStyles.body(
+                                        color: s.inkSoft,
+                                        size: 12.5,
+                                        height: 1.4,
+                                      ),
                                     ),
                                   ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              TextButton(
+                                onPressed: _decline,
+                                child: Text(
+                                  'Decline',
+                                  style: AppTextStyles.body(
+                                    color: s.inkFaint,
+                                    size: 14,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: SimpleKey(
+                                  emphasis: true,
+                                  label: _saving
+                                      ? 'Saving…'
+                                      : 'Agree and continue',
+                                  onTap: _agreed && !_saving ? _accept : null,
                                 ),
                               ),
                             ],
                           ),
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            TextButton(
-                              onPressed: _decline,
-                              child: Text(
-                                'Decline',
-                                style: AppTextStyles.body(
-                                  color: air.mute,
-                                  size: 14,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: AirButton.primary(
-                                label: _saving
-                                    ? 'Saving…'
-                                    : 'Agree and continue',
-                                onPressed: _agreed && !_saving ? _accept : null,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
@@ -278,18 +272,18 @@ class _Section extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final air = context.air;
+    final s = context.simple;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           section.title,
-          style: AppTextStyles.title(color: air.ink, size: 17),
+          style: AppTextStyles.title(color: s.ink, size: 17),
         ),
         const SizedBox(height: 8),
         Text(
           section.body,
-          style: AppTextStyles.body(color: air.ink, size: 15, height: 1.6),
+          style: AppTextStyles.body(color: s.ink, size: 15, height: 1.6),
         ),
       ],
     );
@@ -301,7 +295,7 @@ class _FullDocs extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final air = context.air;
+    final s = context.simple;
     return Row(
       children: [
         Expanded(
@@ -312,7 +306,7 @@ class _FullDocs extends StatelessWidget {
             ),
             child: Text(
               'Full Terms',
-              style: AppTextStyles.body(color: air.accentInk, size: 14),
+              style: AppTextStyles.body(color: s.connected, size: 14),
             ),
           ),
         ),
@@ -324,7 +318,7 @@ class _FullDocs extends StatelessWidget {
             ),
             child: Text(
               'Privacy Policy',
-              style: AppTextStyles.body(color: air.accentInk, size: 14),
+              style: AppTextStyles.body(color: s.connected, size: 14),
             ),
           ),
         ),

@@ -1,7 +1,7 @@
 import 'dart:math' as math;
 
-import 'package:bulbvpn/core/theme/air_colors.dart';
 import 'package:bulbvpn/core/theme/app_text_styles.dart';
+import 'package:bulbvpn/core/theme/simple_colors.dart';
 import 'package:bulbvpn/core/utils/format_number.dart';
 import 'package:flutter/material.dart';
 
@@ -27,12 +27,12 @@ class SpeedWaveform extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final air = context.air;
+    final s = context.simple;
     final color = switch (state) {
-      WaveState.idle => air.steel,
-      WaveState.running => air.accent,
-      WaveState.done => air.connectedInk,
-      WaveState.error => air.alertInk,
+      WaveState.idle => s.inkFaint,
+      WaveState.running => s.connected,
+      WaveState.done => s.connected,
+      WaveState.error => s.error,
     };
     final note = this.note;
     final value = liveValue > 0 ? doubleFormatNumber(liveValue) : '—';
@@ -51,14 +51,14 @@ class SpeedWaveform extends StatelessWidget {
                 child: Text(
                   value,
                   maxLines: 1,
-                  style: AppTextStyles.metric(color: air.ink, size: 44),
+                  style: AppTextStyles.metric(color: s.ink, size: 44),
                 ),
               ),
             ),
             const SizedBox(width: 8),
             Text(
               'Mbps',
-              style: AppTextStyles.label(color: air.steel, size: 11),
+              style: AppTextStyles.label(color: s.inkSoft, size: 11),
             ),
           ],
         ),
@@ -71,9 +71,9 @@ class SpeedWaveform extends StatelessWidget {
               painter: _WaveformPainter(
                 samples: samples,
                 color: color,
-                baseline: air.hairlineStrong,
-                grid: air.hairline,
-                tick: air.steel,
+                baseline: s.hairline,
+                grid: s.hairline,
+                tick: s.inkFaint,
               ),
             ),
           ),
@@ -82,7 +82,7 @@ class SpeedWaveform extends StatelessWidget {
           const SizedBox(height: 10),
           Text(
             note,
-            style: AppTextStyles.monoValue(color: air.steel, size: 11),
+            style: AppTextStyles.monoValue(color: s.inkSoft, size: 11),
           ),
         ],
       ],

@@ -6,7 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 import 'package:bulbvpn/core/theme/app_text_styles.dart';
-import 'package:bulbvpn/core/theme/metered_colors.dart';
+import 'package:bulbvpn/core/theme/simple_colors.dart';
 import 'package:bulbvpn/modules/core/reality/reality_engine.dart';
 import 'package:bulbvpn/modules/core/reality/reality_relay.dart';
 import 'package:bulbvpn/modules/core/reality/relay_link.dart';
@@ -19,10 +19,15 @@ import 'package:bulbvpn/modules/main/application/relay_evidence_provider.dart';
 import 'package:bulbvpn/modules/main/application/server_grouping.dart';
 import 'package:bulbvpn/modules/main/application/server_ping_provider.dart';
 import 'package:bulbvpn/modules/main/presentation/widgets/relay_import_sheet.dart';
-import 'package:bulbvpn/shared/metered/card_ground.dart';
-import 'package:bulbvpn/shared/metered/metered_layout.dart';
-import 'package:bulbvpn/shared/metered/slip_list.dart';
 import 'package:bulbvpn/shared/providers/connection_state_provider.dart';
+import 'package:bulbvpn/shared/simple/simple_action.dart';
+import 'package:bulbvpn/shared/simple/simple_card.dart';
+import 'package:bulbvpn/shared/simple/simple_field.dart';
+import 'package:bulbvpn/shared/simple/simple_key.dart';
+import 'package:bulbvpn/shared/simple/simple_note.dart';
+import 'package:bulbvpn/shared/simple/simple_row.dart';
+import 'package:bulbvpn/shared/simple/simple_section.dart';
+import 'package:bulbvpn/shared/simple/simple_type.dart';
 
 /// Currently picked server (null = auto / test config).
 final selectedServerProvider = StateProvider<VpnServer?>((ref) => null);
@@ -125,10 +130,10 @@ class _ServerSheetState extends ConsumerState<ServerSheet> {
       if (next.valueOrNull?.isNotEmpty == true) _refreshPings();
     });
 
-    return CardGround(
+    return SimpleCard(
       child: LayoutBuilder(
         builder: (context, c) {
-          final type = MeteredType(c.maxWidth);
+          final type = SimpleType(c.maxWidth);
           return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -147,8 +152,7 @@ class _ServerSheetState extends ConsumerState<ServerSheet> {
               ),
               // The trust contract stays on screen while people pick; it is
               // never a one-time dialog they can dismiss and forget.
-              SlipNote(
-                type: type,
+              SimpleNote(
                 mark: 'NOT PRIVATE',
                 markSemantic: TrustTier.bootstrap.disclosure,
                 text:
@@ -162,9 +166,8 @@ class _ServerSheetState extends ConsumerState<ServerSheet> {
                   type.px(24),
                   type.px(18),
                 ),
-                child: SlottedField(
+                child: SimpleField(
                   controller: _search,
-                  type: type,
                   hint: 'Search country',
                   onChanged: (v) =>
                       setState(() => _query = v.trim().toLowerCase()),
@@ -174,7 +177,6 @@ class _ServerSheetState extends ConsumerState<ServerSheet> {
                 child: serversAsync.when(
                   loading: () => _SlipSkeletons(type: type),
                   error: (e, _) => _SheetMessage(
-                    type: type,
                     title: 'Catalog unavailable',
                     detail: 'Check the connection and try again.',
                     actionLabel: 'RETRY',
@@ -192,8 +194,8 @@ class _ServerSheetState extends ConsumerState<ServerSheet> {
 
   /// The body of the slip: the entries the search leaves, grouped, on the
   /// card's own column register.
-  Widget _slip(MeteredType type, List<VpnServer> servers) {
-    final m = context.metered;
+  Widget _slip(SimpleType type, List<VpnServer> servers) {
+    final s = context.simple;
     final selected = ref.watch(selectedServerProvider);
     final pingState = ref.watch(serverPingProvider);
     final reality = ref.watch(realitySettingsProvider);
@@ -205,7 +207,6 @@ class _ServerSheetState extends ConsumerState<ServerSheet> {
 
     if (servers.isEmpty && realityRelays.isEmpty) {
       return _SheetMessage(
-        type: type,
         title: 'No relays loaded',
         detail:
             'The catalog did not reach this network. Pull down to load it '
@@ -242,7 +243,6 @@ class _ServerSheetState extends ConsumerState<ServerSheet> {
                     .toList());
     if (matching.isEmpty && matchingReality.isEmpty) {
       return _SheetMessage(
-        type: type,
         title: 'No servers match',
         detail: 'Try another country.',
       );
@@ -301,8 +301,8 @@ class _ServerSheetState extends ConsumerState<ServerSheet> {
     ];
 
     return RefreshIndicator(
-      color: m.value,
-      backgroundColor: m.card,
+      color: s.connected,
+      backgroundColor: s.surface,
       onRefresh: _pingAll,
       child: ListView.builder(
         physics: const AlwaysScrollableScrollPhysics(),
@@ -313,25 +313,19 @@ class _ServerSheetState extends ConsumerState<ServerSheet> {
           return KeyedSubtree(
             key: ValueKey(entry.entryKey),
             child: switch (entry) {
-              _RealitySwitchEntry(:final enabled) => SlipToggleRow(
-                type: type,
+              _RealitySwitchEntry(:final enabled) => SimpleRow(
                 code: 'VLESS',
                 title: 'TLS + REALITY',
-                // One line of what the handshake does, because a control that
-                // out-prints the relays under it is a control people skip. The
-                // trade — a community operator can see the traffic — is printed
-                // once, in the notice that sits with the relays it is about.
                 sub:
                     'Ordinary TLS on port 443, so networks that '
                     'drop VPN let it through.',
                 on: enabled,
-                toggleKey: const ValueKey('reality-toggle'),
                 onChanged: (value) => unawaited(
                   ref.read(realitySettingsProvider.notifier).setEnabled(value),
                 ),
+                toggleKey: const ValueKey('reality-toggle'),
               ),
-              _RealityAutoEntry(:final selected, :final count) => SlipRow(
-                type: type,
+              _RealityAutoEntry(:final selected, :final count) => SimpleRow(
                 code: 'AUTO',
                 title: 'Auto',
                 sub: 'VLESS + REALITY',
@@ -347,27 +341,20 @@ class _ServerSheetState extends ConsumerState<ServerSheet> {
                 evidence,
                 selected,
               ),
-              _RealityNoticeEntry() => SlipNote(
-                type: type,
+              _RealityNoticeEntry() => SimpleNote(
                 mark: 'NOT PRIVATE',
                 markSemantic: TrustTier.community.disclosure,
                 text:
                     'Community relays. The operator can see your traffic. '
                     'They are dialled unless you switch them off above.',
               ),
-              _AddRelayEntry() => SlipAction(
-                type: type,
+              _AddRelayEntry() => SimpleAction(
                 title: 'Add your own server',
-                // What goes in the hole, not what the tunnel can read: the
-                // protocol list is printed once, on the slip that asks for the
-                // text. An action row that quotes the manual is an action row
-                // nobody taps.
                 text: 'Paste a link or an https subscription address.',
                 keyLabel: 'ADD',
                 onTap: _openImport,
               ),
-              _AutoEntry() => SlipRow(
-                type: type,
+              _AutoEntry() => SimpleRow(
                 code: 'AUTO',
                 title: 'Auto',
                 // The transport Auto will actually dial. Android dials one
@@ -385,12 +372,10 @@ class _ServerSheetState extends ConsumerState<ServerSheet> {
                   Navigator.maybePop(context);
                 },
               ),
-              _SectionEntry(:final label) => SlipSection(
-                type: type,
+              _SectionEntry(:final label) => SimpleSection(
                 title: label,
               ),
-              _CountryEntry(:final group) => SlipSection(
-                type: type,
+              _CountryEntry(:final group) => SimpleSection(
                 title: group.countryName,
                 proven: group.proven,
                 leading: _flag(group.countryCode),
@@ -422,15 +407,14 @@ class _ServerSheetState extends ConsumerState<ServerSheet> {
   /// A bootstrap relay. The country section already says the tier is not
   /// private, so the row spends its measure on the reading instead of
   /// repeating the warning four times down one column.
-  SlipRow _bootstrapRow(
-    MeteredType type,
+  SimpleRow _bootstrapRow(
+    SimpleType type,
     VpnServer server,
     int number,
     RelayReading reading,
     bool selected,
   ) {
-    return SlipRow(
-      type: type,
+    return SimpleRow(
       code: _codeFor(server),
       title: 'Relay $number',
       sub: 'SoftEther SSL-VPN',
@@ -443,16 +427,15 @@ class _ServerSheetState extends ConsumerState<ServerSheet> {
     );
   }
 
-  SlipRow _realityRow(
-    MeteredType type,
+  SimpleRow _realityRow(
+    SimpleType type,
     RealityRelay relay,
     RelayEvidence evidence,
     bool selected,
   ) {
     final reading = evidence.reading(dial: relay.host, relayId: relay.id);
     final tier = relay.toTarget().trustTier!;
-    return SlipRow(
-      type: type,
+    return SimpleRow(
       code: relay.private
           ? 'OWN'
           : relay.countryCode.isEmpty
@@ -636,7 +619,7 @@ class _SlipHeader extends StatelessWidget {
     required this.onClose,
   });
 
-  final MeteredType type;
+  final SimpleType type;
   final String note;
   final bool probing;
 
@@ -648,11 +631,11 @@ class _SlipHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final m = context.metered;
+    final s = context.simple;
     return DecoratedBox(
       decoration: BoxDecoration(
         border: Border(
-          bottom: BorderSide(color: m.ruleStrong, width: type.px(2)),
+          bottom: BorderSide(color: s.hairline, width: type.px(2)),
         ),
       ),
       child: Padding(
@@ -670,38 +653,40 @@ class _SlipHeader extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  FittedLine(
+                  Text(
                     'Relays',
-                    AppTextStyles.title(
-                      color: m.ink,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTextStyles.title(
+                      color: s.ink,
                       size: type.navLabelAttached,
                       weight: FontWeight.w700,
                       tracking: 0,
                     ),
                   ),
                   SizedBox(height: type.claim * 0.34),
-                  FittedLine(
+                  Text(
                     note,
-                    AppTextStyles.monoValue(
-                      color: m.inkSoft,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTextStyles.monoValue(
+                      color: s.inkSoft,
                       size: type.claim,
                       height: 1.0,
-                      tracking: type.claimLeft,
                     ),
                   ),
                 ],
               ),
             ),
             SizedBox(width: type.px(18)),
-            CardKey(
+            SimpleKey(
               label: probing ? 'Measuring' : 'Measure',
-              type: type,
               busy: probing,
               emphasis: canMeasure,
               onTap: canMeasure && !probing ? onMeasure : null,
             ),
             SizedBox(width: type.px(12)),
-            CardKey(label: 'Close', type: type, onTap: onClose),
+            SimpleKey(label: 'Close', onTap: onClose),
           ],
         ),
       ),
@@ -795,7 +780,6 @@ class _ServerEntry extends _Entry {
 
 class _SheetMessage extends StatelessWidget {
   const _SheetMessage({
-    this.type,
     required this.title,
     required this.detail,
     this.actionLabel,
@@ -803,8 +787,6 @@ class _SheetMessage extends StatelessWidget {
     this.onRefresh,
   });
 
-  /// The card's scale, handed down the way every other row gets it.
-  final MeteredType? type;
   final String title;
   final String detail;
   final String? actionLabel;
@@ -813,41 +795,39 @@ class _SheetMessage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final m = context.metered;
-    final type = this.type ?? MeteredType(1024);
+    final s = context.simple;
     final content = ListView(
       physics: const AlwaysScrollableScrollPhysics(),
-      padding: EdgeInsets.symmetric(
-        horizontal: type.px(60),
-        vertical: type.px(64),
+      padding: const EdgeInsets.symmetric(
+        horizontal: 60,
+        vertical: 64,
       ),
       children: [
         Text(
           title,
           textAlign: TextAlign.center,
           style: AppTextStyles.title(
-            color: m.ink,
-            size: type.tableRowMixed,
+            color: s.ink,
+            size: 16,
             weight: FontWeight.w600,
             tracking: 0,
           ),
         ),
-        SizedBox(height: type.claim * 0.5),
+        const SizedBox(height: 24),
         Text(
           detail,
           textAlign: TextAlign.center,
           style: AppTextStyles.body(
-            color: m.inkSoft,
-            size: type.exitPlace,
+            color: s.inkSoft,
+            size: 13,
             height: 1.34,
           ),
         ),
         if (actionLabel != null) ...[
-          SizedBox(height: type.px(44)),
+          const SizedBox(height: 44),
           Center(
-            child: CardKey(
+            child: SimpleKey(
               label: actionLabel!,
-              type: type,
               onTap: onAction,
               emphasis: true,
             ),
@@ -857,25 +837,25 @@ class _SheetMessage extends StatelessWidget {
     );
     if (onRefresh == null) return content;
     return RefreshIndicator(
-      color: m.value,
-      backgroundColor: m.card,
+      color: s.connected,
+      backgroundColor: s.surface,
       onRefresh: onRefresh!,
       child: content,
     );
   }
 }
 
-/// The catalog is on its way. The plate prints ruled rows with no ink in them
+/// The catalog is on its way. The card prints ruled rows with no ink in them
 /// rather than a spinner, so what loads is the length of the list the reader
 /// is about to get.
 class _SlipSkeletons extends StatelessWidget {
   const _SlipSkeletons({required this.type});
 
-  final MeteredType type;
+  final SimpleType type;
 
   @override
   Widget build(BuildContext context) {
-    final m = context.metered;
+    final s = context.simple;
     return ListView.builder(
       padding: EdgeInsets.only(top: type.px(18)),
       itemCount: 8,
@@ -883,9 +863,9 @@ class _SlipSkeletons extends StatelessWidget {
         height: type.px(96),
         margin: EdgeInsets.fromLTRB(type.px(26), 0, type.px(24), type.px(20)),
         decoration: BoxDecoration(
-          color: m.well,
+          color: s.surfaceVariant,
           borderRadius: BorderRadius.circular(type.px(10)),
-          border: Border.all(color: m.rule, width: type.px(2)),
+          border: Border.all(color: s.hairline, width: type.px(2)),
         ),
       ),
     );

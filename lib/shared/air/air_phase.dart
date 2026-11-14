@@ -10,6 +10,9 @@ enum AirPhase {
   offline,
 }
 
+/// The three things the connect path actually does.
+enum ConnectStage { wake, dial, verify }
+
 extension AirPhaseX on AirPhase {
   /// Work in flight: a tap must not start a second attempt.
   bool get isBusy =>

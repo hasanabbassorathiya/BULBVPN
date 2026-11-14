@@ -1,5 +1,5 @@
-import 'package:bulbvpn/core/theme/air_colors.dart';
 import 'package:bulbvpn/core/theme/app_text_styles.dart';
+import 'package:bulbvpn/core/theme/simple_colors.dart';
 import 'package:bulbvpn/core/utils/format_number.dart';
 import 'package:flutter/material.dart';
 
@@ -62,7 +62,7 @@ class _Metric extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final air = context.air;
+    final s = context.simple;
     final dashed = value == '—';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -71,7 +71,7 @@ class _Metric extends StatelessWidget {
           label,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: AppTextStyles.label(color: air.steel, size: 10),
+          style: AppTextStyles.label(color: s.inkSoft, size: 10),
         ),
         const SizedBox(height: 8),
         Row(
@@ -86,7 +86,7 @@ class _Metric extends StatelessWidget {
                   value,
                   maxLines: 1,
                   style: AppTextStyles.metric(
-                    color: dashed ? air.mute : air.ink,
+                    color: dashed ? s.inkFaint : s.ink,
                     size: 22,
                   ),
                 ),
@@ -97,7 +97,7 @@ class _Metric extends StatelessWidget {
               Text(
                 unit,
                 maxLines: 1,
-                style: AppTextStyles.monoValue(color: air.steel, size: 10),
+                style: AppTextStyles.monoValue(color: s.inkSoft, size: 10),
               ),
             ],
           ],

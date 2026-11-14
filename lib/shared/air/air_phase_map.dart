@@ -12,3 +12,10 @@ AirPhase airPhaseFor(ConnectionStatus status) => switch (status) {
   ConnectionStatus.error => AirPhase.failed,
   ConnectionStatus.noInternet => AirPhase.offline,
 };
+
+ConnectStage? connectStageFor(AirPhase phase) => switch (phase) {
+  AirPhase.preparing => ConnectStage.wake,
+  AirPhase.connecting => ConnectStage.dial,
+  AirPhase.verifying => ConnectStage.verify,
+  _ => null,
+};

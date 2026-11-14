@@ -4,13 +4,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:bulbvpn/core/theme/app_text_styles.dart';
-import 'package:bulbvpn/core/theme/metered_colors.dart';
+import 'package:bulbvpn/core/theme/simple_colors.dart';
 import 'package:bulbvpn/modules/core/reality/reality_relay.dart';
 import 'package:bulbvpn/modules/core/reality/relay_link.dart';
 import 'package:bulbvpn/modules/core/reality/relay_vault.dart';
-import 'package:bulbvpn/shared/metered/card_ground.dart';
-import 'package:bulbvpn/shared/metered/metered_layout.dart';
-import 'package:bulbvpn/shared/metered/slip_list.dart';
+import 'package:bulbvpn/shared/simple/simple_card.dart';
+import 'package:bulbvpn/shared/simple/simple_field.dart';
+import 'package:bulbvpn/shared/simple/simple_key.dart';
+import 'package:bulbvpn/shared/simple/simple_note.dart';
+import 'package:bulbvpn/shared/simple/simple_section.dart';
+import 'package:bulbvpn/shared/simple/simple_type.dart';
 
 /// Paste a server in, see what tunnel it becomes, then keep it.
 ///
@@ -165,10 +168,10 @@ class _RelayImportSheetState extends ConsumerState<RelayImportSheet> {
   Widget build(BuildContext context) {
     final busy = _phase == _Phase.reading;
     final previewing = _phase == _Phase.previewing;
-    return CardGround(
+    return SimpleCard(
       child: LayoutBuilder(
         builder: (context, c) {
-          final type = MeteredType(c.maxWidth);
+          final type = SimpleType(c.maxWidth);
           return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -176,19 +179,13 @@ class _RelayImportSheetState extends ConsumerState<RelayImportSheet> {
                 type: type,
                 onClose: () => Navigator.maybePop(context),
               ),
-              SlipNote(
-                type: type,
+              SimpleNote(
                 text:
                     'Paste a share link, several links, or one https '
                     'subscription address. The tunnel on this phone reads '
                     'VLESS, VMess, Trojan and Shadowsocks over TCP, WebSocket, '
                     'gRPC, XHTTP, HTTP/2 and QUIC, with TLS or REALITY.',
               ),
-              // The hole takes the plate's own room rather than a fixed three
-              // lines, because the card is 0.72 of the screen tall and a paste
-              // area that shrinks to one link leaves the rest of the card as
-              // blank PVC. Once the profile is read the room is shared with
-              // what was found in it.
               Expanded(
                 flex: previewing ? 2 : 1,
                 child: Padding(
@@ -198,9 +195,8 @@ class _RelayImportSheetState extends ConsumerState<RelayImportSheet> {
                     type.px(24),
                     type.px(8),
                   ),
-                  child: SlottedField(
+                  child: SimpleField(
                     controller: _input,
-                    type: type,
                     hint: 'vless://…  or  https://provider/subscription',
                     enabled: !busy,
                     expands: true,
@@ -212,8 +208,7 @@ class _RelayImportSheetState extends ConsumerState<RelayImportSheet> {
                 ),
               ),
               if (_failure != null)
-                SlipNote(
-                  type: type,
+                SimpleNote(
                   text: _failure!,
                   failed: true,
                   mark: 'NOT DIALLED',
@@ -224,8 +219,7 @@ class _RelayImportSheetState extends ConsumerState<RelayImportSheet> {
                   child: ListView(
                     padding: EdgeInsets.only(bottom: type.px(8)),
                     children: [
-                      SlipSection(
-                        type: type,
+                      SimpleSection(
                         title: _preview.length == 1
                             ? 'One server read'
                             : 'Servers read',
@@ -235,8 +229,7 @@ class _RelayImportSheetState extends ConsumerState<RelayImportSheet> {
                       if (_preview.any(
                         (relay) => DialShape.of(relay).isUnprotected,
                       ))
-                        SlipNote(
-                          type: type,
+                        SimpleNote(
                           failed: true,
                           mark: 'NO TLS',
                           text:
@@ -273,16 +266,16 @@ class _RelayImportSheetState extends ConsumerState<RelayImportSheet> {
 class _ImportHeader extends StatelessWidget {
   const _ImportHeader({required this.type, required this.onClose});
 
-  final MeteredType type;
+  final SimpleType type;
   final VoidCallback onClose;
 
   @override
   Widget build(BuildContext context) {
-    final m = context.metered;
+    final s = context.simple;
     return DecoratedBox(
       decoration: BoxDecoration(
         border: Border(
-          bottom: BorderSide(color: m.ruleStrong, width: type.px(2)),
+          bottom: BorderSide(color: s.hairline, width: type.px(2)),
         ),
       ),
       child: Padding(
@@ -303,7 +296,7 @@ class _ImportHeader extends StatelessWidget {
                   'Add your own server',
                   maxLines: 1,
                   style: AppTextStyles.label(
-                    color: m.ink,
+                    color: s.ink,
                     size: type.navLabelAttached,
                     tracking: 0,
                   ).copyWith(height: 1.0, fontWeight: FontWeight.w700),
@@ -311,7 +304,7 @@ class _ImportHeader extends StatelessWidget {
               ),
             ),
             SizedBox(width: type.px(16)),
-            CardKey(label: 'Close', type: type, onTap: onClose),
+            SimpleKey(label: 'Close', onTap: onClose),
           ],
         ),
       ),
@@ -329,18 +322,18 @@ class _ImportHeader extends StatelessWidget {
 class _PreviewRow extends StatelessWidget {
   const _PreviewRow({required this.type, required this.relay});
 
-  final MeteredType type;
+  final SimpleType type;
   final RealityRelay relay;
 
   @override
   Widget build(BuildContext context) {
-    final m = context.metered;
+    final s = context.simple;
     final shape = DialShape.of(relay);
     final warning = shape.isUnprotected;
     return DecoratedBox(
       decoration: BoxDecoration(
         border: Border(
-          bottom: BorderSide(color: m.rule, width: type.px(2)),
+          bottom: BorderSide(color: s.hairline, width: type.px(2)),
         ),
       ),
       child: Padding(
@@ -360,7 +353,7 @@ class _PreviewRow extends StatelessWidget {
                 relay.displayName,
                 maxLines: 1,
                 style: AppTextStyles.body(
-                  color: m.ink,
+                  color: s.ink,
                   size: type.tableRowMixed,
                   weight: FontWeight.w600,
                 ),
@@ -374,7 +367,7 @@ class _PreviewRow extends StatelessWidget {
                 '${shape.summary} · ${relay.endpoint}',
                 maxLines: 1,
                 style: AppTextStyles.monoValue(
-                  color: warning ? m.blockedLift : m.inkSoft,
+                  color: warning ? s.error : s.inkSoft,
                   size: type.claim,
                   weight: warning ? FontWeight.w600 : FontWeight.w500,
                   height: 1.0,
@@ -391,7 +384,7 @@ class _PreviewRow extends StatelessWidget {
                   'pretends to be ${shape.camouflagesAs}',
                   maxLines: 1,
                   style: AppTextStyles.monoValue(
-                    color: m.inkFaint,
+                    color: s.inkFaint,
                     size: type.kicker,
                     height: 1.0,
                     tracking: 0,
@@ -415,18 +408,18 @@ class _ImportFoot extends StatelessWidget {
     required this.onTap,
   });
 
-  final MeteredType type;
+  final SimpleType type;
   final String label;
   final bool busy;
   final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    final m = context.metered;
+    final s = context.simple;
     return DecoratedBox(
       decoration: BoxDecoration(
         border: Border(
-          top: BorderSide(color: m.ruleStrong, width: type.px(2)),
+          top: BorderSide(color: s.hairline, width: type.px(2)),
         ),
       ),
       child: Padding(
@@ -438,9 +431,8 @@ class _ImportFoot extends StatelessWidget {
         ),
         child: Align(
           alignment: Alignment.centerRight,
-          child: CardKey(
+          child: SimpleKey(
             label: label,
-            type: type,
             busy: busy,
             emphasis: true,
             onTap: onTap,

@@ -1,6 +1,6 @@
 import 'package:bulbvpn/core/data/local/vpn_data/vpn_data.dart';
-import 'package:bulbvpn/core/theme/air_colors.dart';
 import 'package:bulbvpn/core/theme/app_text_styles.dart';
+import 'package:bulbvpn/core/theme/simple_colors.dart';
 import 'package:bulbvpn/modules/legal/legal_acceptance.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -50,10 +50,10 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
 
   @override
   Widget build(BuildContext context) {
-    final air = context.air;
+    final s = context.simple;
     final reduced = MediaQuery.disableAnimationsOf(context);
     return Scaffold(
-      backgroundColor: air.ground,
+      backgroundColor: s.background,
       body: SafeArea(
         child: Center(
           child: Column(
@@ -67,7 +67,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
                   Text(
                     'BULB',
                     style: AppTextStyles.display(
-                      color: air.ink,
+                      color: s.ink,
                       size: 26,
                       weight: FontWeight.w700,
                     ),
@@ -75,7 +75,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
                   Text(
                     'VPN',
                     style: AppTextStyles.display(
-                      color: air.accentInk,
+                      color: s.connected,
                       size: 26,
                       weight: FontWeight.w700,
                     ),
@@ -89,7 +89,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
                 builder: (context, _) => Container(
                   width: reduced ? 120 : 48 + 72 * _line.value,
                   height: 1,
-                  color: air.hairlineStrong,
+                  color: s.hairline,
                 ),
               ),
             ],

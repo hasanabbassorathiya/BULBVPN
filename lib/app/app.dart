@@ -1,7 +1,7 @@
 import 'package:bulbvpn/app/router/app_router.dart';
-import 'package:bulbvpn/core/theme/air_colors.dart';
 import 'package:bulbvpn/core/theme/app_text_styles.dart';
-import 'package:bulbvpn/core/theme/app_theme.dart';
+import 'package:bulbvpn/core/theme/simple_colors.dart';
+import 'package:bulbvpn/core/theme/simple_theme.dart';
 import 'package:bulbvpn/l10n/app_localizations.dart';
 import 'package:bulbvpn/modules/core/vpn_controller.dart';
 import 'package:flutter/material.dart';
@@ -48,9 +48,9 @@ class _AppState extends ConsumerState<App> {
     return _VpnInitializer(
       child: MaterialApp.router(
         title: 'BULB VPN',
-        theme: AppTheme.light,
-        darkTheme: AppTheme.dark,
-        themeMode: ThemeMode.system,
+        theme: SimpleTheme.dark,
+        darkTheme: SimpleTheme.dark,
+        themeMode: ThemeMode.dark,
         routerConfig: router,
         localizationsDelegates: const [
           AppLocalizations.delegate,
@@ -83,24 +83,14 @@ class _StartupFrame extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      theme: AppTheme.light,
-      darkTheme: AppTheme.dark,
-      themeMode: ThemeMode.system,
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-      ],
-      supportedLocales: const [
-        Locale('en'),
-        Locale('fa'),
-      ],
+      theme: SimpleTheme.dark,
+      darkTheme: SimpleTheme.dark,
+      themeMode: ThemeMode.dark,
       home: Builder(
         builder: (context) {
-          final air = context.air;
+          final simple = context.simple;
           return Scaffold(
-            backgroundColor: air.ground,
+            backgroundColor: simple.background,
             body: SafeArea(
               child: Center(
                 child: Row(
@@ -111,7 +101,7 @@ class _StartupFrame extends StatelessWidget {
                     Text(
                       'BULB',
                       style: AppTextStyles.display(
-                        color: air.ink,
+                        color: simple.ink,
                         size: 26,
                         weight: FontWeight.w700,
                       ),
@@ -119,7 +109,7 @@ class _StartupFrame extends StatelessWidget {
                     Text(
                       'VPN',
                       style: AppTextStyles.display(
-                        color: air.accentInk,
+                        color: simple.connected,
                         size: 26,
                         weight: FontWeight.w700,
                       ),

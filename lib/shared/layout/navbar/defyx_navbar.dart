@@ -1,6 +1,6 @@
 import 'package:bulbvpn/app/router/app_router.dart';
-import 'package:bulbvpn/core/theme/air_colors.dart';
 import 'package:bulbvpn/core/theme/app_text_styles.dart';
+import 'package:bulbvpn/core/theme/simple_colors.dart';
 import 'package:bulbvpn/modules/main/presentation/widgets/server_sheet.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -14,13 +14,13 @@ class DefyxNavBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final air = context.air;
+    final s = context.simple;
     final path = GoRouterState.of(context).uri.path;
 
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: air.surface,
-        border: Border(top: BorderSide(color: air.hairline)),
+        color: s.surface,
+        border: Border(top: BorderSide(color: s.hairline)),
       ),
       child: SafeArea(
         top: false,
@@ -92,8 +92,8 @@ class _NavDestination extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final air = context.air;
-    final color = active ? air.ink : air.steel;
+    final s = context.simple;
+    final color = active ? s.ink : s.inkSoft;
     return Semantics(
       button: true,
       selected: active,
@@ -109,7 +109,7 @@ class _NavDestination extends StatelessWidget {
               curve: Curves.easeOut,
               height: 2,
               width: active ? 18 : 0,
-              color: air.accent,
+              color: s.connected,
             ),
             const SizedBox(height: 4),
             Text(
@@ -149,7 +149,7 @@ class _NavAction extends StatelessWidget {
         onPressed: onTap,
         padding: EdgeInsets.zero,
         tooltip: tooltip,
-        icon: Icon(icon, size: 20, color: context.air.steel),
+        icon: Icon(icon, size: 20, color: context.simple.inkSoft),
       ),
     );
   }

@@ -1,13 +1,18 @@
 import 'dart:async';
 
+import 'package:bulbvpn/core/theme/simple_colors.dart';
 import 'package:bulbvpn/modules/core/softether_vpn.dart';
 import 'package:bulbvpn/modules/core/split_tunnel.dart';
-import 'package:bulbvpn/shared/metered/card_ground.dart';
-import 'package:bulbvpn/shared/metered/metered_layout.dart';
-import 'package:bulbvpn/shared/metered/slip_list.dart';
-import 'package:bulbvpn/shared/metered/terms_panel.dart';
 import 'package:bulbvpn/shared/providers/connection_state_provider.dart'
     show ConnectionStatus, connectionStateProvider;
+import 'package:bulbvpn/shared/simple/simple_card.dart';
+import 'package:bulbvpn/shared/simple/simple_field.dart';
+import 'package:bulbvpn/shared/simple/simple_header.dart';
+import 'package:bulbvpn/shared/simple/simple_key.dart';
+import 'package:bulbvpn/shared/simple/simple_note.dart';
+import 'package:bulbvpn/shared/simple/simple_section.dart';
+import 'package:bulbvpn/shared/simple/simple_term_row.dart';
+import 'package:bulbvpn/shared/simple/simple_type.dart';
 import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform;
 import 'package:flutter/material.dart';
@@ -66,117 +71,113 @@ class _RoutingScreenState extends ConsumerState<RoutingScreen> {
     final connected =
         ref.watch(connectionStateProvider).status == ConnectionStatus.connected;
 
-    return CardGround(
-      insets: EdgeInsets.only(
+    return Padding(
+      padding: EdgeInsets.only(
         top: MediaQuery.paddingOf(context).top,
         bottom: MediaQuery.paddingOf(context).bottom,
       ),
-      child: LayoutBuilder(
-        builder: (context, c) {
-          final type = MeteredType(c.maxWidth);
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              FaceHeader(
-                type: type,
-                title: 'Routing',
-                onBack: () => Navigator.of(context).maybePop(),
-                note: _perAppRoutingAvailable ? config.scopeSummary : null,
-              ),
-              Expanded(
-                child: !_perAppRoutingAvailable
-                    ? _AppleBody(type: type)
-                    : ListView(
-                        padding: EdgeInsets.only(bottom: type.px(40)),
-                        children: [
-                          if (connected)
-                            SlipNote(
-                              type: type,
-                              text:
-                                  'A tunnel is running. Disconnect and '
-                                  'reconnect to apply routing.',
-                            ),
-                          SlipSection(type: type, title: 'Tunnel scope'),
-                          for (final mode in TunnelMode.values)
-                            _ModeRow(
-                              type: type,
-                              config: config,
-                              mode: mode,
-                              // Android's tunnel is REALITY/XHTTP, whose plugin
-                              // takes only a deny list, so "only these apps"
-                              // cannot be honoured there. Bypass can.
-                              unavailable: mode == TunnelMode.allow
-                                  ? 'Not available on Android: the tunnel this '
-                                        'app dials excludes apps but cannot '
-                                        'admit only some. Use Bypass apps to '
-                                        'keep local traffic off it.'
-                                  : null,
-                              onSelect: (value) => unawaited(
-                                ref
-                                    .read(splitTunnelProvider.notifier)
-                                    .setMode(value),
+      child: SimpleCard(
+        child: LayoutBuilder(
+          builder: (context, c) {
+            final type = SimpleType(c.maxWidth);
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SimpleHeader(
+                  title: 'Routing',
+                  onBack: () => Navigator.of(context).maybePop(),
+                  note: _perAppRoutingAvailable ? config.scopeSummary : null,
+                ),
+                Expanded(
+                  child: !_perAppRoutingAvailable
+                      ? _AppleBody(type: type)
+                      : ListView(
+                          padding: EdgeInsets.only(bottom: type.px(40)),
+                          children: [
+                            if (connected)
+                              SimpleNote(
+                                text:
+                                    'A tunnel is running. Disconnect and '
+                                    'reconnect to apply routing.',
                               ),
-                            ),
-                          if (config.isSplit) ...[
-                            SlipSection(
-                              type: type,
-                              title: 'Apps',
-                              note: '${config.appCount} selected',
-                            ),
-                            Padding(
-                              padding: EdgeInsets.fromLTRB(
-                                type.px(26),
-                                type.px(20),
-                                type.px(24),
-                                type.px(8),
-                              ),
-                              child: SlottedField(
-                                controller: _search,
+                            SimpleSection(title: 'Tunnel scope'),
+                            for (final mode in TunnelMode.values)
+                              _ModeRow(
                                 type: type,
-                                hint: 'Search apps',
-                                autocorrect: false,
-                                enableSuggestions: false,
-                                textCapitalization: TextCapitalization.none,
-                                onChanged: (value) =>
-                                    setState(() => _query = value.trim()),
+                                config: config,
+                                mode: mode,
+                                // Android's tunnel is REALITY/XHTTP, whose plugin
+                                // takes only a deny list, so "only these apps"
+                                // cannot be honoured there. Bypass can.
+                                unavailable: mode == TunnelMode.allow
+                                    ? 'Not available on Android: the tunnel this '
+                                          'app dials excludes apps but cannot '
+                                          'admit only some. Use Bypass apps to '
+                                          'keep local traffic off it.'
+                                    : null,
+                                onSelect: (value) => unawaited(
+                                  ref
+                                      .read(splitTunnelProvider.notifier)
+                                      .setMode(value),
+                                ),
                               ),
-                            ),
-                            _AppList(
-                              type: type,
-                              apps: _apps,
-                              query: _query,
-                              selected: config.packages,
-                              onToggle: (app, selected) => unawaited(
-                                ref
-                                    .read(splitTunnelProvider.notifier)
-                                    .setPackage(
-                                      app.package,
-                                      selected: selected,
-                                    ),
+                            if (config.isSplit) ...[
+                              SimpleSection(
+                                title: 'Apps',
+                                note: '${config.appCount} selected',
                               ),
-                              onRetry: _loadApps,
-                            ),
-                            SlipNote(
-                              type: type,
-                              text:
-                                  'Changes apply the next time you connect. '
-                                  'BULBVPN itself always stays inside the '
-                                  'tunnel so the exit-IP check remains '
-                                  'accurate. While routing is split, connect '
-                                  'stops with an error instead of falling back '
-                                  'to a full tunnel.',
-                            ),
-                          ] else
-                            SlipNote(
-                              type: type,
-                              text: 'Changes apply the next time you connect.',
-                            ),
-                        ],
-                      ),
-              ),
-            ],
-          );
-        },
+                              Padding(
+                                padding: EdgeInsets.fromLTRB(
+                                  type.px(26),
+                                  type.px(20),
+                                  type.px(24),
+                                  type.px(8),
+                                ),
+                                child: SimpleField(
+                                  controller: _search,
+                                  hint: 'Search apps',
+                                  autocorrect: false,
+                                  enableSuggestions: false,
+                                  textCapitalization: TextCapitalization.none,
+                                  onChanged: (value) =>
+                                      setState(() => _query = value.trim()),
+                                ),
+                              ),
+                              _AppList(
+                                type: type,
+                                apps: _apps,
+                                query: _query,
+                                selected: config.packages,
+                                onToggle: (app, selected) => unawaited(
+                                  ref
+                                      .read(splitTunnelProvider.notifier)
+                                      .setPackage(
+                                        app.package,
+                                        selected: selected,
+                                      ),
+                                ),
+                                onRetry: _loadApps,
+                              ),
+                              SimpleNote(
+                                text:
+                                    'Changes apply the next time you connect. '
+                                    'BULBVPN itself always stays inside the '
+                                    'tunnel so the exit-IP check remains '
+                                    'accurate. While routing is split, connect '
+                                    'stops with an error instead of falling back '
+                                    'to a full tunnel.',
+                              ),
+                            ] else
+                              SimpleNote(
+                                text: 'Changes apply the next time you connect.',
+                              ),
+                          ],
+                        ),
+                ),
+              ],
+            );
+          },
+        ),
       ),
     );
   }
@@ -194,7 +195,7 @@ class _ModeRow extends StatelessWidget {
     this.unavailable,
   });
 
-  final MeteredType type;
+  final SimpleType type;
   final SplitTunnelConfig config;
   final TunnelMode mode;
   final String? unavailable;
@@ -205,8 +206,7 @@ class _ModeRow extends StatelessWidget {
     final selected = config.mode == mode;
     final blocked = unavailable != null;
     final count = config.appCount;
-    return TermRow(
-      type: type,
+    return SimpleTermRow(
       title: switch (mode) {
         TunnelMode.all => 'All apps',
         TunnelMode.bypass => 'Bypass apps',
@@ -225,8 +225,6 @@ class _ModeRow extends StatelessWidget {
           'Only the apps you pick use the tunnel; the rest stay on the '
               'carrier for speed.',
       },
-      // The count rides the line it belongs to, so the face says how many are
-      // picked without making the reader hold the header note in memory.
       value: selected && mode != TunnelMode.all
           ? blocked
                 ? 'cannot run'
@@ -235,6 +233,7 @@ class _ModeRow extends StatelessWidget {
                 : '$count ${mode == TunnelMode.bypass ? 'outside' : 'inside'}'
           : null,
       selected: selected,
+      failed: blocked,
       onTap: blocked ? null : () => onSelect(mode),
     );
   }
@@ -243,20 +242,18 @@ class _ModeRow extends StatelessWidget {
 class _AppleBody extends StatelessWidget {
   const _AppleBody({required this.type});
 
-  final MeteredType type;
+  final SimpleType type;
 
   @override
   Widget build(BuildContext context) {
     return ListView(
       padding: EdgeInsets.only(bottom: type.px(40)),
       children: [
-        SlipNote(
-          type: type,
+        SimpleNote(
           mark: 'ANDROID ONLY',
           text: 'Per-app routing is an Android feature.',
         ),
-        SlipNote(
-          type: type,
+        SimpleNote(
           text:
               'iOS and macOS route the whole device through the tunnel. '
               'The full tunnel keeps every app consistent, including Google '
@@ -277,7 +274,7 @@ class _AppList extends StatelessWidget {
     required this.onRetry,
   });
 
-  final MeteredType type;
+  final SimpleType type;
   final Future<List<InstalledApp>> apps;
   final String query;
   final Set<String> selected;
@@ -290,10 +287,7 @@ class _AppList extends StatelessWidget {
       future: apps,
       builder: (context, snapshot) {
         if (snapshot.connectionState != ConnectionState.done) {
-          // The plate has no spinner: the hole that will not take input prints
-          // dead, and a line that is still being read prints as a running one.
-          return SlipNote(
-            type: type,
+          return SimpleNote(
             text: 'Reading the apps Android has installed……',
           );
         }
@@ -301,8 +295,7 @@ class _AppList extends StatelessWidget {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              SlipNote(
-                type: type,
+              SimpleNote(
                 failed: true,
                 mark: 'NOT READ',
                 text: 'Android did not answer with an app list.',
@@ -316,7 +309,7 @@ class _AppList extends StatelessWidget {
                 ),
                 child: Align(
                   alignment: Alignment.centerLeft,
-                  child: CardKey(label: 'Retry', type: type, onTap: onRetry),
+                  child: SimpleKey(label: 'Retry', onTap: onRetry),
                 ),
               ),
             ],
@@ -324,8 +317,7 @@ class _AppList extends StatelessWidget {
         }
         final all = snapshot.data ?? const <InstalledApp>[];
         if (all.isEmpty) {
-          return SlipNote(
-            type: type,
+          return SimpleNote(
             text: 'No launchable apps found on this device.',
           );
         }
@@ -340,19 +332,17 @@ class _AppList extends StatelessWidget {
                   )
                   .toList();
         if (filtered.isEmpty) {
-          return SlipNote(type: type, text: 'No apps match that search.');
+          return SimpleNote(text: 'No apps match that search.');
         }
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            SlipSection(
-              type: type,
+            SimpleSection(
               title: 'Installed apps',
               note: '${filtered.length} of ${all.length}',
             ),
             for (final app in filtered)
-              TermRow(
-                type: type,
+              SimpleTermRow(
                 title: app.label,
                 sub: app.package,
                 selected: selected.contains(app.package),

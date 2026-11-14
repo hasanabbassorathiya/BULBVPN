@@ -1,12 +1,9 @@
 import 'dart:async';
 
-import 'package:bulbvpn/core/theme/air_colors.dart';
 import 'package:bulbvpn/core/theme/app_text_styles.dart';
+import 'package:bulbvpn/core/theme/simple_colors.dart';
 import 'package:bulbvpn/modules/core/vpn_controller.dart';
-import 'package:bulbvpn/shared/air/air_buttons.dart';
-import 'package:bulbvpn/shared/air/air_phase.dart';
-import 'package:bulbvpn/shared/air/aperture_control.dart';
-import 'package:bulbvpn/shared/air/horizon_field.dart';
+import 'package:bulbvpn/shared/simple/simple_key.dart';
 import 'package:bulbvpn/shared/providers/connection_state_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -81,54 +78,50 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final air = context.air;
+    final s = context.simple;
     return Scaffold(
-      backgroundColor: air.ground,
-      body: HorizonField(
-        phase: AirPhase.idle,
-        horizonFraction: 0.44,
-        child: SafeArea(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _Progress(
-                fraction: (_index + 1) / _frames.length,
-                color: air.accent,
-                track: air.hairline,
+      backgroundColor: s.background,
+      body: SafeArea(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _Progress(
+              fraction: (_index + 1) / _frames.length,
+              color: s.connected,
+              track: s.hairline,
+            ),
+            Expanded(
+              child: PageView.builder(
+                controller: _controller,
+                itemCount: _frames.length,
+                onPageChanged: (page) => setState(() => _index = page),
+                itemBuilder: (context, page) {
+                  final frame = _frames[page];
+                  final last = page == _frames.length - 1;
+                  return _Frame(
+                    frame: frame,
+                    onPrimary: last ? _allowVpn : _next,
+                    onSecondary: last
+                        ? () => context.go('/main')
+                        : null,
+                  );
+                },
               ),
-              Expanded(
-                child: PageView.builder(
-                  controller: _controller,
-                  itemCount: _frames.length,
-                  onPageChanged: (page) => setState(() => _index = page),
-                  itemBuilder: (context, page) {
-                    final frame = _frames[page];
-                    final last = page == _frames.length - 1;
-                    return _Frame(
-                      frame: frame,
-                      onPrimary: last ? _allowVpn : _next,
-                      onSecondary: last
-                          ? () => context.go('/main')
-                          : null,
-                    );
-                  },
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 8, 24, 20),
+              child: Text(
+                'Bootstrap relays are not private. You can import your own '
+                'server later.',
+                textAlign: TextAlign.center,
+                style: AppTextStyles.label(
+                  color: s.inkFaint,
+                  size: 11,
+                  tracking: 0.2,
                 ),
               ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(24, 8, 24, 20),
-                child: Text(
-                  'Bootstrap relays are not private. You can import your own '
-                  'server later.',
-                  textAlign: TextAlign.center,
-                  style: AppTextStyles.label(
-                    color: air.steel,
-                    size: 11,
-                    tracking: 0.2,
-                  ),
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -162,8 +155,7 @@ class _Frame extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final air = context.air;
-    final secondary = onSecondary;
+    final s = context.simple;
     return LayoutBuilder(
       builder: (context, constraints) {
         return SingleChildScrollView(
@@ -177,10 +169,10 @@ class _Frame extends StatelessWidget {
                 children: [
                   IgnorePointer(
                     child: ExcludeSemantics(
-                      child: ApertureControl(
-                        phase: AirPhase.idle,
-                        onTap: () {},
+                      child: Icon(
+                        Icons.vpn_key,
                         size: 64,
+                        color: s.connected,
                       ),
                     ),
                   ),
@@ -188,7 +180,7 @@ class _Frame extends StatelessWidget {
                   Text(
                     frame.title,
                     style: AppTextStyles.display(
-                      color: air.ink,
+                      color: s.ink,
                       size: 30,
                       weight: FontWeight.w600,
                     ),
@@ -199,7 +191,7 @@ class _Frame extends StatelessWidget {
                     child: Text(
                       frame.body,
                       style: AppTextStyles.body(
-                        color: air.steel,
+                        color: s.inkSoft,
                         size: 15,
                         height: 1.5,
                       ),
@@ -211,15 +203,16 @@ class _Frame extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        AirButton.primary(
+                        SimpleKey(
+                          emphasis: true,
                           label: frame.action,
-                          onPressed: onPrimary,
+                          onTap: onPrimary,
                         ),
-                        if (secondary != null) ...[
+                        if (onSecondary != null) ...[
                           const SizedBox(height: 8),
-                          AirButton.secondary(
+                          SimpleKey(
                             label: frame.secondary!,
-                            onPressed: onSecondary,
+                            onTap: onSecondary,
                           ),
                         ],
                       ],

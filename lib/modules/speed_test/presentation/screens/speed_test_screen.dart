@@ -1,10 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:bulbvpn/shared/air/air_layout.dart';
-import 'package:bulbvpn/shared/air/air_phase_map.dart';
-import 'package:bulbvpn/shared/air/horizon_field.dart';
 import 'package:bulbvpn/shared/providers/connection_state_provider.dart' as conn;
+import 'package:bulbvpn/shared/simple/simple_card.dart';
 
 import '../widgets/speed_test_header.dart';
 import '../widgets/speed_test_toast_message.dart';
@@ -53,18 +51,14 @@ class _SpeedTestScreenState extends ConsumerState<SpeedTestScreen> {
         connectionState.status == conn.ConnectionStatus.connected;
     final failed = state.errorMessage != null && state.step == SpeedTestStep.ready;
 
-    return HorizonField(
-      phase: airPhaseFor(connectionState.status),
-      showHorizon: false,
-      child: SafeArea(
-        child: Align(
-          alignment: Alignment.topCenter,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: AirLayout.rail),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: AirLayout.gutter,
-              ),
+    return SafeArea(
+      child: Align(
+        alignment: Alignment.topCenter,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 560),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: SimpleCard(
               child: Stack(
                 fit: StackFit.expand,
                 children: [

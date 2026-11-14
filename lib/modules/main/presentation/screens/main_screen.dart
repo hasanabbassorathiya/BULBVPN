@@ -5,8 +5,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:openvpn_dart/vpn_status.dart' as vpn_status;
-import 'package:bulbvpn/core/theme/air_colors.dart';
 import 'package:bulbvpn/core/theme/app_text_styles.dart';
+import 'package:bulbvpn/core/theme/simple_colors.dart';
 import 'package:bulbvpn/modules/core/log.dart';
 import 'package:bulbvpn/modules/core/network_watch.dart';
 import 'package:bulbvpn/modules/core/reality/reality_engine.dart';
@@ -25,8 +25,7 @@ import 'package:bulbvpn/modules/core/vpn_session_store.dart';
 import 'package:bulbvpn/modules/main/application/relay_evidence_provider.dart';
 import 'package:bulbvpn/modules/main/application/server_ping_provider.dart';
 import 'package:bulbvpn/modules/main/presentation/widgets/home_composition.dart';
-import 'package:bulbvpn/modules/main/presentation/widgets/metered_card.dart';
-import 'package:bulbvpn/shared/metered/tariff_table.dart';
+import 'package:bulbvpn/modules/main/presentation/widgets/simple_connect_screen.dart';
 import 'package:bulbvpn/modules/main/presentation/widgets/server_sheet.dart';
 import 'package:bulbvpn/modules/monetization/ad_banner.dart';
 import 'package:bulbvpn/modules/monetization/ad_config.dart';
@@ -34,7 +33,6 @@ import 'package:bulbvpn/modules/monetization/ads_remote_config.dart';
 import 'package:bulbvpn/modules/monetization/premium.dart';
 import 'package:bulbvpn/shared/air/air_phase.dart';
 import 'package:bulbvpn/shared/air/air_phase_map.dart';
-import 'package:bulbvpn/shared/air/connect_trace.dart';
 import 'package:bulbvpn/shared/providers/connection_state_provider.dart';
 import 'package:bulbvpn/shared/providers/connect_trace_provider.dart';
 import 'package:bulbvpn/shared/providers/data_proof_provider.dart';
@@ -523,9 +521,12 @@ class _MainScreenState extends ConsumerState<MainScreen>
           SnackBar(
             content: Text(
               'IP $ip copied',
-              style: AppTextStyles.monoValue(color: context.air.ink, size: 13),
+              style: AppTextStyles.monoValue(
+                color: context.simple.ink,
+                size: 13,
+              ),
             ),
-            backgroundColor: context.air.raised,
+            backgroundColor: context.simple.surface,
             behavior: SnackBarBehavior.floating,
             duration: const Duration(seconds: 2),
             shape: RoundedRectangleBorder(
@@ -719,9 +720,9 @@ class _MainScreenState extends ConsumerState<MainScreen>
         ? AdBanner(key: ValueKey('ad-$live'), horizontalInset: 0)
         : null;
 
-    return MeteredCard(
+    return SimpleConnectScreen(
       state: state,
-      rows: _tariffRows(
+      rows: _relayRows(
         catalog: catalog,
         byIp: pingState.byIp,
         evidence:
@@ -737,13 +738,7 @@ class _MainScreenState extends ConsumerState<MainScreen>
     );
   }
 
-  /// The relay lines printed on the connect face. Ranked by the same evidence
-  /// the tariff sheet ranks by, so the card and the sheet cannot tell two
-  /// different stories about the same host, and each line carries the strongest
-  /// reading that exists for it — your own session first, then the fleet probe,
-  /// then this phone's handshake. A relay with no reading prints an em dash and
-  /// is marked untried rather than quiet.
-  List<TariffRow> _tariffRows({
+  List<RelayRow> _relayRows({
     required List<VpnServer> catalog,
     required Map<String, ServerPing> byIp,
     required RelayEvidence evidence,
@@ -760,7 +755,7 @@ class _MainScreenState extends ConsumerState<MainScreen>
             ping: byIp[server.ip],
             now: now,
           );
-          return TariffRow(
+          return RelayRow(
             rank: '${i + 1}',
             destination: server.publicLabel,
             measured: reading.value,

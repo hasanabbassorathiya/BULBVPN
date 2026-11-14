@@ -1,5 +1,5 @@
-import 'package:bulbvpn/core/theme/air_colors.dart';
 import 'package:bulbvpn/core/theme/app_text_styles.dart';
+import 'package:bulbvpn/core/theme/simple_colors.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -26,7 +26,7 @@ class _CopyableLinkState extends State<CopyableLink> {
 
   @override
   Widget build(BuildContext context) {
-    final air = context.air;
+    final s = context.simple;
     return InkWell(
       borderRadius: BorderRadius.circular(10),
       onTap: _copy,
@@ -34,7 +34,7 @@ class _CopyableLinkState extends State<CopyableLink> {
         height: 52,
         padding: const EdgeInsets.symmetric(horizontal: 14),
         decoration: BoxDecoration(
-          border: Border.all(color: air.hairline),
+          border: Border.all(color: s.hairline),
           borderRadius: BorderRadius.circular(10),
         ),
         child: Row(
@@ -44,14 +44,14 @@ class _CopyableLinkState extends State<CopyableLink> {
                 widget.text,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: AppTextStyles.monoValue(color: air.ink, size: 13),
+                style: AppTextStyles.monoValue(color: s.ink, size: 13),
               ),
             ),
             const SizedBox(width: 10),
             Icon(
               _copied ? Icons.check : Icons.content_copy,
               size: 16,
-              color: _copied ? air.connectedInk : air.steel,
+              color: _copied ? s.connectedInk : s.inkSoft,
             ),
           ],
         ),

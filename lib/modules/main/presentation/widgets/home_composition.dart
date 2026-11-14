@@ -1,6 +1,5 @@
 import 'package:bulbvpn/modules/core/trust_tier.dart';
 import 'package:bulbvpn/shared/air/air_phase.dart';
-import 'package:bulbvpn/shared/air/connect_trace.dart';
 
 class HomeViewState {
   const HomeViewState({

@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:bulbvpn/core/theme/air_colors.dart';
+import 'package:bulbvpn/core/theme/simple_colors.dart';
 import 'package:bulbvpn/modules/monetization/ad_config.dart';
 import 'package:bulbvpn/modules/monetization/ad_service.dart';
 import 'package:bulbvpn/modules/monetization/ads_remote_config.dart';
@@ -119,7 +119,7 @@ class _AdBannerState extends ConsumerState<AdBanner> {
         AdConfig.canRequestAds;
     final ad = _ad;
     if (!enabled || !_loaded || ad == null) return const SizedBox.shrink();
-    final air = context.air;
+    final air = context.simple;
     return DecoratedBox(
       decoration: BoxDecoration(
         color: air.surface,

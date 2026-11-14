@@ -1,10 +1,10 @@
-import 'package:bulbvpn/core/theme/air_colors.dart';
 import 'package:bulbvpn/core/theme/app_text_styles.dart';
+import 'package:bulbvpn/core/theme/simple_colors.dart';
 import 'package:bulbvpn/modules/speed_test/application/speed_test_provider.dart';
 import 'package:bulbvpn/modules/speed_test/models/speed_test_result.dart';
 import 'package:bulbvpn/modules/speed_test/presentation/widgets/speed_metrics_row.dart';
 import 'package:bulbvpn/modules/speed_test/presentation/widgets/speed_waveform.dart';
-import 'package:bulbvpn/shared/air/air_buttons.dart';
+import 'package:bulbvpn/shared/simple/simple_key.dart';
 import 'package:flutter/material.dart';
 
 /// The whole measurement surface: one waveform, three figures, one control.
@@ -24,7 +24,7 @@ class SpeedTestView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final air = context.air;
+    final s = context.simple;
     final step = state.step;
     final running =
         step == SpeedTestStep.download || step == SpeedTestStep.upload;
@@ -77,17 +77,17 @@ class SpeedTestView extends StatelessWidget {
             ping: state.result.ping,
           ),
           const SizedBox(height: 28),
-          AirButton.primary(
+          SimpleKey(
+            emphasis: true,
             label: label,
-            height: 52,
-            onPressed: running || waiting ? null : onStart,
+            onTap: running || waiting ? null : onStart,
           ),
           if (waiting) ...[
             const SizedBox(height: 12),
             Text(
               'Waiting for a usable network before measuring.',
               textAlign: TextAlign.center,
-              style: AppTextStyles.monoValue(color: air.steel, size: 11),
+              style: AppTextStyles.monoValue(color: s.inkSoft, size: 11),
             ),
           ],
         ],

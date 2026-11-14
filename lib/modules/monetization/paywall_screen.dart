@@ -1,10 +1,11 @@
 import 'package:bulbvpn/app/links.dart';
-import 'package:bulbvpn/core/theme/air_colors.dart';
 import 'package:bulbvpn/core/theme/app_text_styles.dart';
+import 'package:bulbvpn/core/theme/simple_colors.dart';
 import 'package:bulbvpn/modules/monetization/premium.dart';
-import 'package:bulbvpn/shared/air/air_buttons.dart';
-import 'package:bulbvpn/shared/air/air_layout.dart';
-import 'package:bulbvpn/shared/air/air_rows.dart';
+import 'package:bulbvpn/shared/simple/simple_key.dart';
+import 'package:bulbvpn/shared/simple/simple_note.dart';
+import 'package:bulbvpn/shared/simple/simple_section.dart';
+import 'package:bulbvpn/shared/simple/simple_term_row.dart';
 import 'package:bulbvpn/shared/services/firebase_analytics_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -93,7 +94,7 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final air = context.air;
+    final s = context.simple;
     final premium = ref.watch(premiumProvider);
     final active = premium.isActive;
     final loading =
@@ -109,13 +110,13 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
     ];
 
     return Scaffold(
-      backgroundColor: air.ground,
+      backgroundColor: s.background,
       body: SafeArea(
         bottom: false,
         child: Align(
           alignment: Alignment.topCenter,
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: AirLayout.wideRail),
+            constraints: const BoxConstraints(maxWidth: 720),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -131,68 +132,48 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
                       const SizedBox(width: 4),
                       Text(
                         'Premium',
-                        style: AppTextStyles.title(color: air.ink, size: 19),
+                        style: AppTextStyles.title(color: s.ink, size: 19),
                       ),
                     ],
                   ),
                 ),
                 Expanded(
                   child: ListView(
-                    // The shell's nav bar floats over the body, so the last
-                    // legal line must clear it plus the home indicator.
                     padding: const EdgeInsets.fromLTRB(
-                      AirLayout.gutter,
+                      20,
                       8,
-                      AirLayout.gutter,
+                      20,
                       120,
                     ),
                     children: [
                       Text(
                         'A quieter tunnel.',
-                        style: AppTextStyles.display(color: air.ink, size: 32),
+                        style: AppTextStyles.display(color: s.ink, size: 32),
                       ),
                       const SizedBox(height: 10),
                       Text(
                         'The VPN stays free. Premium removes ads and puts the '
                         'fastest, least-crowded relays at the front of every '
                         'connection.',
-                        style: AppTextStyles.body(color: air.steel, size: 14),
+                        style: AppTextStyles.body(color: s.inkSoft, size: 14),
                       ),
                       const SizedBox(height: 24),
-                      AirSection(
-                        title: 'Free',
-                        rows: const [
-                          AirRow(title: 'Community and bootstrap relays'),
-                          AirRow(title: 'Speed test'),
-                          AirRow(title: 'Split tunneling on Android'),
-                        ],
-                      ),
+                      SimpleSection(title: 'Free'),
+                      SimpleTermRow(title: 'Community and bootstrap relays'),
+                      SimpleTermRow(title: 'Speed test'),
+                      SimpleTermRow(title: 'Split tunneling on Android'),
                       const SizedBox(height: 22),
-                      AirSection(
-                        title: 'Premium',
-                        rows: [
-                          _feature('Priority relays', air),
-                          _feature('No ads', air),
-                        ],
-                      ),
+                      SimpleSection(title: 'Premium'),
+                      _feature('Priority relays', s),
+                      _feature('No ads', s),
                       const SizedBox(height: 26),
                       if (active)
-                        AirSection(
+                        SimpleSection(
                           title: 'Status',
-                          rows: [
-                            AirRow(
-                              title: 'Premium is active',
-                              subtitle:
-                                  'Ads are off and priority relays are on for '
-                                  'this account.',
-                              chevron: false,
-                              trailing: Icon(
-                                Icons.check_circle,
-                                size: 20,
-                                color: air.connectedInk,
-                              ),
-                            ),
-                          ],
+                          note: 'Ads are off and priority relays are on for '
+                              'this account.',
+                          disclosure: 'Active',
+                          disclosureSemantics: 'Premium active',
                         )
                       else if (loading)
                         Padding(
@@ -210,23 +191,20 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
                               Text(
                                 'Loading store prices…',
                                 style: AppTextStyles.monoValue(
-                                  color: air.steel,
+                                  color: s.inkSoft,
                                   size: 11,
                                 ),
                               ),
                             ],
                           ),
                         )
-                      else if (ordered.isNotEmpty)
-                        AirSection(
-                          title: 'Plans',
-                          rows: [
-                            for (final package in ordered)
-                              _planRow(package),
-                          ],
-                        )
+                      else if (ordered.isNotEmpty) ...[
+                        SimpleSection(title: 'Plans'),
+                        for (final package in ordered)
+                          _planRow(package),
+                      ]
                       else
-                        _unavailable(premium),
+                        _unavailable(s),
                       if (!active && !loading) ...[
                         const SizedBox(height: 8),
                         Center(
@@ -247,18 +225,12 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
                       ],
                       if (!active && _showCode) ...[
                         const SizedBox(height: 16),
-                        AirSection(
+                        SimpleSection(
                           title: 'Redeem',
-                          rows: [_codeRow(premium)],
-                          note: Text(
-                            'One BULB code works on Android, iOS, and macOS. '
-                            'A code can be claimed on one account only.',
-                            style: AppTextStyles.monoValue(
-                              color: air.steel,
-                              size: 11,
-                            ),
-                          ),
+                          note: 'One BULB code works on Android, iOS, and '
+                              'macOS. A code can be claimed on one account only.',
                         ),
+                        _codeRow(s),
                       ],
                       if (!active) ...[
                         const SizedBox(height: 18),
@@ -268,7 +240,7 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
                           'before the current period ends. Manage or cancel any '
                           'time in your App Store or Play Store account. Prices '
                           'come from the store and may vary by region.',
-                          style: AppTextStyles.body(color: air.mute, size: 11),
+                          style: AppTextStyles.body(color: s.inkFaint, size: 11),
                         ),
                       ],
                       const SizedBox(height: 22),
@@ -292,70 +264,61 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
     );
   }
 
-  Widget _feature(String title, AirColors air) {
-    return AirRow(
+  Widget _feature(String title, SimpleColors s) {
+    return SimpleTermRow(
       title: title,
-      chevron: false,
-      trailing: Icon(Icons.check, size: 18, color: air.accentInk),
+      trailing: Icon(Icons.check, size: 18, color: s.connectedInk),
     );
   }
 
   Widget _planRow(Package package) {
     final annual = package.packageType == PackageType.annual;
-    return AirRow(
+    return SimpleTermRow(
       title: annual ? 'Yearly' : 'Monthly',
-      subtitle: annual ? 'One charge a year' : 'One charge a month',
-      chevron: false,
-      value: package.storeProduct.priceString,
-      trailing: AirButton.primary(
+      sub: '${annual ? 'One charge a year' : 'One charge a month'} · '
+          '${package.storeProduct.priceString}',
+      trailing: SimpleKey(
         label: _busy ? 'Working…' : 'Choose',
-        expand: false,
-        height: 44,
-        onPressed: _busy ? null : () => _buy(package),
+        busy: _busy,
+        onTap: _busy ? null : () => _buy(package),
       ),
     );
   }
 
-  Widget _unavailable(PremiumState premium) {
-    final air = context.air;
+  Widget _unavailable(SimpleColors s) {
+    final premium = ref.read(premiumProvider);
     final unconfigured = premium.status == PremiumStatus.unconfigured;
-    return AirSection(
-      title: 'Plans',
-      rows: [
-        AirRow(
-          title: unconfigured
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SimpleSection(
+          title: 'Plans',
+          note: unconfigured
               ? 'Store setup is not live in this build'
               : 'Plans could not be loaded',
-          subtitle: unconfigured
-              ? 'Purchases are off in this build.'
-              : 'Check your connection and retry.',
-          chevron: false,
-          trailing: unconfigured
-              ? null
-              : AirButton.secondary(
-                  label: _busy ? 'Retrying…' : 'Retry',
-                  expand: false,
-                  height: 44,
-                  onPressed: _busy ? null : _retryOfferings,
-                ),
+        ),
+        if (!unconfigured) ...[
+          const SizedBox(height: 12),
+          SimpleKey(
+            label: _busy ? 'Retrying…' : 'Retry',
+            busy: _busy,
+            emphasis: true,
+            onTap: _busy ? null : _retryOfferings,
+          ),
+        ],
+        SimpleNote(
+          text: unconfigured
+              ? 'The tunnel keeps working for free. Purchases and '
+                  'cross-platform codes turn on once the store products are '
+                  'connected.'
+              : 'Nothing was charged.',
         ),
       ],
-      note: unconfigured
-          ? Text(
-              'The tunnel keeps working for free. Purchases and '
-              'cross-platform codes turn on once the store products are '
-              'connected.',
-              style: AppTextStyles.body(color: air.steel, size: 12.5),
-            )
-          : Text(
-              'Nothing was charged.',
-              style: AppTextStyles.body(color: air.steel, size: 12.5),
-            ),
     );
   }
 
-  Widget _codeRow(PremiumState premium) {
-    final air = context.air;
+  Widget _codeRow(SimpleColors s) {
+    final premium = ref.read(premiumProvider);
     final canRedeem = premium.isConfigured && premiumRedeemUrl.isNotEmpty;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 14),
@@ -367,20 +330,23 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
               enabled: canRedeem && !_busy,
               textCapitalization: TextCapitalization.characters,
               autocorrect: false,
-              style: AppTextStyles.monoValue(color: air.ink, size: 15),
+              style: AppTextStyles.monoValue(color: s.ink, size: 15),
               decoration: InputDecoration(
-                hintText: canRedeem ? 'BULB-XXXX' : 'Codes are not live yet',
-                hintStyle: AppTextStyles.monoValue(color: air.mute, size: 15),
+                hintText:
+                    canRedeem ? 'BULB-XXXX' : 'Codes are not live yet',
+                hintStyle: AppTextStyles.monoValue(
+                  color: s.inkFaint,
+                  size: 15,
+                ),
               ),
               onSubmitted: (_) => _redeem(),
             ),
           ),
           const SizedBox(width: 10),
-          AirButton.secondary(
+          SimpleKey(
             label: canRedeem ? 'Redeem' : 'Soon',
-            expand: false,
-            height: 44,
-            onPressed: canRedeem && !_busy ? _redeem : null,
+            busy: _busy,
+            onTap: canRedeem && !_busy ? _redeem : null,
           ),
         ],
       ),
@@ -388,7 +354,7 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
   }
 
   Widget _footerLink(String label, String url) {
-    final mute = context.air.mute;
+    final mute = context.simple.inkFaint;
     return InkWell(
       onTap: () =>
           launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication),

@@ -1,17 +1,16 @@
 import 'package:flutter/material.dart';
 
-/// Metered type. Vazirmatn speaks — it sets Latin and Persian from one family,
-/// so an RTL sheet is the same card mirrored rather than a substitute face.
-/// Geist Mono measures: every figure on the card is a reading, and a reading
-/// gets a face with fixed cells.
+/// Simple type styles for the VPN app.
 ///
-/// Sizes are absolute logical pixels, exactly as DESIGN.md declares them.
-/// `flutter_screenutil`'s `.sp` was removed: it multiplies by the text scale
-/// factor and then `Text` applies the platform `TextScaler` again, so a 1.3x
-/// setting rendered 1.69x and overflowed the rails that were verified at 1.3x.
+/// Vazirmatn sets Latin and Persian from one family, so an RTL sheet is the
+/// same card mirrored rather than a substitute face. Geist Mono is used for
+/// figures, metrics, IPs, and timers — fixed cells so readings never drift.
 ///
-/// Colors are always explicit at call sites (`context.metered.ink` etc.); there
-/// is no palette bridge, so a Night card can never inherit a day color.
+/// Sizes are absolute logical pixels. `flutter_screenutil`'s `.sp` is banned:
+/// it multiplies by the text scale factor and then `Text` applies the platform
+/// `TextScaler` again, so a 1.3x setting rendered 1.69x.
+///
+/// Colors are explicit at call sites (`context.simple.ink`, etc.).
 class AppTextStyles {
   static const String sans = 'Vazirmatn';
   static const String mono = 'GeistMono';
@@ -34,22 +33,6 @@ class AppTextStyles {
         color: color,
         fontVariations: [FontVariation('wght', weight.value.toDouble())],
         fontFeatures: tabular ? const [FontFeature.tabularFigures()] : null,
-      );
-
-  /// The issuer band. Print weight, not size, carries the rank.
-  static TextStyle masthead({
-    required Color color,
-    double size = 30,
-    FontWeight weight = FontWeight.w800,
-    double tracking = 2.2,
-  }) =>
-      _v(
-        family: sans,
-        color: color,
-        size: size,
-        height: 1.0,
-        weight: weight,
-        tracking: tracking,
       );
 
   static TextStyle display({
@@ -96,7 +79,6 @@ class AppTextStyles {
         weight: weight,
       );
 
-  /// The rubric under a reading: what the number measures.
   static TextStyle label({
     required Color color,
     double size = 10,
@@ -111,7 +93,6 @@ class AppTextStyles {
         tracking: tracking,
       );
 
-  /// A measured figure.
   static TextStyle metric({
     required Color color,
     double size = 26,
@@ -152,7 +133,4 @@ class AppTextStyles {
         height: 1.5,
         weight: FontWeight.w400,
       );
-
-  /// Transitional alias retained while screens migrate to [label].
-  static TextStyle microLabel({required Color color}) => label(color: color);
 }
