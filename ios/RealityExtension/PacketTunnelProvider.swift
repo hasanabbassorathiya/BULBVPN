@@ -11,9 +11,8 @@
 import NetworkExtension
 import Network
 import XRay
+import flutter_vless
 import Tun2SocksKit
-import flutter_vless_tunnel_support
-import flutter_vless_privacy
 import os
 import Darwin
 
@@ -114,7 +113,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     // Accessed only on runtimeQueue.
     private var hasStartedHEV = false
     private var hevStopSignal: DispatchGroup?
-    private var reasserting = false
+    private var reassertingState = false
 
     private struct RuntimeSpec {
         let config: Data
@@ -126,7 +125,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     private func setForwardingReady(_ ready: Bool) {
         forwardingLock.lock()
         forwardingReady = ready && !startupStopped
-        reasserting = !ready && !startupStopped
+        reassertingState = !ready && !startupStopped
         forwardingLock.unlock()
     }
 

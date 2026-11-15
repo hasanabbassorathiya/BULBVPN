@@ -6,10 +6,6 @@
 	<array>
 		<string>packet-tunnel-provider</string>
 	</array>
-	<key>com.apple.security.application-groups</key>
-	<array>
-		<string>group.com.bulbvpn.app</string>
-	</array>
 	<key>keychain-access-groups</key>
 	<array>
 		<string>$(AppIdentifierPrefix)app.bulbvpn.com</string>

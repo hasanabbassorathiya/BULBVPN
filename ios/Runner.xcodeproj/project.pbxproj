@@ -16,6 +16,14 @@
 		580F015C93122D1C9E1AA088 /* Pods_VPNExtension.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2A92B151619A9A61DF1B5A9D /* Pods_VPNExtension.framework */; };
 		594E8719D5311CA983ABCE87 /* Pods_RealityExtension.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C6A7EB54E991B73085C6615E /* Pods_RealityExtension.framework */; };
 		7F7831667DB549119AB57B9EC8165A76 /* Pods_RealityExtension.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B4931621ABA44909ABCA99BD53EAC536 /* Pods_RealityExtension.framework */; };
+		2F0255C410B749C2972BEA79 /* TunnelConfigKeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA26F58FFD3D48DF895A6C0A /* TunnelConfigKeys.swift */; };
+		7FDFFF84CF5147B4BDC6CB2D /* TunnelDNSPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86683D6112C5407D846C2A52 /* TunnelDNSPolicy.swift */; };
+		11F760D620744347A005DC35 /* TunnelHEVLogPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB81A0FAF9C54A3B9BE9C897 /* TunnelHEVLogPolicy.swift */; };
+		EAA14A5303694FFE88D679ED /* TunnelIPv6Policy.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB234FF01C3D4B338F38B9DD /* TunnelIPv6Policy.swift */; };
+		F20E198C2F7E4C859C15520F /* TunnelOnDemandPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE746830873A44D3855CCF25 /* TunnelOnDemandPolicy.swift */; };
+		AF3FB2BEAF3A41E287280B52 /* TunnelRuntimeSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 377D6CABA9A5441AA9BBA54C /* TunnelRuntimeSupport.swift */; };
+		EA3DC992B37D4BA9BEDAE33E /* TunnelSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 907DC42F985D40629C3801C1 /* TunnelSupport.swift */; };
+		DA9AA87B69EC4269ABF9C682 /* TunnelXrayConfigPreparer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3840024033AA464BB283C6C0 /* TunnelXrayConfigPreparer.swift */; };
 		850381BB975744D6A4B7EFB9F7558183 /* NetworkExtension.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A0CABC052DEF330300154A44 /* NetworkExtension.framework */; };
 		97C146FC1CF9000F007C117D /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FA1CF9000F007C117D /* Main.storyboard */; };
 		97C146FE1CF9000F007C117D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FD1CF9000F007C117D /* Assets.xcassets */; };
@@ -26,6 +34,8 @@
 		A0CABC212DEF335D00154A44 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0CABC202DEF335D00154A44 /* AppDelegate.swift */; };
 		A0CABC262DEF33BC00154A44 /* Tun2SocksKit in Frameworks */ = {isa = PBXBuildFile; productRef = A0CABC252DEF33BC00154A44 /* Tun2SocksKit */; };
 		A0CABC282DEF33BC00154A44 /* Tun2SocksKitC in Frameworks */ = {isa = PBXBuildFile; productRef = A0CABC272DEF33BC00154A44 /* Tun2SocksKitC */; };
+		D0CABC292DEF33BC00154A44 /* Tun2SocksKit in Frameworks */ = {isa = PBXBuildFile; productRef = A0CABC252DEF33BC00154A44 /* Tun2SocksKit */; };
+		D0CABC2A2DEF33BC00154A44 /* Tun2SocksKitC in Frameworks */ = {isa = PBXBuildFile; productRef = A0CABC272DEF33BC00154A44 /* Tun2SocksKitC */; };
 		B1FA4EE74BE149FCBE1C249A91E5B41E /* RealityExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 23EAF6FA4B2949F188553E771C03AF09 /* RealityExtension.appex */; };
 		E640D9F7888558C3BD23A668 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = AE9BD0D6942BB307941DBA0D /* GoogleService-Info.plist */; };
 		EB3BBBCF8219005D64713C03 /* VPNExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = A0CABC042DEF330300154A44 /* VPNExtension.appex */; };
@@ -105,6 +115,14 @@
 		B4931621ABA44909ABCA99BD53EAC536 /* Pods_RealityExtension.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_RealityExtension.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		B5AFB6DC5EFD54F48A0655A6 /* Pods_Runner.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_Runner.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		C2DA4A401ADD4ADD9142CECD88C324D0 /* PacketTunnelProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PacketTunnelProvider.swift; sourceTree = "<group>"; };
+		CA26F58FFD3D48DF895A6C0A /* TunnelConfigKeys.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlutterVlessTunnelSupport/TunnelConfigKeys.swift; sourceTree = "<group>"; };
+		86683D6112C5407D846C2A52 /* TunnelDNSPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlutterVlessTunnelSupport/TunnelDNSPolicy.swift; sourceTree = "<group>"; };
+		BB81A0FAF9C54A3B9BE9C897 /* TunnelHEVLogPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlutterVlessTunnelSupport/TunnelHEVLogPolicy.swift; sourceTree = "<group>"; };
+		AB234FF01C3D4B338F38B9DD /* TunnelIPv6Policy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlutterVlessTunnelSupport/TunnelIPv6Policy.swift; sourceTree = "<group>"; };
+		FE746830873A44D3855CCF25 /* TunnelOnDemandPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlutterVlessTunnelSupport/TunnelOnDemandPolicy.swift; sourceTree = "<group>"; };
+		377D6CABA9A5441AA9BBA54C /* TunnelRuntimeSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlutterVlessTunnelSupport/TunnelRuntimeSupport.swift; sourceTree = "<group>"; };
+		907DC42F985D40629C3801C1 /* TunnelSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlutterVlessTunnelSupport/TunnelSupport.swift; sourceTree = "<group>"; };
+		3840024033AA464BB283C6C0 /* TunnelXrayConfigPreparer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlutterVlessTunnelSupport/TunnelXrayConfigPreparer.swift; sourceTree = "<group>"; };
 		C6A7EB54E991B73085C6615E /* Pods_RealityExtension.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_RealityExtension.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		D362FCC5196032173AD8F908 /* Pods-RealityExtension.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RealityExtension.debug.xcconfig"; path = "Target Support Files/Pods-RealityExtension/Pods-RealityExtension.debug.xcconfig"; sourceTree = "<group>"; };
 		E290AB978336A1D64EED7007 /* Pods-VPNExtension.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-VPNExtension.debug.xcconfig"; path = "Target Support Files/Pods-VPNExtension/Pods-VPNExtension.debug.xcconfig"; sourceTree = "<group>"; };
@@ -151,6 +169,8 @@
 			files = (
 				850381BB975744D6A4B7EFB9F7558183 /* NetworkExtension.framework in Frameworks */,
 				24ABC99DE2F44F42A36765945D3767E4 /* libresolv.tbd in Frameworks */,
+				D0CABC292DEF33BC00154A44 /* Tun2SocksKit in Frameworks */,
+				D0CABC2A2DEF33BC00154A44 /* Tun2SocksKitC in Frameworks */,
 				7F7831667DB549119AB57B9EC8165A76 /* Pods_RealityExtension.framework in Frameworks */,
 				594E8719D5311CA983ABCE87 /* Pods_RealityExtension.framework in Frameworks */,
 			);
@@ -274,6 +294,14 @@
 			isa = PBXGroup;
 			children = (
 				C2DA4A401ADD4ADD9142CECD88C324D0 /* PacketTunnelProvider.swift */,
+			CA26F58FFD3D48DF895A6C0A /* TunnelConfigKeys.swift */,
+			86683D6112C5407D846C2A52 /* TunnelDNSPolicy.swift */,
+			BB81A0FAF9C54A3B9BE9C897 /* TunnelHEVLogPolicy.swift */,
+			AB234FF01C3D4B338F38B9DD /* TunnelIPv6Policy.swift */,
+			FE746830873A44D3855CCF25 /* TunnelOnDemandPolicy.swift */,
+			377D6CABA9A5441AA9BBA54C /* TunnelRuntimeSupport.swift */,
+			907DC42F985D40629C3801C1 /* TunnelSupport.swift */,
+			3840024033AA464BB283C6C0 /* TunnelXrayConfigPreparer.swift */,
 			);
 			path = RealityExtension;
 			sourceTree = "<group>";
@@ -309,7 +337,11 @@
 			buildRules = (
 			);
 			dependencies = (
+			);			packageProductDependencies = (
+				A0CABC252DEF33BC00154A44 /* Tun2SocksKit */,
+				A0CABC272DEF33BC00154A44 /* Tun2SocksKitC */,
 			);
+
 			name = RealityExtension;
 			productName = RealityExtension;
 			productReference = 23EAF6FA4B2949F188553E771C03AF09 /* RealityExtension.appex */;
@@ -577,6 +609,14 @@
 			buildActionMask = 2147483647;
 			files = (
 				1AEE6059431B4182A59EEEAC5BED8EEC /* PacketTunnelProvider.swift in Sources */,
+				2F0255C410B749C2972BEA79 /* TunnelConfigKeys.swift in Sources */,
+				7FDFFF84CF5147B4BDC6CB2D /* TunnelDNSPolicy.swift in Sources */,
+				11F760D620744347A005DC35 /* TunnelHEVLogPolicy.swift in Sources */,
+				EAA14A5303694FFE88D679ED /* TunnelIPv6Policy.swift in Sources */,
+				F20E198C2F7E4C859C15520F /* TunnelOnDemandPolicy.swift in Sources */,
+				AF3FB2BEAF3A41E287280B52 /* TunnelRuntimeSupport.swift in Sources */,
+				EA3DC992B37D4BA9BEDAE33E /* TunnelSupport.swift in Sources */,
+				DA9AA87B69EC4269ABF9C682 /* TunnelXrayConfigPreparer.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -643,8 +683,10 @@
 			baseConfigurationReference = ABDDE61A79B74D2CA10DEF8D /* Pods-RealityExtension.debug.xcconfig */;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = RealityExtension/RealityExtension.entitlements;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 20;
+				CODE_SIGN_IDENTITY = "iPhone Distribution";
+				CODE_SIGN_STYLE = Manual;
+				PROVISIONING_PROFILE = 63fdf003-a97a-4340-95fa-06cefd82ed7d;
+				CURRENT_PROJECT_VERSION = 22;
 				DEVELOPMENT_TEAM = 3477R2P24R;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -657,10 +699,14 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"/Users/macbookm1pro/development/flutter/bin/cache/artifacts/engine/ios-release/Flutter.xcframework/ios-arm64",
+				);
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MARKETING_VERSION = 1.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = app.bulbvpn.com.RealityExtension;
-				PRODUCT_MODULE_NAME = PacketTunnelProvider;
+				PRODUCT_MODULE_NAME = RealityExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -736,7 +782,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;
-				CURRENT_PROJECT_VERSION = 20;
+				CURRENT_PROJECT_VERSION = 22;
 				DEVELOPMENT_TEAM = 3477R2P24R;
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = Runner/Info.plist;
@@ -840,7 +886,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 20;
+				CURRENT_PROJECT_VERSION = 22;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.6;
 				MARKETING_VERSION = 1.2.0;
@@ -858,7 +904,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 20;
+				CURRENT_PROJECT_VERSION = 22;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.6;
 				MARKETING_VERSION = 1.2.0;
@@ -874,7 +920,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 20;
+				CURRENT_PROJECT_VERSION = 22;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.6;
 				MARKETING_VERSION = 1.2.0;
@@ -890,8 +936,10 @@
 			baseConfigurationReference = 85836FA6D36C415CBB342693 /* Pods-RealityExtension.profile.xcconfig */;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = RealityExtension/RealityExtension.entitlements;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 20;
+				CODE_SIGN_IDENTITY = "iPhone Distribution";
+				CODE_SIGN_STYLE = Manual;
+				PROVISIONING_PROFILE = 63fdf003-a97a-4340-95fa-06cefd82ed7d;
+				CURRENT_PROJECT_VERSION = 22;
 				DEVELOPMENT_TEAM = 3477R2P24R;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -904,10 +952,14 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"/Users/macbookm1pro/development/flutter/bin/cache/artifacts/engine/ios-release/Flutter.xcframework/ios-arm64",
+				);
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MARKETING_VERSION = 1.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = app.bulbvpn.com.RealityExtension;
-				PRODUCT_MODULE_NAME = PacketTunnelProvider;
+				PRODUCT_MODULE_NAME = RealityExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -1042,7 +1094,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;
-				CURRENT_PROJECT_VERSION = 20;
+				CURRENT_PROJECT_VERSION = 22;
 				DEVELOPMENT_TEAM = 3477R2P24R;
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = Runner/Info.plist;
@@ -1149,8 +1201,11 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;
-				CURRENT_PROJECT_VERSION = 20;
+				CURRENT_PROJECT_VERSION = 22;
 				DEVELOPMENT_TEAM = 3477R2P24R;
+				CODE_SIGN_IDENTITY = "iPhone Distribution";
+				CODE_SIGN_STYLE = Manual;
+				PROVISIONING_PROFILE = bba2c089-7fa5-46f3-bb1d-59485988a9b1;
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = Runner/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.6;
@@ -1258,8 +1313,10 @@
 				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
 				CODE_SIGN_ENTITLEMENTS = PacketTunnel/PacketTunnel.entitlements;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 20;
+				CODE_SIGN_IDENTITY = "iPhone Distribution";
+				CODE_SIGN_STYLE = Manual;
+				PROVISIONING_PROFILE = b5c400fc-b5a3-4fa9-986c-10788563c8df;
+				CURRENT_PROJECT_VERSION = 22;
 				DEVELOPMENT_TEAM = 3477R2P24R;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
@@ -1316,8 +1373,10 @@
 				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
 				CODE_SIGN_ENTITLEMENTS = PacketTunnel/PacketTunnel.entitlements;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 20;
+				CODE_SIGN_IDENTITY = "iPhone Distribution";
+				CODE_SIGN_STYLE = Manual;
+				PROVISIONING_PROFILE = b5c400fc-b5a3-4fa9-986c-10788563c8df;
+				CURRENT_PROJECT_VERSION = 22;
 				DEVELOPMENT_TEAM = 3477R2P24R;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
@@ -1371,8 +1430,10 @@
 				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
 				CODE_SIGN_ENTITLEMENTS = PacketTunnel/PacketTunnel.entitlements;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 20;
+				CODE_SIGN_IDENTITY = "iPhone Distribution";
+				CODE_SIGN_STYLE = Manual;
+				PROVISIONING_PROFILE = b5c400fc-b5a3-4fa9-986c-10788563c8df;
+				CURRENT_PROJECT_VERSION = 22;
 				DEVELOPMENT_TEAM = 3477R2P24R;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
@@ -1421,8 +1482,10 @@
 			baseConfigurationReference = 1979BF4C3EE24BB9AA03149C /* Pods-RealityExtension.release.xcconfig */;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = RealityExtension/RealityExtension.entitlements;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 20;
+				CODE_SIGN_IDENTITY = "iPhone Distribution";
+				CODE_SIGN_STYLE = Manual;
+				PROVISIONING_PROFILE = 63fdf003-a97a-4340-95fa-06cefd82ed7d;
+				CURRENT_PROJECT_VERSION = 22;
 				DEVELOPMENT_TEAM = 3477R2P24R;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -1435,10 +1498,14 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"/Users/macbookm1pro/development/flutter/bin/cache/artifacts/engine/ios-release/Flutter.xcframework/ios-arm64",
+				);
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MARKETING_VERSION = 1.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = app.bulbvpn.com.RealityExtension;
-				PRODUCT_MODULE_NAME = PacketTunnelProvider;
+				PRODUCT_MODULE_NAME = RealityExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -1449,7 +1516,7 @@
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
-			name = Release;
+name = Release;
 		};
 /* End XCBuildConfiguration section */
 

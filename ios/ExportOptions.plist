@@ -9,7 +9,16 @@
 	<key>uploadSymbols</key>
 	<true/>
 	<key>signingStyle</key>
-	<string>automatic</string>
+	<string>manual</string>
+	<key>provisioningProfiles</key>
+	<dict>
+		<key>app.bulbvpn.com</key>
+		<string>bba2c089-7fa5-46f3-bb1d-59485988a9b1</string>
+		<key>app.bulbvpn.com.RealityExtension</key>
+		<string>63fdf003-a97a-4340-95fa-06cefd82ed7d</string>
+		<key>app.bulbvpn.com.VPNExtension</key>
+		<string>b5c400fc-b5a3-4fa9-986c-10788563c8df</string>
+	</dict>
 	<key>destination</key>
 	<string>export</string>
 </dict>
