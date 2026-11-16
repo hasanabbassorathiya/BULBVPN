@@ -64,6 +64,10 @@ class ConnectionState {
   /// Engine that owns the live session.
   final TunnelProtocol protocol;
 
+  /// Specific failure reason when status is error, e.g. "VPN profile not
+  /// installed" or "REALITY not configured". Null when not in error.
+  final String? errorDetail;
+
   const ConnectionState({
     this.status = ConnectionStatus.disconnected,
     this.vpnStatus,
@@ -71,6 +75,7 @@ class ConnectionState {
     this.totalUpload = 0,
     this.hasUpload = false,
     this.protocol = TunnelProtocol.none,
+    this.errorDetail,
   });
 
   ConnectionState copyWith({
@@ -80,6 +85,7 @@ class ConnectionState {
     int? totalUpload,
     bool? hasUpload,
     TunnelProtocol? protocol,
+    String? errorDetail,
   }) {
     return ConnectionState(
       status: status ?? this.status,
@@ -88,6 +94,7 @@ class ConnectionState {
       totalUpload: totalUpload ?? this.totalUpload,
       hasUpload: hasUpload ?? this.hasUpload,
       protocol: protocol ?? this.protocol,
+      errorDetail: errorDetail ?? this.errorDetail,
     );
   }
 }
@@ -514,11 +521,11 @@ class ConnectionStateNotifier extends StateNotifier<ConnectionState> {
   void setConnected() => _setStatus(ConnectionStatus.connected);
   void setDisconnected() => _setStatus(ConnectionStatus.disconnected);
   void setDisconnecting() => _setStatus(ConnectionStatus.disconnecting);
-  void setError() => _setStatus(ConnectionStatus.error);
+  void setError({String? detail}) => _setStatus(ConnectionStatus.error, detail: detail);
   void setNoInternet() => _setStatus(ConnectionStatus.noInternet);
   void setAnalyzing() => _setStatus(ConnectionStatus.analyzing);
 
-  void _setStatus(ConnectionStatus status) {
+  void _setStatus(ConnectionStatus status, {String? detail}) {
     if (status == ConnectionStatus.connected) {
       _connectedAt = DateTime.now();
       _engineMisses = 0;
@@ -544,6 +551,7 @@ class ConnectionStateNotifier extends StateNotifier<ConnectionState> {
             totalUpload: 0,
             hasUpload: false,
             protocol: TunnelProtocol.none,
+            errorDetail: detail,
           )
         : state.copyWith(status: status);
     _saveState();

@@ -28,6 +28,7 @@ import 'package:bulbvpn/modules/core/relay_memory.dart';
 import 'package:bulbvpn/modules/core/home_region.dart';
 import 'package:bulbvpn/modules/core/reality/reality_engine.dart';
 import 'package:bulbvpn/modules/core/reality/reality_health.dart';
+import 'package:flutter_vless/flutter_vless.dart';
 import 'package:bulbvpn/modules/core/reality/reality_relay.dart';
 import 'package:bulbvpn/modules/core/reality/relay_vault.dart';
 import 'package:bulbvpn/modules/core/relay_reachability.dart';
@@ -1939,7 +1940,7 @@ class VpnController {
       final profile = await _vpnService.ensureAppleVpnProfile();
       _log.addLog('[VpnController] Apple VPN profile ready: $profile');
       if (!profile) {
-        connectionNotifier.setError();
+        connectionNotifier.setError(detail: 'VPN profile not installed — allow the system prompt');
         _vibrationService.vibrateError();
         return;
       }
@@ -1963,7 +1964,7 @@ class VpnController {
             serverLabel: _serverLabel,
           );
         } catch (_) {}
-        connectionNotifier.setError();
+        connectionNotifier.setError(detail: 'no working path on this network');
         _vibrationService.vibrateError();
         return;
       }
@@ -2030,7 +2031,26 @@ class VpnController {
           serverLabel: _serverLabel,
         );
       } catch (_) {}
-      connectionNotifier.setError();
+      connectionNotifier.setError(detail: 'no working path on this network');
+      _vibrationService.vibrateError();
+      return;
+    }
+
+    if (Platform.isWindows) {
+      final ok = await VlessPlatform.instance.requestPermission();
+      _log.addLog('[VpnController] Windows permission result: $ok');
+      if (!ok) {
+        _log.addLog('[VpnController] Windows VPN permission denied');
+        connectionNotifier.setError(detail: 'Windows VPN permission denied');
+        _vibrationService.vibrateError();
+        return;
+      }
+      if (await _tryReality(container, connectionNotifier)) return;
+      _log.addLog(
+        '[VpnController] No tunnel on Windows: REALITY/XHTTP dialled '
+        '$_realityDialsAttempted candidates and none moved data',
+      );
+      connectionNotifier.setError(detail: 'No REALITY relay could connect on Windows');
       _vibrationService.vibrateError();
       return;
     }
@@ -2093,7 +2113,7 @@ class VpnController {
           serverLabel: _serverLabel,
         );
       } catch (_) {}
-      connectionNotifier.setError();
+      connectionNotifier.setError(detail: 'no working path on this network');
       _vibrationService.vibrateError();
       return;
     }
@@ -2111,7 +2131,7 @@ class VpnController {
     }
     if (ranked.isEmpty) {
       _log.addLog('[VpnController] ERROR: no candidates after ranking');
-      connectionNotifier.setError();
+      connectionNotifier.setError(detail: 'no working path on this network');
       _vibrationService.vibrateError();
       return;
     }
@@ -2244,7 +2264,7 @@ class VpnController {
         '[VpnController] Kill switch re-armed after fallback failure',
       );
     }
-    connectionNotifier.setError();
+    connectionNotifier.setError(detail: 'no working path on this network');
     _vibrationService.vibrateError();
     try {
       await _analyticsService.logVpnFailed(

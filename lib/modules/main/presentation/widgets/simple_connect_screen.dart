@@ -5,6 +5,12 @@ import 'package:bulbvpn/core/theme/simple_colors.dart';
 import 'package:bulbvpn/modules/core/relay_verdict.dart';
 import 'package:bulbvpn/modules/main/presentation/widgets/home_composition.dart';
 import 'package:bulbvpn/shared/air/air_phase.dart';
+import 'package:bulbvpn/shared/layout/navbar/defyx_navbar.dart';
+import 'package:bulbvpn/shared/simple/simple_card.dart';
+import 'package:bulbvpn/shared/simple/simple_key.dart';
+import 'package:bulbvpn/shared/simple/simple_note.dart';
+import 'package:bulbvpn/shared/simple/simple_section.dart';
+import 'package:bulbvpn/shared/simple/simple_term_row.dart';
 
 /// The simple connect face: a status word, a timer, a single button, and the
 /// exit IP. Nothing moves unless bytes moved.
@@ -59,120 +65,128 @@ class SimpleConnectScreen extends StatelessWidget {
                   children: [
                     const SizedBox(height: 24),
 
-                    // Status word
-                    Text(
-                      state.statusTitle,
-                      style: AppTextStyles.display(
-                        color: live ? s.connected : s.ink,
-                        size: 40,
-                        weight: FontWeight.w800,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 8),
+                    SimpleCard(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 720),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            // Status section header
+                            SimpleSection(
+                              title: 'STATUS',
+                              disclosure: live ? 'CONNECTED' : 'DISCONNECTED',
+                              disclosureSemantics:
+                                  live
+                                      ? 'Connection status: connected'
+                                      : 'Connection status: disconnected',
+                              proven: live,
+                            ),
+                            const SizedBox(height: 16),
 
-                    // Status detail
-                    Text(
-                      state.statusDetail,
-                      style: AppTextStyles.body(
-                        color: s.inkSoft,
-                        size: 15,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
+                            // Status word
+                            Text(
+                              state.statusTitle,
+                              style: AppTextStyles.display(
+                                color: live ? s.connected : s.ink,
+                                size: 40,
+                                weight: FontWeight.w800,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: 8),
 
-                    const SizedBox(height: 32),
+                            // Status detail
+                            SimpleNote(
+                              text: state.statusDetail,
+                              failed: !live && state.phase.isFault,
+                            ),
+                            const SizedBox(height: 24),
 
-                    // Session timer (only when connected)
-                    if (live) ...[
-                      Text(
-                        'SESSION',
-                        style: AppTextStyles.label(
-                          color: s.inkFaint,
-                          size: 10,
+                            // Session timer (only when connected)
+                            if (live) ...[
+                              SimpleSection(
+                                title: 'SESSION',
+                                disclosure: state.clockLabel,
+                                disclosureSemantics:
+                                    'Session duration ${state.clockLabel}',
+                              ),
+                              const SizedBox(height: 16),
+                              Text(
+                                state.clockLabel,
+                                style: AppTextStyles.metric(
+                                  color: s.connected,
+                                  size: 32,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                              const SizedBox(height: 24),
+                            ],
+
+                            // Exit IP
+                            if (state.exitIp.isNotEmpty) ...[
+                              SimpleTermRow(
+                                title: 'EXIT NODE',
+                                sub: state.exitLocation,
+                                value: state.exitIp,
+                                onTap: onScratch,
+                              ),
+                              const SizedBox(height: 24),
+                            ],
+
+                            // Stats row
+                            Row(
+                              children: [
+                                Expanded(child: _StatCell('DOWN', state.downLabel, s)),
+                                Expanded(child: _StatCell('UP', state.upLabel, s)),
+                                Expanded(child: _StatCell('TRAFFIC', state.trafficLabel, s)),
+                                Expanded(child: _StatCell('PING', state.pingLabel, s)),
+                              ],
+                            ),
+                            const SizedBox(height: 24),
+
+                            // Relay list header
+                            if (rows.isNotEmpty) ...[
+                              SimpleSection(
+                                title: 'RELAYS',
+                                disclosure: '${rows.length}',
+                                disclosureSemantics: '${rows.length} relays available',
+                              ),
+                              const SizedBox(height: 12),
+                              ...rows.asMap().entries.map((entry) {
+                                final row = entry.value;
+                                final failed = row.verdict == RelayVerdict.blocked;
+                                return SimpleTermRow(
+                                  title: row.destination,
+                                  sub: row.measured,
+                                  value: row.verdict.word,
+                                  failed: failed,
+                                  onTap: onOpenRelays,
+                                );
+                              }),
+                              const SizedBox(height: 24),
+                            ],
+
+                            // Connect button - the only primary action
+                            SimpleKey(
+                              label: state.connectStage != null
+                                  ? (state.busyWitness ?? 'DIALLING')
+                                  : switch (state.phase) {
+                                      AirPhase.connected ||
+                                          AirPhase.verifying =>
+                                        'TAP TO DISCONNECT',
+                                      AirPhase.connecting ||
+                                          AirPhase.preparing =>
+                                        'TAP TO CANCEL',
+                                      AirPhase.closing =>
+                                        'RELEASING',
+                                      _ => 'TAP TO CONNECT',
+                                    },
+                              busy: state.connectStage != null,
+                              emphasis: live,
+                              onTap: state.phase != AirPhase.closing ? onConnect : null,
+                            ),
+                          ],
                         ),
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        state.clockLabel,
-                        style: AppTextStyles.metric(
-                          color: s.connected,
-                          size: 32,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 32),
-                    ],
-
-                    // Exit IP
-                    if (state.exitIp.isNotEmpty) ...[
-                      _ExitIpRow(
-                        ip: state.exitIp,
-                        location: state.exitLocation,
-                        onTap: onScratch,
-                        simple: s,
-                      ),
-                      const SizedBox(height: 32),
-                    ],
-
-                    // Stats row
-                    _StatsRow(
-                      down: state.downLabel,
-                      up: state.upLabel,
-                      traffic: state.trafficLabel,
-                      ping: state.pingLabel,
-                      simple: s,
-                    ),
-
-                    const SizedBox(height: 40),
-
-                    // Relay list header
-                    if (rows.isNotEmpty) ...[
-                      Text(
-                        'RELAYS',
-                        style: AppTextStyles.label(
-                          color: s.inkFaint,
-                          size: 10,
-                        ),
-                        textAlign: TextAlign.left,
-                      ),
-                      const SizedBox(height: 12),
-                      ...rows.asMap().entries.map((entry) {
-                        final i = entry.key;
-                        final row = entry.value;
-                        return _RelayRow(
-                          index: i + 1,
-                          row: row,
-                          onTap: onOpenRelays,
-                          simple: s,
-                        );
-                      }),
-                      const SizedBox(height: 32),
-                    ],
-
-                    // Connect button - the only primary action
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
-                      child: _ConnectButton(
-                        label: state.connectStage != null
-                            ? (state.busyWitness ?? 'DIALLING')
-                            : switch (state.phase) {
-                                AirPhase.connected ||
-                                    AirPhase.verifying =>
-                                  'TAP TO DISCONNECT',
-                                AirPhase.connecting ||
-                                    AirPhase.preparing =>
-                                  'TAP TO CANCEL',
-                                AirPhase.closing =>
-                                  'RELEASING',
-                                _ => 'TAP TO CONNECT',
-                              },
-                        busy: state.connectStage != null,
-                        enabled: state.phase != AirPhase.closing,
-                        connected: live,
-                        onTap: onConnect,
-                        simple: s,
                       ),
                     ),
 
@@ -181,6 +195,9 @@ class SimpleConnectScreen extends StatelessWidget {
                 ),
               ),
             ),
+
+            // Bottom navigation bar
+            DefyxNavBar(),
 
             // Ad banner (stays at the bottom)
             if (banner != null) banner!,
@@ -206,107 +223,7 @@ class RelayRow {
   final RelayVerdict verdict;
 }
 
-class _ExitIpRow extends StatelessWidget {
-  const _ExitIpRow({
-    required this.ip,
-    required this.location,
-    required this.onTap,
-    required this.simple,
-  });
-
-  final String ip;
-  final String? location;
-  final VoidCallback onTap;
-  final SimpleColors simple;
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: simple.surface,
-          border: Border.all(color: simple.hairline),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Row(
-          children: [
-            Icon(Icons.launch, color: simple.connected, size: 20),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'EXIT NODE',
-                    style: AppTextStyles.label(
-                      color: simple.inkFaint,
-                      size: 10,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    ip,
-                    style: AppTextStyles.monoValue(
-                      color: simple.ink,
-                      size: 14,
-                    ),
-                  ),
-                  if (location != null && location!.isNotEmpty) ...[
-                    const SizedBox(height: 2),
-                    Text(
-                      location!,
-                      style: AppTextStyles.body(
-                        color: simple.inkSoft,
-                        size: 13,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-            Icon(
-              Icons.copy,
-              color: simple.inkSoft,
-              size: 20,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _StatsRow extends StatelessWidget {
-  const _StatsRow({
-    required this.down,
-    required this.up,
-    required this.traffic,
-    required this.ping,
-    required this.simple,
-  });
-
-  final String down;
-  final String up;
-  final String traffic;
-  final String ping;
-  final SimpleColors simple;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(child: _StatCell('DOWN', down, simple)),
-        Expanded(child: _StatCell('UP', up, simple)),
-        Expanded(child: _StatCell('TRAFFIC', traffic, simple)),
-        Expanded(child: _StatCell('PING', ping, simple)),
-      ],
-    );
-  }
-}
-
+/// A stat cell: a label above a monospace value.
 class _StatCell extends StatelessWidget {
   const _StatCell(this.label, this.value, this.simple);
 
@@ -336,153 +253,6 @@ class _StatCell extends StatelessWidget {
           textAlign: TextAlign.center,
         ),
       ],
-    );
-  }
-}
-
-class _RelayRow extends StatelessWidget {
-  const _RelayRow({
-    required this.index,
-    required this.row,
-    required this.onTap,
-    required this.simple,
-  });
-
-  final int index;
-  final RelayRow row;
-  final VoidCallback onTap;
-  final SimpleColors simple;
-
-  @override
-  Widget build(BuildContext context) {
-    final failed = row.verdict == RelayVerdict.blocked;
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(10),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        decoration: BoxDecoration(
-          color: failed ? simple.error.withValues(alpha: 0.08) : simple.surface,
-          border: Border.all(
-            color: failed ? simple.error : simple.hairline,
-          ),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Row(
-          children: [
-            Text(
-              index.toString().padLeft(2, '0'),
-              style: AppTextStyles.monoValue(
-                color: failed ? simple.error : simple.inkFaint,
-                size: 13,
-                weight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    row.destination,
-                    style: AppTextStyles.body(
-                      color: failed ? simple.error : simple.ink,
-                      size: 14,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    row.measured,
-                    style: AppTextStyles.monoValue(
-                      color: simple.inkSoft,
-                      size: 12,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Text(
-              row.verdict.word,
-              style: AppTextStyles.monoValue(
-                color: failed
-                    ? simple.error
-                    : row.verdict == RelayVerdict.carried
-                    ? simple.connected
-                    : simple.inkFaint,
-                size: 11,
-                weight: FontWeight.w600,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ConnectButton extends StatelessWidget {
-  const _ConnectButton({
-    required this.label,
-    required this.busy,
-    required this.enabled,
-    required this.connected,
-    required this.onTap,
-    required this.simple,
-  });
-
-  final String label;
-  final bool busy;
-  final bool enabled;
-  final bool connected;
-  final VoidCallback onTap;
-  final SimpleColors simple;
-
-  @override
-  Widget build(BuildContext context) {
-    final color = enabled
-        ? (connected ? simple.connected : simple.primary)
-        : simple.inkFaint;
-    final textColor = enabled ? simple.connectedInk : simple.inkFaint;
-
-    return SizedBox(
-      height: 56,
-      child: ElevatedButton(
-        onPressed: enabled ? onTap : null,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: color,
-          foregroundColor: textColor,
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-          ),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            if (busy) ...[
-              SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  valueColor: AlwaysStoppedAnimation<Color>(textColor),
-                ),
-              ),
-              const SizedBox(width: 10),
-            ],
-            Text(
-              label,
-              style: AppTextStyles.body(
-                color: textColor,
-                size: 15,
-                weight: FontWeight.w700,
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

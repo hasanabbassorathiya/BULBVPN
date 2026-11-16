@@ -679,7 +679,7 @@ class _MainScreenState extends ConsumerState<MainScreen>
             ? 'selected apps only · tunnel up'
             : 'checking traffic · $relayLabel',
       ConnectionStatus.disconnecting => 'closing the tunnel',
-      ConnectionStatus.error => 'no working path on this network',
+      ConnectionStatus.error => cs.errorDetail ?? 'no working path on this network',
       ConnectionStatus.noInternet => 'this network is offline',
     };
 

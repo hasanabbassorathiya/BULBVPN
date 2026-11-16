@@ -75,7 +75,7 @@ class RealityEngine {
   /// Raw native security: REALITY is the only engine supplied by a plugin.
   /// Android runs it through the bundled VpnService; Apple platforms run it
   /// through the RealityExtension packet tunnel target.
-  bool get isSupported => !kIsWeb && (Platform.isAndroid || Platform.isIOS);
+  bool get isSupported => !kIsWeb && (Platform.isAndroid || Platform.isIOS || Platform.isMacOS || Platform.isWindows);
 
   bool get isSessionActive => _sessionActive;
 
